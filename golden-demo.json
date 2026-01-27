@@ -1,0 +1,79 @@
+{
+    "project": {
+        "name": "Golden Demo",
+        "resolution": {
+            "width": 1920,
+            "height": 1080
+        },
+        "fps": 30,
+        "seed": "golden123",
+        "schemaVersion": "1.0.0"
+    },
+    "media": [
+        {
+            "id": "clip_001_uuid",
+            "file": "clip_001.mp4",
+            "type": "video",
+            "timelineIn": 0,
+            "timelineOut": 150,
+            "sourceIn": 30,
+            "sourceOut": 180,
+            "track": 0,
+            "speed": 1.0,
+            "volume": 1.0,
+            "reversed": false,
+            "effects": [
+                "fx_cinematic_v1"
+            ],
+            "transitionOut": {
+                "type": "TR_Dissolve",
+                "duration": 15
+            }
+        },
+        {
+            "id": "clip_002_uuid",
+            "file": "clip_002.mp4",
+            "type": "video",
+            "timelineIn": 150,
+            "timelineOut": 300,
+            "sourceIn": 0,
+            "sourceOut": 150,
+            "track": 0,
+            "speed": 1.0,
+            "volume": 1.0,
+            "reversed": false,
+            "effects": [
+                "sr_anime_impact_v1"
+            ]
+        },
+        {
+            "id": "clip_003_uuid",
+            "file": "clip_003.jpg",
+            "type": "image",
+            "timelineIn": 300,
+            "timelineOut": 450,
+            "sourceIn": 0,
+            "sourceOut": 150,
+            "track": 0,
+            "speed": 1.0,
+            "volume": 1.0,
+            "reversed": false,
+            "effects": [
+                "fx_punchy_v1"
+            ]
+        },
+        {
+            "id": "audio_001_uuid",
+            "file": "audio_001.mp3",
+            "type": "audio",
+            "timelineIn": 0,
+            "timelineOut": 450,
+            "sourceIn": 0,
+            "sourceOut": 450,
+            "track": 1,
+            "speed": 1.0,
+            "volume": 0.8,
+            "reversed": false
+        }
+    ]
+}

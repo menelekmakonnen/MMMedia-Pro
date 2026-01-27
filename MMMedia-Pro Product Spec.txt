@@ -1,0 +1,3754 @@
+MMMEdia Pro - Complete Product Specification
+Company: ICUNI Group
+Department: ICUNI Technologies & ICUNI Systems
+Product Suite: MMMedia Management
+Product Name: MMMEdia Pro
+Developer: Menelek Makonnen
+Document Version: 1.0
+Date: January 27, 2026
+Classification: Complete System Specification
+
+Table of Contents
+
+Executive Summary
+System Architecture
+Technology Stack
+Core Engineering Contracts
+Data Models
+Electron Application Features
+Premiere Plugin Specifications
+Manifest Protocol
+Asset Registry System
+Randomization Engine
+Performance Requirements
+Development Roadmap
+Acceptance Criteria
+Golden Demo Manifest
+
+
+Executive Summary
+MMMEdia Pro is a professional video editing ecosystem consisting of two integrated components that work together or independently:
+Component 1: MMMEdia Pro Electron Application
+A high-performance desktop video editor with AI-powered automation, built for Windows as a standalone application.
+Component 2: MMMEdia Pro Premiere Plugin
+A UXP plugin for Adobe Premiere Pro that imports edits from the Electron app OR provides editing tools directly in Premiere.
+Both components share a common Creative Suite asset library and communicate via a standardized Manifest file protocol, enabling seamless workflow between environments.
+Three Operating Modes
+Mode 1: Standalone Electron Workflow
+
+Edit entirely in MMMEdia Pro desktop app
+Export final video using built-in FFmpeg rendering
+No Premiere Pro required
+
+Mode 2: Hybrid Workflow (Electron → Premiere)
+
+Create and edit in MMMEdia Pro desktop app
+Export Manifest file with complete edit instructions
+Import into Premiere Pro for professional finishing
+Leverage Premiere's advanced color grading and rendering
+
+Mode 3: Premiere-Only Workflow
+
+Use MMMEdia Pro Plugin directly in Premiere Pro
+Access Creative Suite assets and automation tools
+Edit using Premiere's native timeline
+No Electron app required
+
+Key Innovation: The Manifest Bridge
+The Manifest file is a JSON-based specification that captures every aspect of an edit—clips, timing, effects, transitions, text, grids, and the complete Operation Log. This enables perfect portability between the Electron app and Premiere Pro.
+
+System Architecture
+Component Relationship
+┌─────────────────────────────────────┐
+│   MMMEdia Pro Electron App          │
+│   (Primary editing environment)     │
+│                                     │
+│   - Timeline editing                │
+│   - Media management                │
+│   - AI automation                   │
+│   - Creative Suite                  │
+│   - FFmpeg export                   │
+└──────────────┬──────────────────────┘
+               │
+               │ Exports
+               ▼
+         [Manifest.json]
+               │
+               │ Imports
+               ▼
+┌─────────────────────────────────────┐
+│   MMMEdia Pro Premiere Plugin       │
+│   (Professional finishing)          │
+│                                     │
+│   - Manifest importer               │
+│   - Timeline reconstruction         │
+│   - Creative Suite (matching)       │
+│   - Standalone editing mode         │
+└─────────────────────────────────────┘
+Shared Components
+
+Creative Suite Library: 20 Speed Ramps, 20 Effects, 12 Transitions, 5 Blueprints
+Asset Registry: Standardized asset IDs and parameters
+Operation Log Format: Deterministic edit history
+
+
+Technology Stack
+Electron Application
+Core Framework
+
+Runtime: Electron 39.2.7
+Frontend: React 19.2.0 with TypeScript
+Build Tool: Vite 7.2.4
+Packaging: Electron Builder 26.0.12
+
+UI/Animation
+
+Styling: Tailwind CSS 4.1.17
+Animation: Framer Motion 12.23.25
+Icons: Lucide React 0.556.0
+State Management: Zustand 5.0.9
+
+Video Processing
+
+FFmpeg: fluent-ffmpeg 2.1.3
+Static Binaries: ffmpeg-static 5.3.0, ffprobe-static 3.1.0
+WebAssembly: @ffmpeg/ffmpeg 0.12.15
+
+Additional Libraries
+
+Audio Visualization: wavesurfer.js 7.12.1
+File Compression: JSZip 3.10.1
+Form Management: react-hook-form 7.68.0
+Utilities: clsx, tailwind-merge, uuid
+
+Application Configuration
+
+Window: 1280x800 default, frameless with custom controls
+Theme: Dark mode (background #050510)
+Security: Node integration disabled, context isolation enabled
+Custom Protocol: media:// for secure local file access
+
+Premiere Plugin
+Platform
+
+Adobe Premiere Pro 2025 (v25.6.0+)
+Architecture: UXP (Unified Extensibility Platform)
+
+Tech Stack
+
+Framework: React + TypeScript + Vite
+Styling: Tailwind CSS
+Runs inside Premiere Pro environment
+Approximate size: 5,200 lines of production code
+
+
+Core Engineering Contracts
+These are non-negotiable technical agreements that ensure MMMEdia Pro behaves identically across all environments.
+Contract 1: Time & Frame System
+Rule: All temporal data is frame-based. Seconds are display-only.
+Storage Format
+typescript{
+  "start": 5.0,           // Display helper (seconds, 3 decimals)
+  "startFrame": 150,      // Source of truth
+  "end": 10.0,            // Display helper
+  "endFrame": 300,        // Source of truth
+  "fps": 30               // Project-level constant
+}
+Conversion Rules
+
+Frames → Seconds: seconds = frames / fps (round to 3 decimals for display only)
+Seconds → Frames: frames = Math.floor(seconds * fps) (always floor, never round)
+Frame 0 is valid (represents 0.000 seconds)
+
+Why This Matters
+Video editing is frame-based at the codec level. Storing seconds introduces rounding errors that cause drift between environments. Frame numbers eliminate ambiguity.
+Implementation Requirements
+
+Electron stores and calculates using frame numbers internally
+Premiere Plugin reads frame numbers from manifest (ignores seconds)
+UI displays seconds to users, but converts to frames for all operations
+Timeline scrubber snaps to frame boundaries
+
+
+Contract 2: Media Matching Protocol
+Rule: Match media files using multi-factor identification with fallback hierarchy.
+The Problem
+Multiple files can have identical names. Files get renamed. Paths differ between systems. Filename-only matching is unreliable.
+The Solution
+typescript// Media reference in manifest
+{
+  "filename": "interview_take3.mp4",
+  "fileSize": 524288000,        // bytes (exact)
+  "duration": 127.5,             // seconds (display)
+  "durationFrames": 3825,        // source of truth
+  "resolution": {
+    "width": 1920,
+    "height": 1080
+  },
+  "hash": "a3f5c9e2..."          // optional: SHA256 of first 10MB
+}
+Matching Priority (Premiere Plugin)
+
+Exact Match (100% confidence)
+
+filename + fileSize + durationFrames + resolution all match
+
+
+Strong Match (95% confidence)
+
+filename + durationFrames + resolution match
+fileSize differs (file was re-encoded)
+
+
+Weak Match (70% confidence)
+
+filename + resolution match
+durationFrames differs (file was trimmed/modified)
+
+
+Ambiguous Match
+
+Multiple weak matches found
+Action: Display resolver UI to user
+
+
+No Match
+
+No candidates found
+Action: Display "Missing Media" warning, skip clip, log error
+
+
+
+Resolver UI Behavior
+When ambiguous matches detected:
+
+Display list of candidates with confidence scores
+Show metadata for each candidate
+User clicks correct media
+Store choice in .mmmedia-resolve-cache.json alongside project
+Use cached choice for future imports
+
+Non-Negotiable Rules
+
+Plugin never guesses on weak matches without user confirmation
+Plugin never blocks import due to missing media
+Missing media produces warnings and continues import
+All identifying metadata must be extracted and stored during export
+
+
+Contract 3: Asset Registry System
+Rule: Creative Suite assets use stable IDs with type mapping and versioning.
+The Problem
+String references like "FX_Cinematic" are meaningless without defining what they execute. Different versions of assets could produce different results.
+The Solution
+typescript// Asset reference in manifest
+{
+  "assetId": "fx_cinematic_v1",           // Immutable stable ID
+  "assetType": "lumetriPreset",           // Defines execution method
+  "displayName": "Make it Cinematic",     // UI label (can change)
+  "parameters": {
+    "lut": "cinematic_teal_orange.cube",
+    "contrast": 1.2,
+    "saturation": 1.1
+  },
+  "version": "1.0.0"                       // Semantic versioning
+}
+```
+
+#### Standardized Asset Types
+- `lumetriPreset` - Lumetri color preset file path
+- `speedRamp` - Keyframe recipe for time remapping
+- `transition` - Transition preset file reference
+- `mogrt` - Motion graphics template path
+- `adjustmentLayer` - Pre-configured adjustment layer stack
+- `keyframeRecipe` - Position/scale/rotation keyframe data
+
+#### Asset Library Structure
+Both Electron and Premiere Plugin maintain identical directory structures:
+```
+/assets/
+  /speed-ramps/
+    sr_anime_impact_v1.json
+    sr_tiktok_snap_v1.json
+    sr_cinematic_drift_v1.json
+    ...
+  /effects/
+    fx_cinematic_v1.json
+    cinematic_teal_orange.cube
+    fx_punchy_v1.json
+    ...
+  /transitions/
+    tr_light_leak_v1.json
+    tr_film_burn_v1.json
+    ...
+  /blueprints/
+    bp_quick_tiktok_v1.json
+    bp_pro_showreel_v1.json
+    ...
+Version Compatibility Rules
+
+Unknown assetId: Substitute type-appropriate default, log warning
+Known assetId with newer version: Use closest compatible version
+Missing asset entirely: Skip asset, warn user, continue import
+
+Asset Definition Example
+json{
+  "assetId": "sr_anime_impact_v1",
+  "assetType": "speedRamp",
+  "displayName": "Anime Impact",
+  "version": "1.0.0",
+  "parameters": {
+    "keyframes": [
+      { "frame": 0, "speed": 1.0 },
+      { "frame": 5, "speed": 0.2 },
+      { "frame": 10, "speed": 3.0 },
+      { "frame": 15, "speed": 1.0 }
+    ],
+    "easing": "cubic-bezier(0.4, 0, 0.2, 1)"
+  }
+}
+Non-Negotiable Rules
+
+Asset IDs are immutable (never rename existing IDs)
+Updating an asset requires new version number
+Breaking changes require new assetId entirely
+Display names are UI-only and can change freely
+Both Electron and Plugin must maintain synchronized asset libraries
+
+
+Contract 4: Randomization Engine Determinism
+Rule: Determinism = f(seed, engineVersion, clipPool, constraints)
+Given identical inputs, the Randomization Engine must produce frame-identical outputs.
+Deterministic Inputs
+typescript{
+  "generation": 3,
+  "timestamp": "2026-01-27T14:35:22Z",
+  "seed": "abc123xyz",                    // User-provided or generated
+  "engineVersion": "1.0.0",               // Engine logic version
+  "clipPoolUUIDs": [                      // Stable sorted order
+    "clip-uuid-001",
+    "clip-uuid-002",
+    "clip-uuid-003"
+  ],
+  "constraints": {
+    "minClipDuration": 0.5,               // seconds
+    "maxClipDuration": 10.0,              // seconds
+    "transitionStrategy": "dissolve",
+    "energyLevel": "hyper"                // "chill" | "energetic" | "hyper"
+  }
+}
+Deterministic Outputs
+Given the above inputs, engine must always produce:
+
+Identical clip sequence order
+Identical trim point frames
+Identical asset applications
+Identical segment durations
+
+Clip Pool Ordering
+Critical: Clips must be sorted in a stable, predictable manner before randomization.
+Implementation:
+
+Each clip is assigned a UUID on import (never changes)
+Before randomization, sort clips by UUID (lexicographic)
+This ensures same clip set + same seed = same order
+UUIDs are stored in manifest for reproducibility
+
+Randomization Scope
+Engine randomizes:
+
+✅ Clip sequence order
+✅ Cut frames within user-defined trim boundaries
+✅ Which Creative Suite assets to apply
+✅ Clip segment durations (respecting min/max)
+
+Engine never randomizes:
+
+❌ User-defined in/out points (these are constraints)
+❌ Manual asset applications
+❌ Track assignments
+❌ Locked clips (see ownership model)
+
+Engine Version Management
+
+If randomization logic changes, bump engineVersion
+Old seeds with new engine versions may produce different results (acceptable)
+Display warning when seed was created with different engine version
+Store engine version in every Operation Log entry
+
+Implementation Requirements
+
+Seed can be any string (user-provided or timestamp-generated)
+Random number generator must be seeded RNG (e.g., seedrandom library)
+Same seed must produce same random number sequence
+Clip UUIDs are stable and stored in both .mmm and manifest files
+
+
+Contract 5: Automation vs Manual Ownership Model
+Rule: Track clip origin and lock state to preserve manual edits during regeneration.
+The Problem
+"Operation Log preserves manual tweaks" conflicts with "regenerate automation." System must distinguish between automated clips (can change) and manual clips (must preserve).
+The Solution: Origin Tracking
+typescript// Clip model with ownership metadata
+{
+  "id": "clip-uuid-001",
+  "origin": "auto" | "manual",     // How was this clip added?
+  "locked": false,                  // User can lock to prevent regeneration
+  "autoGenerated": {                // Present only if origin="auto"
+    "generation": 3,
+    "seed": "abc123xyz",
+    "engineVersion": "1.0.0"
+  }
+}
+```
+
+#### Ownership Rules
+1. **Manual clips** (`origin="manual"`)
+   - Added by user drag-drop or "Add to Timeline"
+   - Never touched by Randomization Engine
+   - Remain in place during regeneration
+
+2. **Auto clips, unlocked** (`origin="auto"`, `locked=false`)
+   - Generated by Randomization Engine
+   - Can be regenerated/replaced
+   - Default state for automated clips
+
+3. **Auto clips, locked** (`origin="auto"`, `locked=true`)
+   - Generated by automation but user-protected
+   - Behave like manual clips
+   - User explicitly locked to preserve
+
+4. **Conversion: auto → manual**
+   - Any user edit to an auto clip converts it to manual
+   - Examples: trimming, moving, changing effects
+   - Conversion is one-way (no undo back to auto)
+
+#### Regeneration Behavior
+When user clicks "Regenerate" or changes seed:
+1. Engine scans all clips
+2. Identifies `origin="auto" && locked=false` clips
+3. Removes those clips
+4. Generates new clips to replace them
+5. Leaves manual and locked clips untouched
+
+#### User Workflow Example
+```
+1. User clicks "Randomize" 
+   → Generates 10 auto clips
+
+2. User manually trims clip #5 
+   → Clip #5 becomes origin="manual"
+
+3. User clicks lock icon on clip #7 
+   → Clip #7 becomes locked=true
+
+4. User clicks "Regenerate" 
+   → Clips 1,2,3,4,6,8,9,10 regenerate
+   → Clips 5 (manual) and 7 (locked) stay in place
+UI Indicators
+
+🤖 Auto (unlocked): Purple badge, can be regenerated
+🔒 Locked: Lock icon overlay, protected from regeneration
+✋ Manual: No badge, user-created/edited
+
+Non-Negotiable Rules
+
+Origin tracking is mandatory for Operation Log system
+Converting auto→manual is one-way (irreversible)
+Locked state requires explicit user action
+Regeneration never touches manual or locked clips
+
+
+Contract 6: Playback Engine Declaration
+Rule: Define video preview capabilities realistically based on chosen technology.
+Technology Choice: HTML5 Video Element (Phase 1)
+Capabilities:
+
+✅ Play video files directly
+✅ Seek to timestamps
+✅ Basic playback controls (play/pause)
+✅ Volume control
+
+Limitations:
+
+❌ Frame-accurate seeking (codec-dependent)
+❌ Real-time reverse playback
+❌ Speed ramping during preview
+❌ Real-time effects preview
+❌ Real-time transitions preview
+
+Workarounds for Limitations
+Frame Accuracy
+
+Use FFprobe to extract exact frame count
+Calculate frame positions mathematically
+Use FFmpeg to extract keyframes at critical positions
+Display extracted frames during precise trimming
+
+Reverse Playback
+
+Pre-render reversed segment via FFmpeg
+Cache temporarily in project folder
+Play cached reversed version
+Clear cache on project close
+
+Speed Ramping
+
+Display "Speed: 2.0x" overlay badge
+Preview at normal speed (1.0x)
+Show visual indicator that speed will change in export
+
+Effects Preview
+
+Display effect badge (e.g., "FX: Cinematic")
+No live preview in Electron
+Effects apply during FFmpeg export
+Full preview available in Premiere Pro
+
+Transitions Preview
+
+Display transition icon between clips
+Show transition type name
+No live preview in Electron
+Transitions apply during export/Premiere import
+
+Preview Performance Targets
+
+Clip selection: UI updates <50ms, video loads <300ms
+Trim handle drag: UI responds <50ms, video seeks <200ms
+Playback start: <100ms from click to first frame
+Seek scrubbing: Update every 100ms during drag
+
+What Gets Previewed vs Rendered
+Previewed in Electron:
+
+✅ Source video playback
+✅ Trim boundaries (visual indicators)
+✅ Clip order and positioning
+✅ Text overlays (simulated)
+
+NOT Previewed in Electron:
+
+⚠️ Speed ramps (displayed as metadata badge)
+⚠️ Effects (displayed as effect badge)
+⚠️ Transitions (shown as icons)
+⚠️ Grids (shown as wireframes)
+
+Fully Previewed in Premiere Pro:
+
+✅ Everything (native Premiere rendering)
+
+UI Labeling
+Display clear indicator: "Preview (Effects applied in export/Premiere)"
+Future Enhancement Path
+
+Phase 2: Implement WebCodecs API for better control
+Phase 3: FFmpeg decoding pipeline with canvas rendering
+Phase 4: GPU-accelerated real-time effects
+
+Non-Negotiable Rules
+
+Don't promise real-time effects if using HTML5
+Don't block development waiting for advanced preview
+Label limitations clearly in UI
+Provide full functionality in export/Premiere
+
+
+Contract 7: Missing Asset Behavior
+Rule: Plugin never crashes on missing assets. Continue import with substitutions and warnings.
+Scenario
+User imports manifest but referenced Creative Suite asset is missing or incompatible in Premiere Plugin.
+Response Protocol (Non-Negotiable)
+
+Continue import (never fail entirely)
+Substitute default based on asset type:
+
+Missing speed ramp → linear speed (1.0x, no ramp)
+Missing effect → no effect applied
+Missing transition → hard cut
+
+
+Log detailed warning with:
+
+Asset ID
+Asset type
+Expected location
+Substitution applied
+
+
+Display summary notification after import completes:
+
+"Import complete with 3 asset substitutions"
+Link to detailed log
+
+
+Store resolution in .mmmedia-asset-warnings.json for debugging
+
+Example Warning Log
+json{
+  "importTimestamp": "2026-01-27T14:35:22Z",
+  "manifestFile": "project_001.json",
+  "warnings": [
+    {
+      "assetId": "sr_anime_impact_v1",
+      "assetType": "speedRamp",
+      "expectedLocation": "/assets/speed-ramps/sr_anime_impact_v1.json",
+      "resolution": "Substituted with linear speed (1.0x)",
+      "clipAffected": "clip-uuid-003"
+    }
+  ]
+}
+User Options (Future Enhancement)
+
+"Download Missing Assets" button (if cloud-hosted library)
+"Map to Alternative" button (choose different preset)
+"Ignore All" button (accept all defaults)
+
+Non-Negotiable Rules
+
+Plugin never crashes on missing assets
+User always sees which assets were substituted
+Timeline is usable immediately even with substitutions
+Warnings are logged for reproducibility
+Default substitutions are sensible (no broken timeline)
+
+
+Data Models
+Project Settings
+typescriptinterface ProjectSettings {
+  projectName: string;
+  resolution: {
+    label: string;           // "1080p", "4K", etc.
+    width: number;           // 1920, 3840, etc.
+    height: number;          // 1080, 2160, etc.
+  };
+  fps: number;               // 24, 30, 60
+  seed?: string;             // For Randomization Engine
+  projectType: 'auto-edit' | 'god-mode';
+}
+
+// Default values
+const DEFAULT_PROJECT: ProjectSettings = {
+  projectName: "Untitled Project",
+  resolution: { label: "1080p", width: 1920, height: 1080 },
+  fps: 30,
+  projectType: "god-mode"
+};
+Clip Model
+typescriptinterface Clip {
+  id: string;                      // UUID, stable identifier
+  type: 'video' | 'image' | 'audio';
+  path: string;                    // Absolute path (Electron only)
+  filename: string;                // For manifest matching
+  
+  // Timing (frame-based source of truth)
+  startFrame: number;              // Timeline position start
+  endFrame: number;                // Timeline position end
+  trimStartFrame: number;          // Source media trim in
+  trimEndFrame: number;            // Source media trim out
+  
+  // Display helpers (calculated from frames)
+  start: number;                   // seconds (for UI display)
+  end: number;                     // seconds (for UI display)
+  
+  sourceDuration: number;          // Original media duration (seconds)
+  sourceDurationFrames: number;    // Original media duration (frames)
+  
+  track: number;                   // Track assignment
+  
+  // Effects and modifications
+  isReversed?: boolean;
+  speedMultiplier?: number;        // 0.25 to 2.0
+  volume?: number;                 // 0.0 to 1.0
+  effects?: string[];              // Array of assetIds
+  transitions?: {
+    in?: string;                   // assetId for in transition
+    out?: string;                  // assetId for out transition
+  };
+  
+  // Ownership (for Operation Log)
+  origin: 'auto' | 'manual';
+  locked: boolean;
+  autoGenerated?: {
+    generation: number;
+    seed: string;
+    engineVersion: string;
+  };
+  
+  // Metadata
+  metadata?: {
+    width: number;
+    height: number;
+    format: string;
+    fileSize: number;              // bytes
+    hash?: string;                 // SHA256 of first 10MB
+  };
+}
+Text Model
+typescriptinterface TextItem {
+  id: string;
+  text: string;
+  
+  // Timing (frame-based)
+  startFrame: number;
+  endFrame: number;
+  start: number;                   // Display helper
+  end: number;                     // Display helper
+  
+  track: 't1' | 't2';              // Text overlay tracks
+  
+  style: {
+    preset: 'title' | 'subtitle' | 'lower-third' | 'caption';
+    fontFamily: string;
+    fontSize: number;
+    fontWeight: number;            // 100-900
+    color: string;                 // Hex color
+    alignment: 'left' | 'center' | 'right';
+  };
+  
+  transform: {
+    position: { x: number; y: number };  // Canvas coordinates
+    scale: number;                        // 0.1 to 5.0
+    rotation: number;                     // Degrees
+    opacity: number;                      // 0.0 to 1.0
+  };
+  
+  animation?: {
+    type: 'fade' | 'slide' | 'typewriter' | 'none';
+    duration: number;              // seconds
+    easing?: string;               // CSS easing function
+  };
+}
+Grid Layout Model
+typescriptinterface GridLayout {
+  id: string;
+  template: '2x2' | '3x3' | 'pip' | 'split-h' | 'split-v' | 'trio';
+  
+  // Timing
+  startFrame: number;
+  endFrame: number;
+  
+  cells: GridCell[];
+  
+  style: {
+    borderThickness: number;       // pixels
+    borderColor: string;           // Hex color
+    padding: number;               // pixels
+    backgroundColor?: string;      // Optional fill
+  };
+  
+  animation?: {
+    type: 'kenburns' | 'zoom' | 'rotate' | 'none';
+    duration: number;
+    easing?: string;
+  };
+}
+
+interface GridCell {
+  clipId: string;
+  position: { x: number; y: number };    // Grid coordinates
+  size: { width: number; height: number }; // Cell dimensions
+  colorGrade?: string;                     // Optional per-cell effect
+}
+Operation Log Entry
+typescriptinterface OperationLogEntry {
+  generation: number;              // Sequential counter
+  timestamp: string;               // ISO 8601 datetime
+  seed: string;                    // Randomization seed used
+  engineVersion: string;           // "1.0.0" etc.
+  
+  clipPoolUUIDs: string[];         // Sorted array of clip IDs
+  
+  constraints: {
+    minClipDuration: number;       // seconds
+    maxClipDuration: number;       // seconds
+    transitionStrategy: 'cut' | 'dissolve' | 'whip' | 'flash';
+    energyLevel: 'chill' | 'energetic' | 'hyper';
+  };
+  
+  operations: string[];            // Human-readable operation descriptions
+}
+
+Electron Application Features
+Tab 1: Settings
+Purpose: Project configuration and initialization
+Features:
+
+Project name editing (text input)
+Resolution presets dropdown:
+
+720p (1280x720)
+1080p (1920x1080)
+4K (3840x2160)
+
+
+Frame rate selection: 24, 25, 30, 60 fps
+Project type toggle: "Auto Edit" vs "God Mode"
+Save Project button (exports .mmm file)
+Load Project button (imports .mmm file)
+Export Manifest button (generates .json)
+Send to Premiere button (opens Premiere with manifest)
+
+Engine Dashboard:
+
+Real-time engine status indicator (green/yellow/red)
+Visual power meter (gradient progress bar)
+Clip count display
+Active operations status text
+
+Default Configuration:
+typescript{
+  projectName: "Untitled Project",
+  resolution: { label: "1080p", width: 1920, height: 1080 },
+  fps: 30,
+  projectType: "god-mode"
+}
+
+Tab 2: Diagnostics
+Purpose: System monitoring and troubleshooting
+Real-Time Metrics:
+
+FFmpeg Status: Binary detection, version display
+GPU Acceleration: Availability status (detected/not detected)
+Memory Usage: Current RAM usage (MB/GB), percentage
+Storage: Available disk space on project drive
+Performance FPS: UI rendering frame rate counter
+Render Speed: Encoding speed multiplier (e.g., "2.5x realtime")
+
+Debugging Tools:
+
+Error log viewer (scrollable text area)
+System information display:
+
+Operating System
+CPU model and cores
+GPU model (if detected)
+Total RAM
+
+
+Component status checks (green/red indicators)
+Export diagnostics button (saves log file)
+
+Status Indicators:
+
+🟢 Green: All systems operational
+🟡 Yellow: Minor issues detected
+🔴 Red: Critical error requires attention
+
+
+Tab 3: Media Manager
+Purpose: Import and organize media assets
+Layout:
+
+Top toolbar: Import buttons
+Main area: Grid display of media
+Bottom status bar: Total media count, total duration
+
+Features:
+File Import:
+
+"Import Files" button (opens file dialog)
+Drag-and-drop zone covering entire tab
+Supported formats:
+
+Video: MP4, MOV, AVI, MKV, WebM
+Image: PNG, JPG, JPEG, GIF, WebP
+Audio: MP3, WAV, AAC, FLAC
+
+
+
+Media Library Grid:
+
+Responsive grid layout (3-5 columns based on window width)
+Each media card shows:
+
+Thumbnail preview (video first frame or image)
+Filename (truncated with tooltip)
+Duration (for video/audio)
+Resolution (for video/image)
+Format badge (e.g., "MP4", "PNG")
+
+
+Hover behavior on video cards:
+
+Play preview (looping)
+Show "Add to Timeline" button overlay
+
+
+Click behavior:
+
+Select card (highlight border)
+Show metadata panel
+
+
+
+Metadata Panel (when card selected):
+
+Full filename and path
+File size
+Duration (if applicable)
+Resolution and aspect ratio
+Frame rate (if video)
+Format details
+"Add to Timeline" button
+"Remove from Project" button
+
+Metadata Extraction:
+
+Automatic via FFprobe when file imported
+Extracted data:
+
+Duration (seconds and frames)
+Resolution (width × height)
+Frame rate
+Codec information
+File size
+
+
+
+IPC Operations:
+
+get-video-metadata - Extract metadata from video file
+
+Input: file path
+Output: { duration, durationFrames, width, height, format, fps }
+
+
+get-path-for-file - Secure file path handling
+
+Input: file dialog selection
+Output: absolute file path
+
+
+
+
+Tab 4: Audio Manager
+Purpose: Manage audio tracks and music
+Features:
+Audio Library:
+
+Dedicated grid for audio clips only
+Shows:
+
+Audio filename
+Duration
+Waveform thumbnail (future)
+Format badge
+
+
+
+Waveform Visualization (Future):
+
+WaveSurfer.js integration
+Visual waveform display when clip selected
+Zoom controls for waveform
+Click-to-set markers
+
+Volume Controls:
+
+Per-clip volume slider (0-100%)
+Global volume master control
+"Normalize Audio" button (sets all clips to -6dB)
+Mute toggle per clip
+
+Audio Effects (Future):
+
+Fade in/out controls
+
+Duration slider
+Curve type selector
+
+
+Audio normalization
+
+Target level input
+Peak detection
+
+
+Basic EQ (future phase)
+
+Music Library:
+
+Import background music
+Royalty-free music browser (future)
+Music sync to beat (future)
+
+Voiceover Support (Future):
+
+Record voiceover button
+Microphone selection
+Recording level meter
+Saved to project audio folder
+
+
+Tab 5: Timeline Editor
+Purpose: Precision video editing with trimming and live preview
+Layout:
+Three-column design:
+
+Left Column (30%): Clip list with reordering
+Center Column (50%): Video preview + segment trimmer
+Right Column (20%): Global settings
+
+Left Column: Clip List
+Features:
+
+Vertical list of all clips in project
+Each clip item shows:
+
+Thumbnail
+Filename (truncated)
+Duration badge
+Origin indicator (🤖 auto, ✋ manual, 🔒 locked)
+
+
+Reordering controls:
+
+Up arrow button (move earlier in sequence)
+Down arrow button (move later in sequence)
+
+
+Remove button (X icon)
+Click to select (highlights, loads in center preview)
+Selected clip has violet border
+
+Add Clips:
+
+"Add Clip" button at top
+Opens media selector overlay
+Click media to add to timeline
+Added clips default to origin="manual"
+
+Center Column: Video Preview & Trimmer
+Video Preview:
+
+HTML5 video player
+Real-time playback of selected clip
+Controls:
+
+Play/Pause (spacebar)
+Click anywhere to toggle play/pause
+
+
+Visual states:
+
+Playing: video plays normally
+Paused: shows play icon overlay (▶)
+
+
+Timecode overlay (top-left corner):
+
+Format: MM:SS:CS (minutes:seconds:centiseconds)
+Updates in real-time during playback
+
+
+Auto-play behavior:
+
+Automatically plays when clip selected
+Loops within trim boundaries
+
+
+
+Segment Trimmer:
+Visual components:
+
+Full Duration Track
+
+Gray background bar
+Represents entire source media duration
+Width proportional to duration
+
+
+Selected Segment
+
+Violet highlighted region
+Shows currently selected in/out points
+Gradient fill for visual appeal
+
+
+Left Trim Handle
+
+Draggable circle at segment start
+Hover tooltip shows start timestamp
+Drag to adjust trim in point
+
+
+Right Trim Handle
+
+Draggable circle at segment end
+Hover tooltip shows end timestamp
+Drag to adjust trim out point
+
+
+Center Drag Area
+
+Region between handles
+Drag to slide entire segment
+Maintains segment duration
+Constrained to source media bounds
+
+
+
+Trimmer Interactions:
+
+Drag left handle:
+
+Adjusts trim start frame
+Video preview updates in real-time
+Minimum 0.5 second segment enforced
+
+
+Drag right handle:
+
+Adjusts trim end frame
+Video preview updates in real-time
+Minimum 0.5 second segment enforced
+
+
+Drag center:
+
+Slides segment along source timeline
+Preserves segment duration
+Cannot slide beyond source boundaries
+
+
+Hover tooltips:
+
+Display frame numbers and timestamps
+Format: "Frame 150 (5.000s)"
+
+
+
+Visual Feedback:
+
+Gradient background track (dark to light)
+Violet accent color for selection
+Smooth handle animations (300ms ease)
+Responsive resize on window size change
+
+Right Column: Global Settings
+Per-Clip Settings (when clip selected):
+
+Speed Multiplier
+
+Slider: 0.5x to 2.0x
+Display: "Speed: 1.5x"
+Updates clip.speedMultiplier
+
+
+Reverse Toggle
+
+Checkbox: "Play in Reverse"
+Updates clip.isReversed
+Shows ⏪ badge on clip
+
+
+Volume Control
+
+Slider: 0% to 100%
+Only visible for video/audio clips
+
+
+Lock Clip
+
+Toggle button
+Prevents Randomization Engine from changing clip
+Shows 🔒 icon when locked
+
+
+
+Global Controls:
+
+Chaos Mode
+
+Button: "Randomize All"
+Randomizes trim start points for all auto clips
+Respects locked clips
+Generates new seed
+
+
+Transition Strategy
+
+Dropdown selector:
+
+Cut (instant)
+Dissolve (cross-fade)
+Whip (fast pan)
+Flash (white flash)
+
+
+Applies to all clip transitions
+
+
+Global Speed
+
+Slider: 0.5x to 2.0x
+Applies multiplier to all clips
+Overrides individual speeds
+
+
+Auto-Level Audio
+
+Button: "Normalize Audio"
+Sets all clips to -6dB standard
+Analyzes peaks and adjusts volume
+
+
+
+
+Tab 6: Godmode / Auto Edit
+Purpose: AI-powered automation tools
+Layout:
+Grid of automation cards, each with:
+
+Icon
+Title
+Description
+Settings (expandable)
+"Run" button
+
+Automation Tools:
+1. Auto-Edit
+
+Icon: ✨
+Description: "Intelligent scene detection and cutting"
+Settings:
+
+Aggressiveness slider (1-10)
+Minimum clip duration (seconds)
+Transition type selector
+
+
+Behavior:
+
+Analyzes clips for interesting moments
+Cuts to best segments automatically
+Generates origin="auto" clips
+Records operation in log
+
+
+
+2. Silence Remover
+
+Icon: 🔇
+Description: "Automatically remove dead air"
+Settings:
+
+Threshold slider (dB)
+Padding before/after (seconds)
+Minimum silence duration to remove
+
+
+Behavior:
+
+Detects amplitude below threshold
+Removes silent segments
+Adds padding to prevent harsh cuts
+Updates clip trim points
+
+
+
+3. Viral Shorts Generator
+
+Icon: 📱
+Description: "Create platform-optimized clips"
+Settings:
+
+Target platform (TikTok, Instagram, YouTube Shorts)
+Duration target (15s, 30s, 60s)
+Aspect ratio (9:16, 1:1, 16:9)
+
+
+Behavior:
+
+Identifies high-energy segments
+Crops to target aspect ratio
+Applies platform-specific effects
+Generates multiple variations
+
+
+
+4. Auto-Captions
+
+Icon: 💬
+Description: "Speech-to-text subtitle generation"
+Settings:
+
+Language selector
+Caption style preset
+Words per line
+
+
+Behavior (Future):
+
+Extracts audio
+Sends to speech-to-text API
+Generates text items with timing
+Adds to text tracks
+
+
+
+5. Music Remix
+
+Icon: 🎵
+Description: "AI-driven music synchronization"
+Settings:
+
+Music intensity (chill, energetic, hyper)
+Beat sync toggle
+BPM target
+
+
+Behavior (Future):
+
+Detects beats in audio
+Aligns cuts to beat grid
+Adjusts clip durations for rhythm
+Applies speed ramps on beats
+
+
+
+6. Social Blast
+
+Icon: 🚀
+Description: "Multi-platform export optimization"
+Settings:
+
+Select platforms (checkboxes)
+Quality presets per platform
+Naming convention
+
+
+Behavior:
+
+Generates multiple exports
+Optimizes for each platform
+Applies platform-specific formatting
+Queues batch render
+
+
+
+Global Settings:
+
+"Run All" button (executes multiple tools in sequence)
+"Undo Last Operation" button
+"Clear All Automation" button (converts all auto clips to manual)
+
+
+Tab 7: Grid Builder
+Purpose: Create multi-video layouts
+Layout:
+
+Left sidebar: Template selector
+Center canvas: Live preview (wireframe)
+Right panel: Customization controls
+
+Layout Templates:
+2x2 Grid
+
+Four equal quadrants
+Classic grid layout
+Use case: Comparison videos, reactions
+
+3x3 Grid
+
+Nine equal cells
+Masonry-style layout
+Use case: Galleries, social walls
+
+Picture-in-Picture (PiP)
+
+Main video full screen
+Small overlay in corner
+Adjustable corner and size
+Use case: Reactions, commentary
+
+Split Screen - Vertical
+
+Two clips side-by-side
+Equal width
+Use case: Before/after, comparisons
+
+Split Screen - Horizontal
+
+Two clips stacked
+Equal height
+Use case: Different angles, interviews
+
+Trio Layouts
+
+One large + two small
+Various arrangements (L-shape, T-shape)
+Use case: Main content + B-roll
+
+Customization Controls:
+Border Settings:
+
+Thickness slider (0-20 pixels)
+Color picker (hex input)
+Style selector (solid, dashed, gradient)
+
+Padding/Spacing:
+
+Cell padding slider (0-50 pixels)
+Gap between cells slider (0-30 pixels)
+Outer margin slider (0-100 pixels)
+
+Cell Color Grading:
+
+Select cell (click on canvas)
+Apply effect to individual cell
+Effect selector dropdown (from Creative Suite)
+Reset cell button
+
+Animation Settings:
+Ken Burns Effect
+
+Enable toggle
+Start scale (0.8 to 1.2)
+End scale (0.8 to 1.2)
+Duration (seconds)
+Easing curve selector
+
+Zoom Transitions
+
+Zoom in/out between cells
+Duration slider
+Transition type (smooth, snap, bounce)
+
+Rotation Animations
+
+Rotate speed (degrees per second)
+Rotation direction (CW, CCW)
+Axis selector (X, Y, Z)
+
+Canvas Preview:
+
+Wireframe display of grid
+Drag clips from media manager to cells
+Resize cells by dragging corners
+Reposition cells by dragging
+Real-time preview of animations (simplified)
+
+Timeline Integration:
+
+"Add to Timeline" button
+Creates grid as single clip
+Stores grid definition in project
+Renders during export
+
+
+Tab 8: Sequence View
+Purpose: Multi-track timeline editing with professional controls
+Layout:
+Top toolbar with AI tools and playback controls
+Main timeline area with multiple tracks
+Playhead scrubber and zoom controls
+Timeline Tracks (vertical stack)
+Video Track
+
+Visual clips with thumbnail previews
+Each clip shows:
+
+Thumbnail (first frame or middle frame)
+Duration width (50px per second × zoom level)
+Filename label (truncated)
+Effect badges (small icons)
+Reversed badge (⏪) if reversed
+
+
+Click to select (violet ring highlight)
+Drag to reposition
+Drag edges to trim (future)
+
+Audio Track
+
+Waveform representations
+Shows amplitude visually
+Same width scaling as video (50px/second)
+Volume indicator overlay
+Muted clips shown grayed out
+
+Text Tracks (T1 and T2)
+
+Dual overlay tracks for text items
+Each text item shown as colored bar
+Width represents duration
+Label shows text content (truncated)
+Click to select and edit
+Drag to reposition
+
+Playback Controls
+Control Bar (above timeline):
+
+⏮️ Skip Backward (5 seconds)
+⏯️ Play/Pause (spacebar)
+⏭️ Skip Forward (5 seconds)
+🔊 Volume slider
+🔇 Mute toggle
+⏱️ Timecode display (current time / total duration)
+
+Time Ruler:
+
+Horizontal ruler showing seconds
+Tick marks every second
+Major tick marks every 5 seconds
+Displays current frame number on hover
+
+Playhead:
+
+Red vertical line
+Scrubber circle at top
+Drag to seek
+Snaps to frame boundaries
+Updates timecode in real-time
+
+Zoom Controls:
+
+Zoom In button (increase px/second)
+Zoom Out button (decrease px/second)
+Zoom levels: 1x, 1.5x, 2x, 3x
+Affects horizontal timeline scale only
+
+AI Tools Toolbar (top of tab)
+Quick-access buttons for automation:
+
+✨ Auto-Edit
+🔇 Silence Remover
+📱 Viral Shorts
+💬 Auto-Captions
+🎵 Music Remix
+🚀 Social Blast
+
+Each button opens respective automation panel with settings.
+Clip Interactions
+Selection:
+
+Click clip to select
+Selected clip shows violet ring highlight
+Deselect by clicking empty timeline area
+Multiple selection (future): Shift+click
+
+Positioning:
+
+Drag clip left/right to reposition
+Snapping to other clips (magnetic timeline)
+Snapping to playhead
+Snapping to second markers
+
+Duration Visualization:
+
+Width = 50 pixels per second × zoom level
+At 1x zoom: 10 second clip = 500px wide
+At 2x zoom: 10 second clip = 1000px wide
+
+Visual Indicators:
+
+🤖 Auto-generated badge (purple)
+🔒 Locked badge (lock icon)
+✋ Manual badge (no indicator)
+⏪ Reversed badge (if clip reversed)
+Effect badges (small icons for applied effects)
+
+Bubble Menu (appears when clip selected)
+Context menu above selected clip with actions:
+
+🔄 Rotate (90° increments)
+⏪ Reverse playback toggle
+✨ Magic Remix (re-randomize this clip only)
+📋 Duplicate
+🗑️ Delete
+🎚️ Speed slider (0.25x - 2x)
+
+Interaction:
+
+Appears above clip when selected
+Follows clip if dragged
+Hides when clip deselected
+Actions apply immediately
+
+Track Management (future)
+
+Add track button
+Remove track button
+Lock track toggle
+Mute track toggle
+Solo track toggle
+Track height adjustment
+
+
+Tab 9: Motion Builder
+Purpose: Add animations and effects to clips
+Features:
+Ken Burns Effect
+
+Enable toggle
+Start position (X, Y coordinates)
+End position (X, Y coordinates)
+Start scale (percentage)
+End scale (percentage)
+Duration (seconds)
+Easing curve selector:
+
+Linear
+Ease In
+Ease Out
+Ease In/Out
+Custom cubic-bezier
+
+
+
+Zoom Animations
+
+Zoom type: In, Out, In/Out
+Intensity slider (1.0 to 3.0)
+Center point selector (click on preview)
+Duration and easing
+
+Rotation Effects
+
+Rotation degrees (0-360)
+Rotation axis (X, Y, Z)
+Rotation speed (smooth, fast, snap)
+Loop toggle
+
+Position Keyframing
+
+Add keyframe button
+Keyframe list (timeline view)
+For each keyframe:
+
+Time position
+X/Y coordinates
+Easing to next keyframe
+
+
+Drag keyframes in timeline
+Delete keyframe button
+
+Preview:
+
+Small video player showing animation
+Loop toggle for continuous preview
+Reset to original button
+
+Apply:
+
+"Apply to Selected Clip" button
+"Apply to All Clips" button
+Adds animation metadata to clip
+
+
+Tab 10: Speed Builder
+Purpose: Advanced speed control and time remapping
+Features:
+Speed Ramping
+
+Visual curve editor
+Timeline with keyframes
+Drag keyframes to adjust:
+
+Time position
+Speed value (0.1x to 10x)
+
+
+Curve interpolation types:
+
+Linear
+Smooth (bezier)
+Step (instant change)
+
+
+
+Time Remapping
+
+Source time vs output time graph
+Drag curve to create speed changes
+Reverse segments (slope goes negative)
+Freeze frames (horizontal line)
+
+Preset Speed Ramps (Creative Suite)
+
+Anime Impact: slow → fast
+TikTok Snap: fast → slow → fast
+Cinematic Drift: slow throughout
+Slow-Mo Reveal: fast → slow
+Fast Forward Punch: slow → very fast
+(15 additional presets)
+
+Controls:
+
+Add keyframe button
+Delete keyframe button
+Reset to 1.0x button
+Copy/paste speed curve
+Apply Creative Suite preset dropdown
+
+Preview:
+
+Real-time speed preview
+Timecode with speed multiplier overlay
+Original vs modified duration display
+
+Apply:
+
+Updates clip.speedMultiplier metadata
+Stores keyframe data in clip
+Applies during export
+
+
+Tab 11: Export
+Purpose: Render and export final video
+Layout:
+
+Left panel: Format and quality settings
+Center panel: Preview thumbnail and progress
+Right panel: Export queue
+
+Format Selection
+Container Formats:
+
+MP4 (H.264) - Universal compatibility
+MOV (ProRes) - Professional quality
+WebM - Web optimized
+GIF - Animated image
+
+Quality Presets:
+Low (720p)
+
+Resolution: 1280×720
+Bitrate: 2 Mbps
+Use case: Social media, quick previews
+
+Medium (1080p)
+
+Resolution: 1920×1080
+Bitrate: 5 Mbps
+Use case: YouTube, standard sharing
+
+High (1080p)
+
+Resolution: 1920×1080
+Bitrate: 10 Mbps
+Use case: High-quality archiving
+
+Ultra (4K)
+
+Resolution: 3840×2160
+Bitrate: 20 Mbps
+Use case: Professional delivery
+
+Advanced Settings (expandable)
+Video Codec:
+
+H.264 (default)
+H.265 (HEVC)
+ProRes 422
+VP9
+Custom bitrate input (Mbps)
+
+Audio Settings:
+
+Audio codec: AAC, MP3, WAV
+Audio bitrate: 128, 192, 256, 320 kbps
+Sample rate: 44.1kHz, 48kHz
+
+Frame Rate:
+
+Use project FPS (default)
+Override: 24, 25, 30, 60 fps
+Custom input
+
+Other Options:
+
+Include audio toggle
+Burn-in subtitles toggle
+Apply color grading toggle
+Hardware acceleration toggle
+
+Export Options
+Render Video
+
+Button: "Render Video"
+Opens file save dialog
+Starts FFmpeg render process
+Shows progress bar
+Estimated time remaining
+Cancel button
+
+Export Manifest
+
+Button: "Export Manifest"
+Saves .json file
+Validates before export
+Shows success notification
+Option to open file location
+
+Send to Premiere
+
+Button: "Send to Premiere Pro"
+Exports manifest to temp location
+Launches Premiere Pro (if installed)
+Passes manifest path via command line
+Shows instruction dialog if Premiere not found
+
+Export Queue
+Queue Features:
+
+Add multiple exports
+Each queue item shows:
+
+Format and quality
+Output filename
+Status (queued, rendering, complete, failed)
+Progress percentage
+ETA
+Cancel button
+
+
+Process queue sequentially
+Pause/resume queue
+Clear completed button
+
+Progress Display:
+
+Overall progress bar
+Current frame / total frames
+Render speed (e.g., "2.5x realtime")
+Time elapsed / time remaining
+Preview thumbnail (updates periodically)
+
+Destination:
+
+Output folder selector
+Default: User's Videos folder
+Browse button
+Recent locations dropdown
+
+
+Text Editor Modal
+Purpose: Create and edit text overlays
+Trigger: Click "Add Text" button or click existing text item
+Modal Layout:
+Full-screen overlay with:
+
+Header: "Text Editor" title and close button
+Left panel: Text input and preview
+Right panel: Style and transform controls
+Bottom: Timeline placement controls and Save button
+
+Text Input (Left Panel)
+Text Area:
+
+Multi-line text input (rich text future)
+Font preview in real-time
+Character count
+"Clear" button
+
+Live Preview:
+
+Canvas showing text with applied styles
+Positioned as it will appear in video
+Transparent background with grid
+Zoom controls for preview
+
+Style Controls (Right Panel)
+Style Presets:
+Buttons for quick presets:
+
+Title (large, bold, centered)
+Subtitle (medium, centered, lower position)
+Lower Third (small, left, bottom position)
+Caption (small, centered, top position)
+
+Typography:
+Font Family
+
+Dropdown selector
+System fonts available
+Default: Arial, Helvetica, Times New Roman, Courier, Georgia
+Custom font upload (future)
+
+Font Size
+
+Slider: 12px to 200px
+Number input for precise control
+
+Font Weight
+
+Slider: 100 to 900
+Presets: Light (300), Regular (400), Medium (500), Bold (700), Black (900)
+
+Text Color
+
+Color picker with hex input
+Alpha slider for transparency
+Recent colors palette
+Preset color swatches
+
+Text Alignment
+
+Buttons: Left, Center, Right
+Visual indicator showing active alignment
+
+Transform Controls (Right Panel, below Style)
+Position
+
+X coordinate slider (0 to canvas width)
+Y coordinate slider (0 to canvas height)
+"Center" button (resets to center)
+Drag in preview to adjust
+
+Scale
+
+Slider: 0.1 to 5.0
+Percentage display (100% = original size)
+"Reset" button
+
+Rotation
+
+Slider: -180° to 180°
+Degree input for precision
+"Reset" button
+
+Opacity
+
+Slider: 0.0 to 1.0
+Percentage display
+Preview shows transparency
+
+Animation Options (Right Panel, bottom)
+Animation Type:
+
+Dropdown selector:
+
+None (static text)
+Fade In
+Fade Out
+Fade In/Out
+Slide From Left
+Slide From Right
+Slide From Top
+Slide From Bottom
+Typewriter
+Bounce In
+Zoom In
+
+
+
+Duration
+
+Slider: 0.1 to 5.0 seconds
+Number input
+
+Easing
+
+Dropdown: Linear, Ease In, Ease Out, Ease In/Out, Custom
+
+Preview Animation
+
+Button: "Play Preview"
+Loops animation in preview canvas
+
+Timeline Placement (Bottom Panel)
+Start Time
+
+Timecode input (MM:SS:CS)
+Or click timeline to set
+Visual indicator on timeline
+
+End Time
+
+Timecode input (MM:SS:CS)
+Or drag timeline handle
+Duration automatically calculated
+
+Duration Display
+
+Read-only display of end - start
+Updates when start/end change
+
+Track Selection
+
+Radio buttons: T1 (top overlay), T2 (bottom overlay)
+Only two text tracks available
+
+Timeline Scrubber (visual)
+
+Miniature timeline showing full video duration
+Draggable handles for start/end
+Playhead showing current position
+Text item shown as colored bar
+
+Action Buttons (Bottom Right)
+
+Cancel: Close modal without saving
+Save: Apply changes and close
+Apply: Apply changes, keep modal open
+Delete: Remove text item (if editing existing)
+
+
+Premiere Plugin Specifications
+Platform Requirements
+
+Adobe Premiere Pro 2025 (v25.6.0 or later)
+UXP (Unified Extensibility Platform) compatible
+Replaces legacy CEP architecture
+
+Installation
+
+Distributed as .ccx file (Creative Cloud Extension)
+Install via Creative Cloud Desktop app
+Or load via UXP Developer Tool for development
+
+Plugin Architecture
+Tech Stack:
+
+Framework: React + TypeScript + Vite
+Styling: Tailwind CSS
+Runs inside Premiere Pro renderer process
+Size: Approximately 5,200 lines of code
+
+Integration:
+
+Panel-based UI in Premiere workspace
+Access via Window > Extensions > MMMEdia Pro
+Dockable and resizable panel
+Persists across Premiere sessions
+
+Dual Operating Modes
+Mode A: Standalone Editing (Premiere-Native)
+Purpose: Use MMMEdia Pro tools directly in Premiere without Electron app
+Features Available:
+
+Access to Creative Suite assets (Speed Ramps, Effects, Transitions)
+Randomization Engine controls (simplified)
+Grid Builder (creates Premiere sequences)
+Quick automation tools (silence removal, basic auto-edit)
+Asset browser and preview
+
+What's NOT Replicated:
+
+Full timeline editor (uses Premiere's native timeline)
+Complex AI automation (uses Premiere's tools)
+Media manager (uses Premiere's project panel)
+Export controls (uses Premiere's export queue)
+
+UI Layout in This Mode:
+
+Top: Creative Suite browser (tabs for Ramps, Effects, Transitions)
+Middle: Selected asset preview and controls
+Bottom: Apply button and randomization controls
+
+Workflow:
+
+User selects clip(s) in Premiere timeline
+Opens MMMEdia Pro panel
+Browses Creative Suite assets
+Clicks asset to preview
+Clicks "Apply" to add to selected clips
+Or clicks "Randomize" to auto-apply
+
+Mode B: Manifest Import
+Purpose: Import complete edits from Electron app
+Features:
+
+Manifest Parser
+
+Reads .json manifest file
+Validates against JSON schema
+Extracts all edit data
+
+
+Timeline Reconstruction
+
+Creates new sequence (or imports to existing - future)
+Matches media files using multi-factor algorithm
+Places clips at exact frame positions
+Applies all effects and transitions
+Creates text overlays
+Reconstructs grid layouts
+
+
+Asset Application
+
+Loads Creative Suite assets from library
+Applies speed ramps (time remapping)
+Applies effects (Lumetri, adjustments)
+Applies transitions between clips
+Handles missing assets gracefully
+
+
+Operation Log Import
+
+Stores log in sequence metadata
+Allows reverting to previous generations
+Preserves seed for reproducibility
+
+
+
+UI Layout in This Mode:
+
+Top: "Import Manifest" button
+Middle: Import progress indicator
+Bottom: Log viewer showing:
+
+Matched media
+Applied assets
+Warnings (missing media/assets)
+Success confirmation
+
+
+
+Import Workflow:
+
+User clicks "Import Manifest"
+File dialog opens
+User selects .json manifest file
+Plugin validates manifest
+Plugin scans Premiere project for matching media
+If ambiguous matches, shows resolver UI
+Plugin creates sequence
+Plugin reconstructs timeline frame-by-frame
+Plugin applies all assets
+Plugin shows completion dialog with warnings
+
+Media Matching Implementation
+Pre-Requisites:
+
+All media files referenced in manifest must be imported into Premiere project
+Media can be in any bin/folder structure
+Filenames don't need to match exactly (multi-factor matching)
+
+Matching Algorithm:
+Step 1: Collect Candidates
+
+Scan all media in Premiere project
+For each manifest clip, find items with matching filename
+
+Step 2: Calculate Confidence Scores
+For each candidate, calculate score:
+typescriptlet confidence = 0;
+
+// Filename match (required)
+if (candidate.filename === manifest.filename) confidence += 40;
+
+// File size match
+if (candidate.fileSize === manifest.fileSize) confidence += 20;
+
+// Duration frames match (exact)
+if (candidate.durationFrames === manifest.durationFrames) confidence += 25;
+
+// Resolution match
+if (candidate.width === manifest.width && 
+    candidate.height === manifest.height) confidence += 15;
+
+// Hash match (if available)
+if (manifest.hash && candidate.hash === manifest.hash) confidence += 20;
+
+// Total possible: 120 (hash) or 100 (no hash)
+```
+
+**Step 3: Determine Match Quality**
+- **100-120 points**: Exact match (✅ auto-accept)
+- **80-99 points**: Strong match (✅ auto-accept)
+- **60-79 points**: Weak match (⚠️ show in resolver)
+- **Below 60**: No match (❌ skip)
+
+**Step 4: Resolver UI (if ambiguous)**
+If multiple candidates score 60-79 for same manifest clip:
+- Display modal dialog
+- Show manifest clip details (left column)
+- Show candidate list (right column)
+- Each candidate shows:
+  - Thumbnail
+  - Filename and path
+  - Duration, resolution, file size
+  - Confidence score and breakdown
+- User clicks correct candidate
+- Store choice in cache file
+
+**Step 5: Handle Unmatched**
+For manifest clips with no matches:
+- Display warning: "Media not found: [filename]"
+- List in import summary
+- Skip clips in timeline (don't block import)
+- Log to `.mmmedia-asset-warnings.json`
+
+### Creative Suite Asset Application
+
+**Asset Library Location:**
+```
+[Plugin Installation]/assets/
+  /speed-ramps/
+  /effects/
+  /transitions/
+  /blueprints/
+Asset Storage Format:
+Each asset is a JSON definition file + referenced media/presets.
+Example: Speed Ramp Asset
+json{
+  "assetId": "sr_anime_impact_v1",
+  "assetType": "speedRamp",
+  "displayName": "Anime Impact",
+  "version": "1.0.0",
+  "parameters": {
+    "keyframes": [
+      { "frame": 0, "speed": 1.0, "easing": "linear" },
+      { "frame": 5, "speed": 0.2, "easing": "ease-in" },
+      { "frame": 10, "speed": 3.0, "easing": "ease-out" },
+      { "frame": 15, "speed": 1.0, "easing": "linear" }
+    ]
+  }
+}
+Application Logic:
+Speed Ramps:
+
+Read keyframe data from asset JSON
+Apply time remapping to clip in Premiere
+Set keyframes at specified frames
+Apply easing curves between keyframes
+
+Effects (Lumetri):
+
+Read LUT file path and parameters
+Create Lumetri Color effect on clip
+Load LUT file
+Set contrast, saturation, etc. parameters
+
+Transitions:
+
+Read transition preset file
+Apply to clip in point (if transitions.in)
+Apply to clip out point (if transitions.out)
+Set transition duration
+
+Missing Asset Handling:
+
+Check if assetId exists in library
+If missing:
+
+Log warning
+Substitute type-appropriate default:
+
+Speed ramp → linear 1.0x speed
+Effect → no effect applied
+Transition → hard cut
+
+
+
+
+Continue import (don't fail)
+Display summary notification
+
+Grid Layout Reconstruction
+Grids are Premiere Sequences:
+Each grid layout becomes a nested sequence with:
+
+Multiple video tracks (one per cell)
+Clips positioned in cells
+Adjustment layers for borders/effects
+Masks for cell boundaries
+
+Reconstruction Steps:
+
+Create new sequence (grid template resolution)
+Add tracks for each cell
+Place clips in cells (from manifest.gridLayouts)
+Apply border effects (using adjustment layers)
+Apply cell-specific effects
+Nest sequence and place in main timeline
+
+Grid Animations:
+
+Ken Burns: Apply motion keyframes to clips
+Zoom transitions: Apply scale keyframes
+Rotation: Apply rotation keyframes
+
+Text Overlay Creation
+Text Implementation:
+Use Premiere's Essential Graphics (MOGRT) or legacy titles.
+Creation Steps:
+
+Read textItem from manifest
+Create title layer on specified track (T1 or T2)
+Set text content
+Apply style (font, size, color, alignment)
+Position on canvas (x, y coordinates)
+Apply transform (scale, rotation, opacity)
+Apply animation (if specified)
+Set in/out points (startFrame/endFrame)
+
+Animations:
+Implement using keyframes:
+
+Fade in/out: Opacity keyframes
+Slide: Position keyframes
+Typewriter: Source text keyframes (if supported)
+
+Future Capabilities
+Import to Existing Sequence:
+
+User option: "Import to current sequence" vs "Create new"
+If existing:
+
+Insert clips at playhead position
+Or replace selected clips
+Or append to end
+
+
+
+Bi-Directional Communication:
+
+Plugin can export modified timeline back to manifest
+Enables round-trip editing
+Requires IPC bridge or file watching
+
+Real-Time Sync:
+
+Watch Electron app for changes
+Auto-refresh Premiere timeline
+Requires persistent connection
+
+
+Manifest Protocol
+Manifest File Specification
+File Extensions:
+
+.json - Manifest for Premiere import (text, human-readable)
+.mmm - Full project save (includes binary data, media references)
+
+Manifest Version: 1.0.0
+JSON Schema
+json{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MMMEdia Pro Manifest",
+  "type": "object",
+  "required": ["manifestVersion", "projectSettings", "clips"],
+  "properties": {
+    "manifestVersion": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version of manifest format"
+    },
+    "projectSettings": {
+      "type": "object",
+      "required": ["name", "resolution", "fps"],
+      "properties": {
+        "name": { "type": "string" },
+        "resolution": {
+          "type": "object",
+          "required": ["width", "height"],
+          "properties": {
+            "width": { "type": "integer", "minimum": 1 },
+            "height": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "fps": { 
+          "type": "integer", 
+          "enum": [24, 25, 30, 60],
+          "description": "Project frame rate"
+        },
+        "seed": { 
+          "type": ["string", "null"],
+          "description": "Randomization seed for reproducibility"
+        }
+      }
+    },
+    "clips": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/clip" }
+    },
+    "textItems": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/textItem" }
+    },
+    "gridLayouts": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/gridLayout" }
+    },
+    "operationLog": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/logEntry" }
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "lastModified": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "definitions": {
+    "clip": {
+      "type": "object",
+      "required": ["id", "filename", "type", "startFrame", "endFrame"],
+      "properties": {
+        "id": { 
+          "type": "string",
+          "format": "uuid",
+          "description": "Stable clip identifier"
+        },
+        "filename": { 
+          "type": "string",
+          "description": "File name for matching (no path)"
+        },
+        "type": { 
+          "enum": ["video", "image", "audio"] 
+        },
+        "startFrame": { 
+          "type": "integer",
+          "minimum": 0,
+          "description": "Timeline position start (frames)"
+        },
+        "endFrame": { 
+          "type": "integer",
+          "minimum": 0,
+          "description": "Timeline position end (frames)"
+        },
+        "trimStartFrame": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Source trim in point (frames)"
+        },
+        "trimEndFrame": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Source trim out point (frames)"
+        },
+        "track": { 
+          "type": "integer",
+          "minimum": 0 
+        },
+        "isReversed": { "type": "boolean" },
+        "speedMultiplier": { 
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 10.0
+        },
+        "volume": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "effects": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Array of assetIds"
+        },
+        "transitions": {
+          "type": "object",
+          "properties": {
+            "in": { "type": ["string", "null"] },
+            "out": { "type": ["string", "null"] }
+          }
+        },
+        "origin": {
+          "enum": ["auto", "manual"]
+        },
+        "locked": { "type": "boolean" },
+        "autoGenerated": {
+          "type": ["object", "null"],
+          "properties": {
+            "generation": { "type": "integer" },
+            "seed": { "type": "string" },
+            "engineVersion": { "type": "string" }
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "fileSize": { "type": "integer" },
+            "width": { "type": "integer" },
+            "height": { "type": "integer" },
+            "format": { "type": "string" },
+            "durationFrames": { "type": "integer" },
+            "hash": { "type": ["string", "null"] }
+          }
+        }
+      }
+    },
+    "textItem": {
+      "type": "object",
+      "required": ["id", "text", "startFrame", "endFrame"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "text": { "type": "string" },
+        "startFrame": { "type": "integer", "minimum": 0 },
+        "endFrame": { "type": "integer", "minimum": 0 },
+        "track": { "enum": ["t1", "t2"] },
+        "style": { "type": "object" },
+        "transform": { "type": "object" },
+        "animation": { "type": ["object", "null"] }
+      }
+    },
+    "gridLayout": {
+      "type": "object",
+      "required": ["id", "template", "cells"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "template": { 
+          "enum": ["2x2", "3x3", "pip", "split-h", "split-v", "trio"] 
+        },
+        "startFrame": { "type": "integer" },
+        "endFrame": { "type": "integer" },
+        "cells": {
+          "type": "array",
+          "items": { "type": "object" }
+        },
+        "style": { "type": "object" },
+        "animation": { "type": ["object", "null"] }
+      }
+    },
+    "logEntry": {
+      "type": "object",
+      "required": ["generation", "timestamp", "seed", "engineVersion"],
+      "properties": {
+        "generation": { "type": "integer" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "seed": { "type": "string" },
+        "engineVersion": { "type": "string" },
+        "clipPoolUUIDs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "constraints": { "type": "object" },
+        "operations": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}
+Validation Requirements
+Electron Export:
+
+Validate manifest against JSON schema before saving
+Fail loudly if validation errors (show error dialog)
+Don't export invalid manifests
+
+Premiere Import:
+
+Validate manifest before parsing
+Reject if invalid (show error dialog with details)
+Don't attempt to import invalid manifests
+
+Dev Tools:
+
+Include CLI validator: mmmedia-validate manifest.json
+Returns exit code 0 (valid) or 1 (invalid)
+Prints validation errors to stdout
+
+Example Manifest (Minimal)
+json{
+  "manifestVersion": "1.0.0",
+  "projectSettings": {
+    "name": "Sample Project",
+    "resolution": { "width": 1920, "height": 1080 },
+    "fps": 30,
+    "seed": "abc123xyz"
+  },
+  "clips": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "filename": "interview_take3.mp4",
+      "type": "video",
+      "startFrame": 0,
+      "endFrame": 300,
+      "trimStartFrame": 45,
+      "trimEndFrame": 345,
+      "track": 0,
+      "speedMultiplier": 1.0,
+      "effects": ["fx_cinematic_v1"],
+      "origin": "manual",
+      "locked": false,
+      "metadata": {
+        "fileSize": 524288000,
+        "width": 1920,
+        "height": 1080,
+        "format": "mp4",
+        "durationFrames": 3825
+      }
+    }
+  ],
+  "textItems": [],
+  "gridLayouts": [],
+  "operationLog": [],
+  "metadata": {
+    "createdBy": "MMMEdia Pro Electron v1.0.0",
+    "createdAt": "2026-01-27T14:35:22Z",
+    "lastModified": "2026-01-27T15:22:10Z"
+  }
+}
+```
+
+---
+
+## Asset Registry System
+
+### Asset Library Structure
+```
+/assets/
+  /speed-ramps/
+    sr_anime_impact_v1.json
+    sr_tiktok_snap_v1.json
+    sr_cinematic_drift_v1.json
+    sr_slow_mo_reveal_v1.json
+    sr_fast_forward_punch_v1.json
+    ... (15 more)
+  
+  /effects/
+    fx_cinematic_v1.json
+    cinematic_teal_orange.cube
+    fx_punchy_v1.json
+    fx_golden_glow_v1.json
+    fx_vintage_film_v1.json
+    fx_high_contrast_v1.json
+    fx_muted_tones_v1.json
+    ... (14 more + LUT files)
+  
+  /transitions/
+    tr_light_leak_v1.json
+    tr_film_burn_v1.json
+    tr_whip_pan_v1.json
+    tr_cross_dissolve_v1.json
+    tr_push_v1.json
+    tr_slide_v1.json
+    ... (6 more)
+  
+  /blueprints/
+    bp_quick_tiktok_v1.json
+    bp_pro_showreel_v1.json
+    bp_event_recap_v1.json
+    bp_music_video_v1.json
+    bp_tutorial_cut_v1.json
+Asset Definition Format
+Every asset has a JSON definition file.
+Speed Ramp Example:
+json{
+  "assetId": "sr_anime_impact_v1",
+  "assetType": "speedRamp",
+  "displayName": "Anime Impact",
+  "description": "Dramatic slow-motion into fast forward impact",
+  "version": "1.0.0",
+  "tags": ["dramatic", "impact", "anime"],
+  "parameters": {
+    "keyframes": [
+      { 
+        "frame": 0, 
+        "speed": 1.0, 
+        "easing": "linear" 
+      },
+      { 
+        "frame": 5, 
+        "speed": 0.2, 
+        "easing": "cubic-bezier(0.4, 0, 0.6, 1)" 
+      },
+      { 
+        "frame": 10, 
+        "speed": 3.0, 
+        "easing": "cubic-bezier(0.4, 0, 0.2, 1)" 
+      },
+      { 
+        "frame": 15, 
+        "speed": 1.0, 
+        "easing": "linear" 
+      }
+    ],
+    "totalDuration": 15
+  }
+}
+Effect Example:
+json{
+  "assetId": "fx_cinematic_v1",
+  "assetType": "lumetriPreset",
+  "displayName": "Make it Cinematic",
+  "description": "Teal and orange color grade with high contrast",
+  "version": "1.0.0",
+  "tags": ["cinematic", "color-grade", "dramatic"],
+  "parameters": {
+    "lutFile": "./cinematic_teal_orange.cube",
+    "contrast": 1.2,
+    "saturation": 1.1,
+    "highlights": -10,
+    "shadows": 15,
+    "temperature": 200,
+    "tint": -5
+  }
+}
+Transition Example:
+json{
+  "assetId": "tr_light_leak_v1",
+  "assetType": "transition",
+  "displayName": "Light Leak",
+  "description": "Bright light leak transition",
+  "version": "1.0.0",
+  "tags": ["light", "bright", "energetic"],
+  "parameters": {
+    "duration": 20,
+    "presetFile": "./light_leak.prfpset",
+    "intensity": 0.8,
+    "color": "#ffffff"
+  }
+}
+Blueprint Example:
+json{
+  "assetId": "bp_quick_tiktok_v1",
+  "assetType": "blueprint",
+  "displayName": "Quick TikTok",
+  "description": "Fast-paced cuts optimized for TikTok",
+  "version": "1.0.0",
+  "tags": ["tiktok", "fast", "social"],
+  "parameters": {
+    "targetDuration": 15,
+    "minClipDuration": 0.5,
+    "maxClipDuration": 3.0,
+    "transitionStrategy": "flash",
+    "energyLevel": "hyper",
+    "aspectRatio": "9:16",
+    "effectsPreset": ["fx_punchy_v1", "fx_high_contrast_v1"],
+    "speedRampsFrequency": "high",
+    "audioNormalization": true
+  }
+}
+Asset Registry Index
+Purpose: Fast lookup of all assets
+File: assets/registry.json
+Structure:
+json{
+  "registryVersion": "1.0.0",
+  "lastUpdated": "2026-01-27T12:00:00Z",
+  "speedRamps": [
+    {
+      "assetId": "sr_anime_impact_v1",
+      "displayName": "Anime Impact",
+      "filePath": "./speed-ramps/sr_anime_impact_v1.json",
+      "tags": ["dramatic", "impact", "anime"]
+    }
+    // ... more speed ramps
+  ],
+  "effects": [
+    {
+      "assetId": "fx_cinematic_v1",
+      "displayName": "Make it Cinematic",
+      "filePath": "./effects/fx_cinematic_v1.json",
+      "tags": ["cinematic", "color-grade"]
+    }
+    // ... more effects
+  ],
+  "transitions": [
+    {
+      "assetId": "tr_light_leak_v1",
+      "displayName": "Light Leak",
+      "filePath": "./transitions/tr_light_leak_v1.json",
+      "tags": ["light", "bright"]
+    }
+    // ... more transitions
+  ],
+  "blueprints": [
+    {
+      "assetId": "bp_quick_tiktok_v1",
+      "displayName": "Quick TikTok",
+      "filePath": "./blueprints/bp_quick_tiktok_v1.json",
+      "tags": ["tiktok", "fast"]
+    }
+    // ... more blueprints
+  ]
+}
+Asset Versioning Rules
+Immutability:
+
+Asset IDs never change once published
+Changing parameters requires new version
+Breaking changes require new asset ID
+
+Semantic Versioning:
+
+v1.0.0 - Initial release
+v1.1.0 - New features, backward compatible
+v2.0.0 - Breaking changes
+
+Backward Compatibility:
+
+Electron and Plugin must support old versions
+When importing old manifest, use closest compatible version
+Display warning if exact version not found
+
+Example:
+
+Manifest references sr_anime_impact_v1
+Plugin has sr_anime_impact_v2
+Plugin uses v2 and logs: "Using sr_anime_impact_v2 (manifest requested v1)"
+
+
+Randomization Engine
+Core Algorithm
+Seeded Randomization:
+Use a deterministic random number generator (e.g., seedrandom.js) that produces identical sequence for same seed.
+typescriptimport seedrandom from 'seedrandom';
+
+function randomizeClips(
+  seed: string,
+  clips: Clip[],
+  constraints: Constraints
+): Clip[] {
+  // Create seeded RNG
+  const rng = seedrandom(seed);
+  
+  // Sort clips by UUID (stable order)
+  const sortedClips = [...clips].sort((a, b) => 
+    a.id.localeCompare(b.id)
+  );
+  
+  // Filter to auto+unlocked clips only
+  const autoClips = sortedClips.filter(
+    c => c.origin === 'auto' && !c.locked
+  );
+  
+  // Randomize order using RNG
+  const shuffled = shuffle(autoClips, rng);
+  
+  // Apply constraints
+  const randomized = shuffled.map(clip => ({
+    ...clip,
+    trimStartFrame: randomTrimStart(clip, rng, constraints),
+    trimEndFrame: randomTrimEnd(clip, rng, constraints),
+    effects: randomEffects(clip, rng, constraints),
+    transitions: randomTransitions(clip, rng, constraints)
+  }));
+  
+  return randomized;
+}
+
+function shuffle<T>(array: T[], rng: () => number): T[] {
+  const result = [...array];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+Randomization Constraints
+typescriptinterface Constraints {
+  minClipDuration: number;      // seconds
+  maxClipDuration: number;      // seconds
+  transitionStrategy: 'cut' | 'dissolve' | 'whip' | 'flash';
+  energyLevel: 'chill' | 'energetic' | 'hyper';
+  allowReverse: boolean;
+  speedRange: [number, number]; // e.g., [0.5, 2.0]
+  effectsFrequency: 'none' | 'low' | 'medium' | 'high';
+}
+Energy Levels
+Chill:
+
+Longer clip durations (5-10 seconds)
+Gentle transitions (dissolves)
+Minimal effects
+Slow speed ramps (0.8x - 1.2x)
+
+Energetic:
+
+Medium clip durations (2-5 seconds)
+Mix of transitions
+Moderate effects (30% of clips)
+Dynamic speed ramps (0.5x - 1.5x)
+
+Hyper:
+
+Short clip durations (0.5-2 seconds)
+Fast transitions (whips, flashes)
+Heavy effects (70% of clips)
+Extreme speed ramps (0.25x - 2.0x)
+
+Randomization Steps
+
+Clip Order:
+
+Sort clips by UUID
+Shuffle using seeded RNG
+Position on timeline sequentially
+
+
+Trim Points:
+
+For each clip, identify trim boundaries (user-set in/out)
+If no boundaries, use entire clip
+Randomly select segment within boundaries
+Duration respects min/max constraints
+
+
+Asset Application:
+
+Based on effectsFrequency, decide % of clips to apply effects
+For each selected clip, randomly choose effect from Creative Suite
+Store effect assetId in clip.effects array
+
+
+Speed Ramping:
+
+Based on energyLevel, decide % of clips to ramp
+Randomly select speed ramp preset
+Apply to clip
+
+
+Transitions:
+
+Apply transition strategy between clips
+If strategy is "random", randomly choose from available transitions
+
+
+
+Operation Log Recording
+After randomization:
+typescriptconst logEntry: OperationLogEntry = {
+  generation: currentGeneration + 1,
+  timestamp: new Date().toISOString(),
+  seed: seed,
+  engineVersion: "1.0.0",
+  clipPoolUUIDs: clips.map(c => c.id).sort(),
+  constraints: constraints,
+  operations: [
+    "Randomized clip order using seed: abc123xyz",
+    "Applied FX_Cinematic to clip-uuid-003",
+    "Applied SR_AnimeImpact to clip-uuid-007",
+    "Trimmed clip-uuid-001 to frames 45-210",
+    "Set transitions to 'dissolve' mode"
+  ]
+};
+
+operationLog.push(logEntry);
+```
+
+### Regeneration
+
+When user clicks "Regenerate":
+1. Increment generation number
+2. Generate new seed (or use user-provided seed)
+3. Re-run randomization with new seed
+4. Preserve manual and locked clips
+5. Record new operation log entry
+
+### Reverting to Previous Generation
+
+When user selects generation from log:
+1. Extract seed from that generation
+2. Re-run randomization with that seed
+3. Should produce identical result (determinism)
+4. Display confirmation: "Reverted to Generation 3"
+
+---
+
+## Performance Requirements
+
+### Critical Performance Targets
+
+**UI Responsiveness:**
+- All UI interactions must respond within **50ms**
+- Button clicks, slider adjustments, text input
+- Immediate visual feedback (hover states, selections)
+- No perceptible lag
+
+**Video Preview:**
+- Clip selection → video loads: **<300ms**
+- Playback start from pause: **<100ms**
+- Seek/scrub responsiveness: Update every **100ms** during drag
+- Timeline playhead scrubbing: **<50ms** UI update
+
+**Timeline Operations:**
+- Add clip to timeline: **<50ms**
+- Remove clip: **<50ms**
+- Reorder clips: **<50ms** (visual update)
+- Apply effect: **<50ms** (metadata update)
+
+**Metadata Extraction:**
+- Small file (<100MB): **<500ms**
+- Large file (>1GB): **<2 seconds**
+- Background operation with progress indicator
+
+**Project Save/Load:**
+- Save .mmm file: **<1 second** for typical project (50 clips)
+- Load .mmm file: **<2 seconds** including UI reconstruction
+
+**Manifest Export:**
+- Generate .json: **<500ms** for typical project
+- Validate: **<200ms**
+
+### Scalability Targets
+
+**Clip Count:**
+- Support **500+ clips** without performance degradation
+- Timeline rendering must stay smooth
+- Scrolling must be responsive
+
+**Project Duration:**
+- Up to **2 hours** of final timeline length
+- Longer projects supported but may have slower export
+
+**File Size:**
+- No crashes regardless of source file size
+- Large files (>5GB) may have slower preview loading
+- Display "Loading..." indicator for large files
+
+### Optimization Strategies
+
+**Virtual Scrolling:**
+- Render only visible clips in timeline
+- Use windowing library (e.g., react-window)
+- Unload off-screen elements
+
+**Lazy Loading:**
+- Load video metadata on-demand
+- Cache metadata in project file
+- Load thumbnails progressively
+
+**Debouncing:**
+- Trim handle dragging: Update preview every 100ms, not every frame
+- Text input: Update preview after 300ms pause
+- Slider adjustments: Throttle updates to 60fps max
+
+**Web Workers:**
+- FFprobe metadata extraction in worker
+- Manifest validation in worker
+- Heavy computations off main thread
+
+**Caching:**
+- Cache video thumbnails in temp folder
+- Cache waveforms once generated
+- Cache metadata after first extraction
+
+**Hardware Acceleration:**
+- Enable GPU acceleration for video decoding (where available)
+- Use hardware-accelerated CSS transforms
+- Prefer transform/opacity animations (GPU composited)
+
+### Performance Monitoring
+
+**Built-in Diagnostics (Diagnostics Tab):**
+- Real-time FPS counter
+- Memory usage monitor
+- Operation timing logs
+- Bottleneck identification
+
+**Dev Tools:**
+- React DevTools Profiler
+- Chrome Performance tab
+- Log slow operations (>200ms)
+
+### Acceptable Degradation
+
+**When performance may degrade acceptably:**
+- Projects with 1000+ clips (warn user)
+- 4K or 8K source files (indicate "processing")
+- Complex grid layouts with many cells (show simplified preview)
+- Real-time effects preview (not supported, by design)
+
+**User Communication:**
+- Display "Processing..." spinners
+- Show progress bars for long operations
+- Provide cancel buttons
+- Estimate time remaining
+
+---
+
+## Development Roadmap
+
+### Phase 0: Foundation & Contracts
+
+**Objective:** Establish core systems and agreements before building features
+
+**Deliverables:**
+- [ ] Implement frame-based time system
+  - Conversion functions (frames ↔ seconds)
+  - UI components display seconds, store frames
+  - Test edge cases (0.5 second minimum, large durations)
+
+- [ ] Create Asset Registry
+  - Define 5 sample assets (1 speed ramp, 1 effect, 1 transition, 1 blueprint, 1 keyframe master)
+  - Write JSON definition files
+  - Create registry.json index
+  - Implement asset loader
+
+- [ ] Build Media Matching Algorithm
+  - Multi-factor scoring system
+  - Test cases for exact, strong, weak matches
+  - Mock resolver UI (can be refined later)
+
+- [ ] Create Manifest Validator
+  - JSON schema implementation
+  - Validation function
+  - CLI tool: `mmmedia-validate`
+  - Unit tests
+
+**Success Criteria:**
+- Frame math is correct (verified with tests)
+- Assets load from registry
+- Manifest validates against schema
+- Media matching returns correct confidence scores
+
+---
+
+### Phase 1: Core Electron App
+
+**Objective:** Build functional video editor with essential features
+
+**Deliverables:**
+
+**Window & Application:**
+- [ ] Electron window setup (frameless, custom controls)
+- [ ] Custom title bar with window buttons
+- [ ] Dark theme implementation
+- [ ] Tab navigation system
+
+**Settings Tab:**
+- [ ] Project settings form (name, resolution, fps)
+- [ ] Project type selector
+- [ ] Engine dashboard (basic, non-functional)
+
+**Media Manager Tab:**
+- [ ] File import dialog
+- [ ] Drag-and-drop zone
+- [ ] Media grid display with thumbnails
+- [ ] FFprobe metadata extraction (IPC)
+- [ ] "Add to Timeline" button
+
+**Timeline Editor Tab:**
+- [ ] Three-column layout
+- [ ] Clip list with add/remove
+- [ ] Video preview (HTML5 video element)
+  - Play/pause
+  - Timecode overlay
+  - Auto-play on selection
+- [ ] Segment Trimmer
+  - Visual track and handles
+  - Drag left/right handles (trim)
+  - Drag center (slide segment)
+  - Real-time preview updates
+  - Minimum 0.5s enforcement
+- [ ] Per-clip settings (speed, reverse, volume)
+
+**Project Save/Load:**
+- [ ] Save project as .mmm file (JSON)
+- [ ] Load project from .mmm file
+- [ ] Restore UI state from loaded project
+
+**State Management:**
+- [ ] Zustand store setup
+- [ ] Actions for clips (add, update, remove, reorder)
+- [ ] Actions for project settings
+
+**Success Criteria:**
+- Can import videos and see thumbnails
+- Can add clips to timeline
+- Video preview plays selected clip
+- Trimmer adjusts clip in/out points visually
+- Project saves and loads correctly
+
+---
+
+### Phase 1.5: Manifest Pipeline (Critical Checkpoint)
+
+**Objective:** Prove data portability before building more features
+
+**Deliverables:**
+
+**Manifest Export:**
+- [ ] "Export Manifest" button in Settings tab
+- [ ] Generate .json from current project state
+- [ ] Validate before export
+- [ ] Display success notification
+
+**Manifest Import (in Electron):**
+- [ ] "Import Manifest" button
+- [ ] Parse .json file
+- [ ] Validate imported data
+- [ ] Reconstruct project state
+- [ ] Load clips into timeline
+- [ ] Display warnings for missing media
+
+**Round-Trip Test:**
+- [ ] Export project as manifest
+- [ ] Clear project
+- [ ] Import manifest
+- [ ] Verify identical state (frame-perfect)
+
+**Golden Demo Manifest:**
+- [ ] Create test project with 10 clips
+- [ ] Apply effects, transitions, text
+- [ ] Export as golden-demo.json
+- [ ] Document expected output
+
+**Success Criteria:**
+- Export → Import produces frame-identical project
+- Golden Demo imports successfully
+- Missing media handled gracefully (warnings, not crashes)
+- Manifest validates against schema
+
+---
+
+### Phase 2: Advanced Editing Features
+
+**Objective:** Add professional editing tools
+
+**Deliverables:**
+
+**Sequence View Tab:**
+- [ ] Multi-track timeline
+  - Video track with clip thumbnails
+  - Audio track with waveforms (simplified)
+  - Text tracks (T1, T2)
+- [ ] Playback controls
+  - Play/pause
+  - Skip forward/backward
+  - Volume control
+- [ ] Time ruler with second markers
+- [ ] Playhead and scrubber
+- [ ] Zoom controls (1x, 1.5x, 2x, 3x)
+- [ ] Clip interactions
+  - Click to select
+  - Drag to reposition
+  - Visual selection indicators
+- [ ] Bubble Menu (context menu for selected clip)
+  - Rotate, Reverse, Duplicate, Delete
+  - Speed slider
+
+**Text Editor Modal:**
+- [ ] Full modal UI
+- [ ] Text input with live preview
+- [ ] Style presets (Title, Subtitle, etc.)
+- [ ] Typography controls (font, size, weight, color)
+- [ ] Transform controls (position, scale, rotation, opacity)
+- [ ] Animation options (fade, slide, typewriter)
+- [ ] Timeline placement (start/end frames, track)
+
+**Grid Builder Tab:**
+- [ ] Layout template selector (2x2, 3x3, PiP, etc.)
+- [ ] Canvas with wireframe preview
+- [ ] Customization controls (borders, padding)
+- [ ] Animation settings (Ken Burns, zoom, rotation)
+- [ ] Drag clips into cells
+- [ ] "Add to Timeline" integration
+
+**Audio Manager Tab:**
+- [ ] Audio library grid
+- [ ] Volume controls per clip
+- [ ] "Normalize Audio" button
+
+**FFmpeg Export Pipeline:**
+- [ ] "Render Video" button in Export tab
+- [ ] Format and quality selector
+- [ ] FFmpeg command builder
+- [ ] Progress bar with ETA
+- [ ] Export queue (basic)
+
+**Success Criteria:**
+- Sequence View displays multi-track timeline
+- Text overlays can be created and positioned
+- Grid layouts can be built and previewed
+- Video exports successfully with FFmpeg
+
+---
+
+### Phase 3: Randomization & Automation
+
+**Objective:** Implement AI-powered features
+
+**Deliverables:**
+
+**Randomization Engine:**
+- [ ] Seeded RNG implementation
+- [ ] Clip sorting by UUID
+- [ ] Randomization algorithm (order, trim, assets)
+- [ ] Constraints system (min/max duration, energy level)
+- [ ] "Randomize" button
+- [ ] Seed input/display
+
+**Operation Log:**
+- [ ] Log data structure
+- [ ] Record operations during randomization
+- [ ] Display log in UI (list of generations)
+- [ ] Revert to previous generation
+- [ ] Export log with manifest
+
+**Ownership Model:**
+- [ ] Origin tracking (auto/manual)
+- [ ] Lock toggle per clip
+- [ ] Conversion: auto → manual on edit
+- [ ] UI indicators (badges)
+
+**Godmode Tab:**
+- [ ] Auto-Edit (rule-based scene detection)
+- [ ] Silence Remover (amplitude threshold)
+- [ ] Viral Shorts Generator (aspect ratio cropping)
+- [ ] Settings panels for each tool
+- [ ] "Run" buttons
+
+**Success Criteria:**
+- Same seed produces identical output
+- Locked clips remain untouched
+- Manual edits preserved during regeneration
+- Operation Log accurately records actions
+- Automation tools execute and modify timeline
+
+---
+
+### Phase 4: Creative Suite Integration
+
+**Objective:** Add Creative Suite assets and apply them
+
+**Deliverables:**
+
+**Asset Creation:**
+- [ ] 20 Speed Ramps (JSON definitions)
+- [ ] 20 Effects (LUTs + JSON definitions)
+- [ ] 12 Transitions (presets + JSON)
+- [ ] 5 Blueprints (template JSON)
+
+**Asset Application (Electron):**
+- [ ] Speed Ramps: Simulate in preview (display badge)
+- [ ] Effects: Display badge, apply during export
+- [ ] Transitions: Display icon between clips
+- [ ] Blueprints: Load constraints and apply
+
+**Keyframe Master (Motion Builder):**
+- [ ] Position keyframe system
+- [ ] Visual curve editor
+- [ ] Apply to selected clip
+
+**Grid Master:**
+- [ ] Moving masonry grids (animation)
+- [ ] Morphing layouts
+
+**Aspect Ratio Intelligence:**
+- [ ] Detect mismatched aspect ratios
+- [ ] Apply Gaussian blur background
+- [ ] Customization options (blur radius)
+
+**Success Criteria:**
+- All 20+20+12+5 assets load from registry
+- Assets apply to clips (stored in metadata)
+- Preview shows asset badges
+- Export includes asset effects (FFmpeg)
+
+---
+
+### Phase 5: Premiere Plugin Development
+
+**Objective:** Build UXP plugin for Premiere Pro
+
+**Deliverables:**
+
+**Plugin Scaffolding:**
+- [ ] UXP plugin project setup
+- [ ] React + TypeScript + Vite build
+- [ ] Panel UI in Premiere workspace
+- [ ] Basic plugin manifest (manifest.json for Premiere)
+
+**Manifest Import:**
+- [ ] File picker for .json manifest
+- [ ] Manifest parser
+- [ ] Validation against schema
+
+**Media Matching:**
+- [ ] Scan Premiere project for media
+- [ ] Multi-factor matching algorithm
+- [ ] Confidence scoring
+- [ ] Resolver UI for ambiguous matches
+
+**Timeline Reconstruction:**
+- [ ] Create new sequence
+- [ ] Place clips at frame positions
+- [ ] Apply trim points (in/out)
+- [ ] Set clip properties (speed, reverse, volume)
+
+**Asset Library (Premiere):**
+- [ ] Copy Asset Registry to plugin
+- [ ] Load assets from registry
+- [ ] Apply Speed Ramps (time remapping keyframes)
+- [ ] Apply Effects (Lumetri presets)
+- [ ] Apply Transitions (transition presets)
+
+**Text Overlays:**
+- [ ] Create Essential Graphics titles
+- [ ] Set text content and style
+- [ ] Position on canvas
+- [ ] Apply animations
+
+**Grid Layouts:**
+- [ ] Create nested sequences for grids
+- [ ] Place clips in cells
+- [ ] Apply borders and effects
+
+**Operation Log Import:**
+- [ ] Store log in sequence metadata
+- [ ] Display log in plugin UI
+
+**Success Criteria:**
+- Golden Demo Manifest imports correctly
+- Timeline matches expected frame positions
+- Assets apply correctly
+- No crashes on missing media/assets
+- Warnings displayed and logged
+
+---
+
+### Phase 6: Standalone Editing Mode (Premiere Plugin)
+
+**Objective:** Allow plugin to be used independently
+
+**Deliverables:**
+
+**Creative Suite Browser:**
+- [ ] Tabbed UI for Speed Ramps, Effects, Transitions
+- [ ] Asset preview
+- [ ] "Apply to Selected Clip" button
+
+**Randomization Controls:**
+- [ ] Simplified randomization panel
+- [ ] Seed input
+- [ ] Energy level selector
+- [ ] "Randomize" button
+
+**Asset Application:**
+- [ ] Apply assets directly to Premiere clips
+- [ ] No manifest required
+
+**Success Criteria:**
+- Plugin usable without Electron app
+- Assets apply directly in Premiere
+- Randomization generates edits in Premiere
+
+---
+
+### Phase 7: Bi-Directional Integration (Future)
+
+**Objective:** Enable real-time sync between Electron and Premiere
+
+**Deliverables:**
+
+**Electron → Premiere:**
+- [ ] "Send to Premiere" button opens Premiere with manifest
+- [ ] Watch manifest file for changes
+- [ ] Auto-refresh Premiere timeline
+
+**Premiere → Electron:**
+- [ ] Export modified timeline back to manifest
+- [ ] Re-import into Electron
+- [ ] Round-trip preserves edits
+
+**Success Criteria:**
+- Changes in Electron reflect in Premiere
+- Changes in Premiere can return to Electron
+
+---
+
+## Acceptance Criteria
+
+### Definition of Done for MMMEdia Pro v1.0
+
+The following criteria must be met before the product is considered complete:
+
+### Electron Application
+
+**Core Functionality:**
+- [ ] User can import video, image, and audio files
+- [ ] Media displays in grid with thumbnails and metadata
+- [ ] User can add clips to timeline
+- [ ] Video preview plays selected clip with play/pause
+- [ ] Segment trimmer adjusts in/out points visually
+- [ ] Trim changes update preview in real-time
+- [ ] Clips can be reordered in timeline
+- [ ] Project saves as .mmm file
+- [ ] Project loads from .mmm file and restores state
+
+**Timeline Editing:**
+- [ ] Sequence View displays multi-track timeline
+- [ ] Clips show thumbnails and duration
+- [ ] Playhead scrubber works
+- [ ] Clips can be selected and repositioned
+- [ ] Text overlays can be created and edited
+- [ ] Text Editor modal works fully
+
+**Automation:**
+- [ ] Randomization Engine produces identical output for same seed
+- [ ] Operation Log records all automated operations
+- [ ] Locked clips are not affected by regeneration
+- [ ] Manual edits convert clips from auto to manual
+- [ ] User can revert to previous generations
+
+**Creative Suite:**
+- [ ] All 20 Speed Ramps defined and load from registry
+- [ ] All 20 Effects defined and load from registry
+- [ ] All 12 Transitions defined and load from registry
+- [ ] All 5 Blueprints defined and load from registry
+- [ ] Assets apply to clips (metadata stored)
+
+**Export:**
+- [ ] User can export project as .json manifest
+- [ ] Manifest validates against JSON schema
+- [ ] User can render video with FFmpeg
+- [ ] Export shows progress and ETA
+
+**Performance:**
+- [ ] UI responds within 50ms to all interactions
+- [ ] Video preview loads within 300ms
+- [ ] Application handles 500+ clips without crashing
+- [ ] No crashes regardless of file size
+
+### Premiere Plugin
+
+**Import Functionality:**
+- [ ] User can import .json manifest
+- [ ] Manifest validates before import
+- [ ] Media matching algorithm works (exact, strong, weak)
+- [ ] Resolver UI shows for ambiguous matches
+- [ ] Missing media displays warnings (does not crash)
+
+**Timeline Reconstruction:**
+- [ ] New sequence created with correct settings
+- [ ] Clips placed at exact frame positions
+- [ ] Trim points applied correctly
+- [ ] Speed, reverse, volume properties applied
+- [ ] Text overlays created and positioned
+- [ ] Grid layouts reconstructed
+
+**Asset Application:**
+- [ ] Speed Ramps apply as time remapping keyframes
+- [ ] Effects apply as Lumetri presets
+- [ ] Transitions apply between clips
+- [ ] Missing assets substitute gracefully with warnings
+
+**Standalone Mode:**
+- [ ] User can browse Creative Suite in plugin
+- [ ] Assets can be applied directly to Premiere clips
+- [ ] Randomization controls work in plugin
+
+### Golden Demo Test
+
+**Test:** Import golden-demo.json into Premiere
+
+**Expected Results:**
+- [ ] Timeline duration: **450 frames** (15.0s at 30fps) - exactly
+- [ ] Clip 001: starts at frame 0, ends at frame 150 - exactly
+- [ ] Clip 002: starts at frame 150, ends at frame 300 - exactly
+- [ ] Clip 003: starts at frame 300, ends at frame 450 - exactly
+- [ ] Audio 001: starts at frame 0, ends at frame 450 - exactly
+- [ ] Text overlay: "Golden Demo" from frame 60 to 240 - exactly
+- [ ] Speed ramp applied to Clip 002 (SR_AnimeImpact)
+- [ ] Transition between Clip 001→002 (TR_Dissolve, 15 frames)
+
+**Pass Condition:** All frame positions match within **0 frames error**
+
+### Round-Trip Test
+
+**Test:** Export → Import → Export in Electron
+
+**Expected Results:**
+- [ ] First export generates manifest.json
+- [ ] Importing manifest.json recreates project state
+- [ ] Second export generates identical manifest.json
+- [ ] Diff between first and second export shows no differences (except timestamps)
+
+**Pass Condition:** Frame-identical recreation
+
+### Crash Resistance Test
+
+**Test:** Import files and perform operations
+
+**Scenarios:**
+- [ ] Import 5GB video file - does not crash, loads with indicator
+- [ ] Import 1000 clips - does not crash, may be slow but functional
+- [ ] Import manifest with all media missing - warns, does not crash
+- [ ] Import manifest with all assets missing - substitutes, does not crash
+- [ ] Rapid clicking and dragging - does not crash
+- [ ] Close app during export - cancels gracefully
+
+**Pass Condition:** No crashes in any scenario
+
+---
+
+## Golden Demo Manifest
+
+### Purpose
+A canonical test case that defines correct behavior for MMMEdia Pro v1.0.
+
+### Contents
+
+**Directory Structure:**
+```
+/golden-demo/
+  manifest.json                 (canonical export)
+  /media/
+    clip_001.mp4               (10s, 1920x1080, 30fps)
+    clip_002.mp4               (5s, 1920x1080, 30fps)
+    clip_003.jpg               (1920x1080)
+    audio_001.mp3              (30s, stereo)
+  /expected-output/
+    premiere_timeline.png      (screenshot of expected timeline)
+    frame_timings.json         (exact frame positions)
+```
+
+### Manifest Specification
+
+**Project Settings:**
+- Name: "Golden Demo"
+- Resolution: 1920×1080
+- FPS: 30
+- Seed: "golden123"
+
+**Clips:**
+
+**Clip 001:**
+- File: clip_001.mp4
+- Timeline position: Frame 0 to 150 (5.0s)
+- Source trim: Frame 30 to 180 (using middle 5s of 10s source)
+- Track: 0
+- Speed: 1.0x
+- Effects: fx_cinematic_v1
+- Transition out: TR_Dissolve (15 frames)
+
+**Clip 002:**
+- File: clip_002.mp4
+- Timeline position: Frame 150 to 300 (5.0s)
+- Source trim: Frame 0 to 150 (full 5s)
+- Track: 0
+- Speed: 1.0x
+- Speed Ramp: sr_anime_impact_v1
+- Reversed: false
+
+**Clip 003:**
+- File: clip_003.jpg
+- Timeline position: Frame 300 to 450 (5.0s)
+- Track: 0
+- Duration: 5.0s (static image)
+- Effects: fx_punchy_v1
+
+**Audio 001:**
+- File: audio_001.mp3
+- Timeline position: Frame 0 to 450 (15.0s, full length)
+- Track: Audio 1
+- Volume: 0.8 (80%)
+
+**Text Overlay:**
+- Text: "Golden Demo"
+- Timeline position: Frame 60 to 240 (3.0s, 6.0s)
+- Track: T1
+- Style: Title preset
+- Position: Center (960, 540)
+- Animation: Fade In/Out
+
+**Expected Timeline:**
+```
+Frame:  0         150       300       450
+        |---------|---------|---------|
+Video:  [ Clip 001 ][ Clip 002 ][ Clip 003 ]
+        [FX: Cinematic] [SR: Anime]  [FX: Punchy]
+        [      TR: Dissolve      ]
+Audio:  [======== Audio 001 ================]
+Text:           [   "Golden Demo"   ]
+                (fade in/out)
+Validation Checklist
+When importing Golden Demo Manifest into Premiere:
+
+ Sequence created: "Golden Demo"
+ Sequence settings: 1920×1080, 30fps
+ Total duration: 450 frames (15.0 seconds)
+ Clip 001 in/out: Frame 0 / Frame 150
+ Clip 002 in/out: Frame 150 / Frame 300
+ Clip 003 in/out: Frame 300 / Frame 450
+ Audio 001 in/out: Frame 0 / Frame 450
+ Text layer in/out: Frame 60 / Frame 240
+ Effect fx_cinematic_v1 on Clip 001
+ Speed ramp sr_anime_impact_v1 on Clip 002
+ Effect fx_punchy_v1 on Clip 003
+ Transition TR_Dissolve between Clip 001 and 002 (15 frames)
+ Text displays "Golden Demo" in Title style
+ No missing media warnings
+ No missing asset warnings
+
+Pass Condition: All checklist items verified with 0 frame error
+
+Specification Summary
+What This Document Provides
+Complete System Definition:
+
+Dual-component architecture (Electron + Premiere Plugin)
+Three operating modes (Standalone, Hybrid, Premiere-only)
+Manifest protocol for edit portability
+
+Engineering Contracts:
+
+Frame-based time system (source of truth)
+Media matching algorithm (multi-factor identification)
+Asset registry system (stable IDs, versioning)
+Randomization engine determinism (seeded RNG)
+Automation vs manual ownership (origin tracking)
+Performance requirements (measurable targets)
+
+Feature Specifications:
+
+12 tabs in Electron app (full detail)
+Premiere Plugin capabilities (import + standalone)
+Creative Suite assets (20+20+12+5)
+Text editor, grid builder, motion builder, etc.
+
+Data Models:
+
+Clip, Text, Grid, Project Settings, Operation Log
+Complete with frame-based timing
+Ownership metadata for automation
+
+Development Roadmap:
+
+Phase 0: Contracts first
+Phase 1: Core Electron app
+Phase 1.5: Manifest pipeline (critical checkpoint)
+Phase 2-7: Incremental feature addition
+
+Acceptance Criteria:
+
+Golden Demo Manifest test
+Round-trip test
+Crash resistance tests
+Performance benchmarks
+
+What Developer Should Build
+Build Order:
+
+Start with Phase 0 (Contracts)
+Build Phase 1 (Core Electron App) completely
+Build Phase 1.5 (Manifest Pipeline) - do not skip this
+Only then proceed to Phase 2+
+
+Critical Success Factors:
+
+Implement frame-based time system exactly as specified
+Media matching must handle ambiguity gracefully
+Randomization must be deterministic (same seed = same output)
+Operation Log must track automation separately from manual edits
+Performance targets are requirements, not aspirations
+
+Golden Demo as North Star:
+
+Build features to pass Golden Demo test
+Frame-perfect accuracy is required
+Missing media/assets must not crash plugin
+
+Non-Negotiable Rules
+
+Time is frames - seconds are display-only
+Media matching is multi-factor - filename alone insufficient
+Assets have stable IDs - never rename, version instead
+Randomization is deterministic - seeded RNG, sorted UUIDs
+Automation respects ownership - manual/locked clips untouched
+Missing data handled gracefully - warn, substitute, continue
+Performance is functional requirement - not "nice to have"
+
+
+End of Specification
+Document Version: 1.0
+Last Updated: January 27, 2026
+Maintained By: ICUNI Labs Development Team
+Contact: Menelek Makonnen, ICUNI Group
+This specification represents the complete and authoritative definition of MMMEdia Pro. All features described are intended for implementation. Build incrementally, validate frequently, and use the Golden Demo Manifest as the ultimate acceptance test.
