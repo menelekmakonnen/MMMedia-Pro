@@ -19,7 +19,7 @@ export const generateManifest = (): Manifest => {
         timelineOut: clip.endFrame,
         sourceIn: clip.trimStartFrame,
         sourceOut: clip.trimEndFrame,
-        track: clip.track,
+        track: clip.track || 0,
         speed: clip.speed,
         volume: clip.volume,
         reversed: clip.reversed

@@ -1,17 +1,29 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Layers, GripVertical } from 'lucide-react';
+import { GripVertical, LayoutGrid, Minus, Square } from 'lucide-react';
 import { useClipStore } from '../../store/clipStore';
 import { useProjectStore } from '../../store/projectStore';
 import { VideoPlayer } from '../../components/VideoPlayer';
 import { ClipControls } from './ClipControls';
 import { GlobalControls } from './GlobalControls';
 import { ClipItem } from './ClipItem';
+import { SegmentSelector } from './SegmentSelector';
 
 export const TimelineTab: React.FC = () => {
-    const { clips, selectedClipIds, selectSingleClip, updateClip, selectedSegment, globalPlaybackSpeed, setAllClipsFolded } = useClipStore();
+    const {
+        clips,
+        selectedClipIds,
+        selectSingleClip,
+        updateClip,
+        selectedSegment,
+        globalPlaybackSpeed,
+        setAllClipsFolded,
+        transitionStrategy,
+        setTransitionStrategy
+    } = useClipStore();
     const { settings } = useProjectStore();
     const [currentFrame, setCurrentFrame] = useState(0);
-    const [leftPanelWidth, setLeftPanelWidth] = useState(35); // percentage
+    // UI state for resizable panels
+    const [leftPanelWidth, setLeftPanelWidth] = useState(30); // Percentage
     const [isResizing, setIsResizing] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
 
@@ -74,41 +86,75 @@ export const TimelineTab: React.FC = () => {
         };
     }, [isResizing]);
 
+    // Resizable Sidebar State
+    const [sidebarWidth, setSidebarWidth] = useState(64); // Default to 64px (slim)
+    const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+    const sidebarRef = useRef<HTMLDivElement>(null);
+
+    // Sidebar Resize Handler
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!isResizingSidebar) return;
+            const newWidth = window.innerWidth - e.clientX;
+            // Constrain width: min 48px, max 400px
+            setSidebarWidth(Math.max(48, Math.min(newWidth, 400)));
+        };
+
+        const handleMouseUp = () => setIsResizingSidebar(false);
+
+        if (isResizingSidebar) {
+            window.addEventListener('mousemove', handleMouseMove);
+            window.addEventListener('mouseup', handleMouseUp);
+        }
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [isResizingSidebar]);
+
     return (
-        <div className="h-full flex flex-col bg-background overflow-hidden">
-            {/* Main Content Area */}
-            <div ref={containerRef} className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
+        <div className="h-full flex flex-row bg-background overflow-hidden">
+            {/* Main Content Area: Left Panel + Video Player */}
+            <div ref={containerRef} className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden relative">
                 {/* Left Column: Clips List */}
                 <div
                     className="flex flex-col min-h-0 overflow-hidden border-b lg:border-b-0 lg:border-r border-white/5"
                     style={{ width: `${leftPanelWidth}%` }}
                 >
-                    <div className="p-4 border-b border-white/5 flex items-center justify-between">
+                    <div className="flex items-center justify-between p-4 border-b border-white/5 bg-white/5">
                         <div className="flex items-center gap-2">
-                            <Layers size={18} className="text-white/60" />
-                            <h3 className="text-sm font-medium text-white/80">Clips</h3>
-                            <span className="text-xs text-white/40">({clips.length})</span>
+                            <LayoutGrid size={16} className="text-white/40" />
+                            <span className="text-xs font-bold uppercase tracking-wider text-white/60">Timeline</span>
                         </div>
-
-                        <div className="flex items-center">
-                            <button
-                                onClick={() => {
-                                    // Check if any clip is unfolded; if so, fold all. Otherwise unfold all.
-                                    const anyUnfolded = clips.some(c => !c.isFolded);
-                                    setAllClipsFolded(anyUnfolded);
-                                }}
-                                className="p-1.5 hover:bg-white/10 rounded transition-colors text-white/40 hover:text-white/80"
-                                title="Fold/Unfold All"
+                        <div className="flex items-center gap-2">
+                            {/* Transition Strategy Selector */}
+                            <select
+                                className="bg-black/20 text-xs text-white/60 border border-white/10 rounded px-2 py-1 outline-none focus:border-primary/50"
+                                value={transitionStrategy}
+                                onChange={(e) => setTransitionStrategy(e.target.value as any)}
                             >
-                                <div className="flex flex-col gap-0.5">
-                                    <div className="w-3 h-0.5 bg-current rounded-full" />
-                                    <div className="w-3 h-0.5 bg-current rounded-full" />
-                                </div>
+                                <option value="cut">Cut</option>
+                                <option value="cross-dissolve">Dissolve</option>
+                                <option value="fade-to-black">Fade</option>
+                            </select>
+                            <button
+                                onClick={() => setAllClipsFolded(true)}
+                                className="p-1 hover:bg-white/10 rounded text-white/40 hover:text-white transition-colors"
+                                title="Collapse All"
+                            >
+                                <Minus size={14} />
+                            </button>
+                            <button
+                                onClick={() => setAllClipsFolded(false)}
+                                className="p-1 hover:bg-white/10 rounded text-white/40 hover:text-white transition-colors"
+                                title="Expand All"
+                            >
+                                <Square size={14} />
                             </button>
                         </div>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
                         {clips.length === 0 ? (
                             <div className="text-center py-12 text-white/40">
                                 No clips in timeline
@@ -127,21 +173,20 @@ export const TimelineTab: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Resize Handle */}
+                {/* Resize Handle (Left Panel) */}
                 <div
-                    className="hidden lg:flex items-center justify-center w-1 bg-white/5 hover:bg-accent/50 cursor-col-resize transition-colors relative group"
+                    className="hidden lg:flex items-center justify-center w-1 bg-white/5 hover:bg-accent/50 cursor-col-resize transition-colors relative group z-10"
                     onMouseDown={handleMouseDown}
-                    title="Drag to resize"
+                    title="Drag to resize list"
                 >
                     <div className="absolute inset-y-0 flex items-center justify-center pointer-events-none">
-                        <GripVertical size={16} className="text-white/20 group-hover:text-accent/70" />
+                        <GripVertical size={12} className="text-white/20 group-hover:text-accent/70" />
                     </div>
                 </div>
 
-                {/* Right Column: Video Player + ClipControls */}
-                <div className="flex flex-col flex-1 min-h-0">
-                    {/* Video Player Section */}
-                    <div className="flex-1 p-4 min-h-[300px]">
+                {/* Center Column: Video Player */}
+                <div className="flex flex-col flex-1 min-h-0 relative bg-black/50">
+                    <div className="flex-1 p-4 min-h-[300px] flex flex-col justify-center">
                         <VideoPlayer
                             videoPath={selectedClip?.type === 'video' ? selectedClip.path : undefined}
                             currentFrame={currentFrame}
@@ -150,19 +195,37 @@ export const TimelineTab: React.FC = () => {
                             onDurationChange={handleDurationChange}
                             playbackSpeed={globalPlaybackSpeed}
                             clipSpeed={selectedClip?.speed}
+                            centerControls={selectedClip ? <SegmentSelector clipId={selectedClip.id} /> : null}
                         />
                     </div>
-
-                    {/* ClipControls - Display if clip selected */}
                     {selectedClip && (
-                        <ClipControls clipId={selectedClip.id} />
+                        <div className="p-4 border-t border-white/5 bg-[#0a0a12]">
+                            <ClipControls clipId={selectedClip.id} />
+                        </div>
                     )}
                 </div>
             </div>
 
-            {/* Bottom: Global Controls - Horizontal Layout */}
-            <div className="border-t border-white/5">
-                <GlobalControls />
+            {/* Right Resize Handle (God Mode) */}
+            <div
+                className="w-1 bg-[#131320] hover:bg-accent/50 cursor-col-resize transition-colors z-30 flex items-center justify-center group flex-shrink-0"
+                onMouseDown={() => setIsResizingSidebar(true)}
+            >
+                <div className="h-8 w-0.5 bg-white/10 group-hover:bg-accent/50 rounded-full" />
+            </div>
+
+            {/* Right Column: Global Controls (Vertical Resizable) */}
+            <div
+                ref={sidebarRef}
+                className="flex-shrink-0 z-20 bg-[#080816] h-full relative shadow-xl overflow-hidden"
+                style={{ width: sidebarWidth }}
+            >
+                <GlobalControls
+                    orientation="vertical"
+                    slim={sidebarWidth < 180} // Switch to text mode if > 180px
+                    className="h-full"
+                    containerWidth={sidebarWidth} // Pass width for scaling
+                />
             </div>
         </div>
     );

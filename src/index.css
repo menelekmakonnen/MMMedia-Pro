@@ -2,11 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  body {
-    @apply bg-background text-white overflow-hidden;
-    font-family: 'Inter', sans-serif;
-  }
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #242424;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Custom Scrollbar */
@@ -16,13 +24,23 @@
 }
 
 ::-webkit-scrollbar-track {
-  @apply bg-[#0a0a1a];
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-[#1a1a2e] rounded-full hover:bg-primary/50 transition-colors;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
 }
 
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Draggable Windows */
 .drag {
   -webkit-app-region: drag;
 }

@@ -14,7 +14,9 @@ export interface Clip {
     volume?: number; // 0-100
     isMuted?: boolean;
     speed?: number; // playback speed multiplier (default: 1.0)
+    track?: number;
     isFolded?: boolean;
+    reversed?: boolean;
 }
 
 export interface SelectedSegment {
@@ -29,6 +31,7 @@ interface ClipStore {
     selectedSegment: SelectedSegment | null;
     globalMute: boolean;
     globalPlaybackSpeed: number;
+    transitionStrategy: 'cut' | 'cross-dissolve' | 'fade-to-black';
 
     addClip: (clip: Clip) => void;
     removeClip: (id: string) => void;
@@ -36,6 +39,7 @@ interface ClipStore {
     selectClip: (id: string) => void;
     deselectClip: (id: string) => void;
     selectSingleClip: (id: string) => void;
+    setClips: (clips: Clip[]) => void;
 
     // New actions
     duplicateClip: (id: string) => void;
@@ -63,6 +67,11 @@ interface ClipStore {
     // Folding
     setClipFolded: (id: string, folded: boolean) => void;
     setAllClipsFolded: (folded: boolean) => void;
+
+    // Phase 7: Advanced
+    setTransitionStrategy: (strategy: 'cut' | 'cross-dissolve' | 'fade-to-black') => void;
+    setClipDuration: (id: string, durationInSeconds: number) => void;
+    nukeLibrary: () => void;
 }
 
 export const useClipStore = create<ClipStore>((set, get) => ({
@@ -71,6 +80,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
     selectedSegment: null,
     globalMute: false,
     globalPlaybackSpeed: 1.0,
+    transitionStrategy: 'cut',
 
     addClip: (clip) => set((state) => ({ clips: [...state.clips, clip] })),
 
@@ -100,6 +110,8 @@ export const useClipStore = create<ClipStore>((set, get) => ({
             selectedSegment: clip ? { clipId: clip.id, startFrame: clip.startFrame, endFrame: clip.endFrame } : null
         });
     },
+
+    setClips: (clips) => set({ clips }),
 
     // New implementations
     duplicateClip: (id) => {
@@ -203,19 +215,23 @@ export const useClipStore = create<ClipStore>((set, get) => ({
         const fps = 30;
 
         const newClips = clips.map(clip => {
-            if (clip.isPinned || !clip.sourceDurationFrames) return clip;
+            if (clip.isPinned) return clip;
+
+            // FALLBACK: If sourceDurationFrames is 0 (not loaded), use a safe default of 1 minute (1800 frames)
+            // or use the current endFrame if it's > 0.
+            const effectiveMaxDuration = clip.sourceDurationFrames || Math.max(clip.endFrame, 1800);
 
             const minDuration = 1 * fps;
-            const maxDuration = Math.min(clip.sourceDurationFrames, 10 * fps);
+            const maxDuration = Math.min(effectiveMaxDuration, 10 * fps);
 
             if (maxDuration <= minDuration) return clip;
 
             const newDuration = Math.floor(Math.random() * (maxDuration - minDuration + 1)) + minDuration;
-            const maxStart = Math.max(0, clip.sourceDurationFrames - newDuration);
+            const maxStart = Math.max(0, effectiveMaxDuration - newDuration);
             const newStart = Math.floor(Math.random() * maxStart);
             const newEnd = newStart + newDuration;
 
-            return { ...clip, startFrame: newStart, endFrame: newEnd };
+            return { ...clip, startFrame: newStart, endFrame: newEnd, sourceDurationFrames: effectiveMaxDuration };
         });
 
         // Update selected segment if its clip changed
@@ -365,4 +381,30 @@ export const useClipStore = create<ClipStore>((set, get) => ({
         set((state) => ({
             clips: state.clips.map((clip) => ({ ...clip, isFolded })),
         })),
+
+    setTransitionStrategy: (transitionStrategy) => set({ transitionStrategy }),
+
+    nukeLibrary: () => set({ clips: [], selectedClipIds: [], selectedSegment: null }),
+
+    setClipDuration: (id, durationInSeconds) => {
+        set((state) => {
+            const fps = 30; // Global constant matching project settings
+            const durationFrames = Math.floor(durationInSeconds * fps);
+
+            return {
+                clips: state.clips.map((c) => {
+                    if (c.id !== id) return c;
+
+                    // Only update if currently 0 or we want to enforce accuracy
+                    return {
+                        ...c,
+                        sourceDurationFrames: durationFrames,
+                        endFrame: c.startFrame + durationFrames, // Extend to full length by default if imported fresh
+                        // Note: If we had a trimmer, we might not want to reset endFrame, 
+                        // but for the "Truncation" bug, resetting to full length is the fix.
+                    };
+                }),
+            };
+        });
+    },
 }));

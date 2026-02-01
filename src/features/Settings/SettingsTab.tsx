@@ -1,6 +1,7 @@
 import React from 'react';
 import { useProjectStore, ResolutionPreset } from '../../store/projectStore';
 import { Settings, Save, Zap, Upload, FileJson } from 'lucide-react';
+import { PowerMeter } from './PowerMeter';
 // import { useClipStore } from '../../store/clipStore'; // Dynamic import used below
 
 export const SettingsTab: React.FC = () => {
@@ -136,27 +137,19 @@ export const SettingsTab: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="space-y-6 relative z-10">
-                            <div>
-                                <div className="flex justify-between text-xs mb-2">
-                                    <span className="text-white/50">System Load</span>
-                                    <span className="text-primary font-mono">12%</span>
-                                </div>
-                                <div className="h-2 w-full bg-black/50 rounded-full overflow-hidden">
-                                    <div className="h-full w-[12%] bg-gradient-to-r from-primary to-cyan-400 rounded-full" />
-                                </div>
-                            </div>
+                        <div className="flex flex-col items-center justify-center py-4 relative z-10">
+                            <PowerMeter label="Render Core" color="#8b5cf6" />
 
-                            <div className="grid grid-cols-3 gap-4">
-                                <div className="bg-black/30 p-3 rounded-lg text-center">
+                            <div className="grid grid-cols-3 gap-4 w-full mt-6">
+                                <div className="bg-black/30 p-3 rounded-lg text-center backdrop-blur-sm border border-white/5">
                                     <div className="text-xs text-white/40 mb-1">MEM</div>
                                     <div className="text-lg font-mono font-bold text-white/90">1.2<span className="text-xs font-normal text-white/40 ml-1">GB</span></div>
                                 </div>
-                                <div className="bg-black/30 p-3 rounded-lg text-center">
+                                <div className="bg-black/30 p-3 rounded-lg text-center backdrop-blur-sm border border-white/5">
                                     <div className="text-xs text-white/40 mb-1">FPS</div>
                                     <div className="text-lg font-mono font-bold text-white/90">60</div>
                                 </div>
-                                <div className="bg-black/30 p-3 rounded-lg text-center">
+                                <div className="bg-black/30 p-3 rounded-lg text-center backdrop-blur-sm border border-white/5">
                                     <div className="text-xs text-white/40 mb-1">GPU</div>
                                     <div className="text-lg font-mono font-bold text-green-400">ON</div>
                                 </div>

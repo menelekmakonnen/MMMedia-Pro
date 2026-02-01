@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Clip, useClipStore } from '../../store/clipStore';
 import { ClipControls } from './ClipControls';
 import { SegmentSelector } from './SegmentSelector';
+import { TimelineWaveform } from './TimelineWaveform';
 
 interface ClipItemProps {
     clip: Clip;
@@ -17,13 +18,28 @@ export const ClipItem: React.FC<ClipItemProps> = memo(({ clip, isSelected, onSel
     return (
         <div
             className={`bg-surface-dark rounded-lg border transition-colors ${isSelected
-                ? 'border-accent shadow-lg shadow-accent/20'
+                ? 'border-accent shadow-[0_0_0_1px_rgba(139,92,246,0.5)]'
                 : 'border-white/10 hover:border-white/20'
-                }`}
-            onClick={() => onSelect(clip.id)}
+                } overflow-hidden flex flex-col relative`}
+            onClick={(e) => {
+                e.stopPropagation();
+                onSelect(clip.id);
+            }}
         >
+            {/* Waveform Background (for non-folded video/audio) */}
+            {!isFolded && (clip.type === 'video' || clip.type === 'audio') && (
+                <div className="absolute inset-0 z-0 opacity-20 pointer-events-none">
+                    <TimelineWaveform
+                        path={clip.path}
+                        width={300} // Approximate rendering width
+                        height={100}
+                        color={isSelected ? '#8b5cf6' : '#ffffff'}
+                    />
+                </div>
+            )}
+
             {/* Clip Header */}
-            <div className="p-3">
+            <div className="p-3 relative z-10">
                 <div className="flex items-start justify-between gap-3">
                     {/* Fold Toggle */}
                     <button

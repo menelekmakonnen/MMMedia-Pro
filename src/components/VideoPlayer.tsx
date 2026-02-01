@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Volume2 } from 'lucide-react';
+import { AudioVisualizer } from './AudioVisualizer';
 
 interface VideoPlayerProps {
     videoPath?: string;
@@ -7,8 +8,9 @@ interface VideoPlayerProps {
     fps: number;
     onFrameChange: (frame: number) => void;
     onDurationChange?: (duration: number) => void;
-    playbackSpeed?: number;  // Global playback speed
-    clipSpeed?: number;       // Per-clip speed
+    playbackSpeed?: number;
+    clipSpeed?: number;
+    centerControls?: React.ReactNode;
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -19,6 +21,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     onDurationChange,
     playbackSpeed = 1,
     clipSpeed = 1,
+    centerControls,
 }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [isPlaying, setIsPlaying] = useState(false);
@@ -109,65 +112,87 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 ) : (
                     <div className="text-white/40 text-sm">No video loaded</div>
                 )}
-            </div>
+            </div >
 
             {/* Transport Controls - Always visible */}
-            <div className="bg-[#0a0a15] border-t border-white/10 p-4 flex-shrink-0">
-                <div className="flex items-center justify-between gap-4">
-                    {/* Playback Controls */}
-                    <div className="flex items-center gap-2">
+            < div className="bg-[#0a0a15] border-t border-white/10 px-4 py-2 flex-shrink-0" >
+                <div className="flex items-center gap-4 h-12">
+                    {/* Left: Playback Controls */}
+                    <div className="flex items-center gap-2 flex-shrink-0">
                         <button
                             onClick={skipBackward}
-                            className="h-10 w-10 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded-lg transition-colors"
+                            className="h-8 w-8 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded transition-colors"
                         >
-                            <SkipBack size={18} />
+                            <SkipBack size={16} />
                         </button>
                         <button
                             onClick={togglePlayPause}
                             disabled={!videoPath}
-                            className="h-12 w-12 flex items-center justify-center bg-primary hover:bg-primary/80 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="h-10 w-10 flex items-center justify-center bg-primary hover:bg-primary/80 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            {isPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
+                            {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
                         </button>
                         <button
                             onClick={skipForward}
-                            className="h-10 w-10 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded-lg transition-colors"
+                            className="h-8 w-8 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded transition-colors"
                         >
-                            <SkipForward size={18} />
+                            <SkipForward size={16} />
                         </button>
                     </div>
 
-                    {/* Timecode */}
-                    <div className="flex-1 text-center">
-                        <div className="font-mono text-lg text-white/90">
-                            {Math.floor(currentFrame / fps / 60).toString().padStart(2, '0')}:
-                            {Math.floor((currentFrame / fps) % 60).toString().padStart(2, '0')}:
-                            {(currentFrame % fps).toString().padStart(2, '0')}
-                        </div>
-                        <div className="text-xs text-white/40 mt-1">Frame {currentFrame}</div>
+                    {/* Center: Custom Controls (Segment Selector) */}
+                    <div className="flex-1 flex justify-center min-w-0">
+                        {centerControls && (
+                            <div className="w-full max-w-2xl">
+                                {centerControls}
+                            </div>
+                        )}
                     </div>
 
-                    {/* Volume */}
-                    <div className="flex items-center gap-2">
-                        <Volume2 size={18} className="text-white/60" />
-                        <input
-                            type="range"
-                            min="0"
-                            max="1"
-                            step="0.01"
-                            value={volume}
-                            onChange={(e) => {
-                                const newVolume = parseFloat(e.target.value);
-                                setVolume(newVolume);
-                                if (videoRef.current) {
-                                    videoRef.current.volume = newVolume;
-                                }
-                            }}
-                            className="w-24"
-                        />
+                    {/* Right: Info & Volume */}
+                    <div className="flex items-center gap-4 flex-shrink-0">
+                        {/* Audio Visualizer */}
+                        <div className="h-8 w-24 bg-black/20 rounded overflow-hidden flex items-center border border-white/5 hidden xl:flex">
+                            <AudioVisualizer
+                                videoElement={videoRef.current}
+                                width={96}
+                                height={32}
+                                barColor="#06b6d4"
+                            />
+                        </div>
+
+                        {/* Timecode */}
+                        <div className="text-right hidden lg:block">
+                            <div className="font-mono text-sm text-white/90">
+                                {Math.floor(currentFrame / fps / 60).toString().padStart(2, '0')}:
+                                {Math.floor((currentFrame / fps) % 60).toString().padStart(2, '0')}:
+                                {(currentFrame % fps).toString().padStart(2, '0')}
+                            </div>
+                            <div className="text-[10px] text-white/40">Frame {currentFrame}</div>
+                        </div>
+
+                        {/* Volume */}
+                        <div className="flex items-center gap-2">
+                            <Volume2 size={16} className="text-white/60" />
+                            <input
+                                type="range"
+                                min="0"
+                                max="1"
+                                step="0.01"
+                                value={volume}
+                                onChange={(e) => {
+                                    const newVolume = parseFloat(e.target.value);
+                                    setVolume(newVolume);
+                                    if (videoRef.current) {
+                                        videoRef.current.volume = newVolume;
+                                    }
+                                }}
+                                className="w-16 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
+                            />
+                        </div>
                     </div>
                 </div>
-            </div>
-        </div>
+            </div >
+        </div >
     );
 };

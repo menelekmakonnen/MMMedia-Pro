@@ -23,6 +23,7 @@ try {
 
         // File operations
         selectFiles: () => ipcRenderer.invoke('select-files'),
+        readFileBuffer: (path: string) => ipcRenderer.invoke('read-file-buffer', path),
 
         // Persistence & Manifest API
         saveProject: (content: string) => ipcRenderer.invoke('save-project', content),
