@@ -1,11 +1,11 @@
 import React from 'react';
-import { useProjectStore, ResolutionPreset } from '../../store/projectStore';
-import { Settings, Save, Zap, Upload, FileJson } from 'lucide-react';
+import { useProjectStore } from '../../store/projectStore';
+import { Settings, Save, Upload, FileJson } from 'lucide-react';
 import { PowerMeter } from './PowerMeter';
 // import { useClipStore } from '../../store/clipStore'; // Dynamic import used below
 
 export const SettingsTab: React.FC = () => {
-    const { settings, updateSettings, setResolution } = useProjectStore();
+    const { settings, updateSettings } = useProjectStore();
 
     return (
         <div className="flex h-full w-full flex-col gap-8 p-8 overflow-y-auto w-full max-w-5xl mx-auto animate-in fade-in duration-300">
@@ -39,18 +39,18 @@ export const SettingsTab: React.FC = () => {
                             </div>
 
                             <div>
-                                <label className="block text-xs font-medium text-white/40 mb-1 uppercase tracking-wider">Resolution</label>
+                                <label className="block text-xs font-medium text-white/40 mb-2 uppercase tracking-wider">Aspect Ratio</label>
                                 <div className="grid grid-cols-3 gap-2">
-                                    {(['720p', '1080p', '4K'] as ResolutionPreset[]).map((res) => (
+                                    {(['9:16', '16:9', '1:1', '4:3', '21:9'] as const).map((ratio) => (
                                         <button
-                                            key={res}
-                                            onClick={() => setResolution(res)}
-                                            className={`px-4 py-3 rounded-lg text-sm font-medium transition-all ${settings.resolution.label.includes(res)
+                                            key={ratio}
+                                            onClick={() => useProjectStore.getState().setAspectRatio(ratio)}
+                                            className={`px-3 py-3 rounded-lg text-sm font-medium transition-all ${settings.aspectRatio === ratio
                                                 ? 'bg-primary text-white shadow-lg shadow-primary/25 ring-1 ring-white/20'
                                                 : 'bg-[#0a0a15] text-white/60 hover:text-white hover:bg-white/10'
                                                 }`}
                                         >
-                                            {res}
+                                            {ratio}
                                         </button>
                                     ))}
                                 </div>
@@ -60,64 +60,51 @@ export const SettingsTab: React.FC = () => {
                             </div>
 
                             <div>
-                                <label className="block text-xs font-medium text-white/40 mb-1 uppercase tracking-wider">Frame Rate</label>
-                                <select
-                                    value={settings.fps}
-                                    onChange={(e) => updateSettings({ fps: Number(e.target.value) })}
-                                    className="w-full bg-[#0a0a15] border border-white/10 rounded-lg p-3 text-white focus:outline-none focus:border-primary/50"
-                                >
-                                    <option value="24">24 fps (Cinema)</option>
-                                    <option value="30">30 fps (TV/Web)</option>
-                                    <option value="60">60 fps (High Motion)</option>
-                                    <option value="120">120 fps (Smooth)</option>
-                                </select>
+                                <label className="block text-xs font-medium text-white/40 mb-2 uppercase tracking-wider">Frame Rate</label>
+                                <div className="grid grid-cols-4 gap-2">
+                                    {[24, 30, 60, 120].map((fps) => (
+                                        <button
+                                            key={fps}
+                                            onClick={() => updateSettings({ fps })}
+                                            className={`px-3 py-3 rounded-lg text-sm font-medium transition-all ${settings.fps === fps
+                                                ? 'bg-primary text-white shadow-lg shadow-primary/25 ring-1 ring-white/20'
+                                                : 'bg-[#0a0a15] text-white/60 hover:text-white hover:bg-white/10'
+                                                }`}
+                                        >
+                                            {fps}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="mt-2 text-xs text-white/30 text-right">
+                                    {settings.fps === 24 ? 'Cinema' : settings.fps === 30 ? 'TV/Web' : settings.fps === 60 ? 'High Motion' : 'Smooth'}
+                                </div>
                             </div>
 
                             <div>
-                                <label className="block text-xs font-medium text-white/40 mb-1 uppercase tracking-wider">Aspect Ratio</label>
-                                <select
-                                    value={`${settings.resolution.width}:${settings.resolution.height}`}
-                                    onChange={(e) => {
-                                        const ratio = e.target.value;
-                                        let width = settings.resolution.width;
-                                        let height = settings.resolution.height;
-
-                                        // Calculate new dimensions based on ratio
-                                        const baseHeight = settings.resolution.height;
-                                        switch (ratio) {
-                                            case '16:9':
-                                                width = Math.round(baseHeight * (16 / 9));
-                                                break;
-                                            case '9:16':
-                                                width = Math.round(baseHeight * (9 / 16));
-                                                break;
-                                            case '4:3':
-                                                width = Math.round(baseHeight * (4 / 3));
-                                                break;
-                                            case '1:1':
-                                                width = baseHeight;
-                                                break;
-                                            case '21:9':
-                                                width = Math.round(baseHeight * (21 / 9));
-                                                break;
-                                        }
-
-                                        updateSettings({
-                                            resolution: {
-                                                width,
-                                                height,
-                                                label: `${width}x${height}`
-                                            }
-                                        });
-                                    }}
-                                    className="w-full bg-[#0a0a15] border border-white/10 rounded-lg p-3 text-white focus:outline-none focus:border-primary/50"
-                                >
-                                    <option value="16:9">16:9 (Widescreen)</option>
-                                    <option value="9:16">9:16 (Vertical/Mobile)</option>
-                                    <option value="4:3">4:3 (Standard)</option>
-                                    <option value="1:1">1:1 (Square)</option>
-                                    <option value="21:9">21:9 (Ultrawide)</option>
-                                </select>
+                                <label className="block text-xs font-medium text-white/40 mb-2 uppercase tracking-wider">Background Fill</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                        onClick={() => updateSettings({ backgroundFillMode: 'blur' })}
+                                        className={`px-4 py-3 rounded-lg text-sm font-medium transition-all ${settings.backgroundFillMode === 'blur'
+                                            ? 'bg-primary text-white shadow-lg shadow-primary/25 ring-1 ring-white/20'
+                                            : 'bg-[#0a0a15] text-white/60 hover:text-white hover:bg-white/10'
+                                            }`}
+                                    >
+                                        Blur
+                                    </button>
+                                    <button
+                                        onClick={() => updateSettings({ backgroundFillMode: 'black' })}
+                                        className={`px-4 py-3 rounded-lg text-sm font-medium transition-all ${settings.backgroundFillMode === 'black'
+                                            ? 'bg-primary text-white shadow-lg shadow-primary/25 ring-1 ring-white/20'
+                                            : 'bg-[#0a0a15] text-white/60 hover:text-white hover:bg-white/10'
+                                            }`}
+                                    >
+                                        Black
+                                    </button>
+                                </div>
+                                <div className="mt-2 text-xs text-white/40">
+                                    Fill mode for videos that don't match the aspect ratio
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -155,22 +142,6 @@ export const SettingsTab: React.FC = () => {
                                 </div>
                             </div>
                         </div>
-                    </div>
-
-                    {/* God Mode Toggle */}
-                    <div className="p-6 rounded-2xl bg-white/5 border border-white/5 flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <div className="h-10 w-10 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-400">
-                                <Zap size={20} />
-                            </div>
-                            <div>
-                                <h3 className="font-medium text-white/90">God Mode</h3>
-                                <p className="text-xs text-white/40">Enable AI automation tools</p>
-                            </div>
-                        </div>
-                        <button className="h-8 w-14 bg-primary rounded-full relative transition-all hover:bg-primary/80">
-                            <div className="absolute top-1 right-1 h-6 w-6 bg-white rounded-full shadow-sm" />
-                        </button>
                     </div>
                 </div>
             </div>

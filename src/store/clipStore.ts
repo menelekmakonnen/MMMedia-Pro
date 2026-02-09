@@ -72,6 +72,10 @@ interface ClipStore {
     setTransitionStrategy: (strategy: 'cut' | 'cross-dissolve' | 'fade-to-black') => void;
     setClipDuration: (id: string, durationInSeconds: number) => void;
     nukeLibrary: () => void;
+
+    // Phase 18: Sequence Actions
+    magnetizeClips: () => void;
+    reorderClips: (fromIndex: number, toIndex: number) => void;
 }
 
 export const useClipStore = create<ClipStore>((set, get) => ({
@@ -405,6 +409,65 @@ export const useClipStore = create<ClipStore>((set, get) => ({
                     };
                 }),
             };
+        });
+    },
+
+    // Phase 18: Sequence Actions
+    magnetizeClips: () => {
+        set((state) => {
+            // Sort by start frame first to maintain rough order
+            const sortedClips = [...state.clips].sort((a, b) => {
+                if (a.track !== b.track) return (a.track || 0) - (b.track || 0);
+                return a.startFrame - b.startFrame;
+            });
+
+            // Re-assign start frames sequentially for track 1 (Main Video)
+            // Currently simplified to assume single track sequencing for "Sequence View"
+            let currentFrame = 0;
+            const newClips = sortedClips.map(clip => {
+                // Determine clip duration
+                // Fix: Ensure we use the actual clip visibility duration (end - start) or sourceDuration if fresh
+                const duration = clip.endFrame - clip.startFrame;
+
+                // If it's a video on track 1 (or we treat all videos as sequence)
+                // For "Sequence View", we likely want to flatten everything or just Video 1?
+                // The prompt says "arrange and rearrange videos... side by side". 
+                // Let's assume we are sequencing ALL clips linearly for now, or just Track 1.
+                // Let's target Track 1 specifically for "The Sequence".
+
+                if (clip.track === 1 || !clip.track) {
+                    const start = currentFrame;
+                    const end = start + duration;
+                    currentFrame = end;
+                    return { ...clip, startFrame: start, endFrame: end };
+                }
+                return clip;
+            });
+
+            return { clips: newClips };
+        });
+    },
+
+    reorderClips: (fromIndex, toIndex) => {
+        set((state) => {
+            // 1. Get current list, presumably sorted by timeline order
+            const currentClips = [...state.clips].sort((a, b) => a.startFrame - b.startFrame);
+
+            // 2. Perform array move
+            const [movedClip] = currentClips.splice(fromIndex, 1);
+            currentClips.splice(toIndex, 0, movedClip);
+
+            // 3. Magnetize (Recalculate frames based on new order)
+            let currentFrame = 0;
+            const updatedClips = currentClips.map(clip => {
+                const duration = clip.endFrame - clip.startFrame;
+                const start = currentFrame;
+                const end = start + duration;
+                currentFrame = end;
+                return { ...clip, startFrame: start, endFrame: end };
+            });
+
+            return { clips: updatedClips };
         });
     },
 }));

@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, FolderOpen, Film, Share2, Layers } from 'lucide-react';
+import { LayoutDashboard, FolderOpen, Film, FileJson } from 'lucide-react';
 import { useViewStore } from '../store/viewStore';
 import { TabId } from '../types';
 import clsx from 'clsx';
@@ -28,9 +28,8 @@ export const Sidebar: React.FC = () => {
             <NavItem id="dashboard" icon={LayoutDashboard} label="Settings / Dashboard" />
             <NavItem id="media" icon={FolderOpen} label="Media Manager" />
             <NavItem id="timeline" icon={Film} label="Timeline Editor" />
-            <NavItem id="sequence" icon={Layers} label="Sequence View" />
             <div className="flex-grow" />
-            <NavItem id="export" icon={Share2} label="Export" />
+            <NavItem id="export" icon={FileJson} label="Export Manifest" />
         </div>
     );
 };

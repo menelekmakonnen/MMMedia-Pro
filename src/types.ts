@@ -31,4 +31,4 @@ export interface Clip {
     };
 }
 
-export type TabId = 'dashboard' | 'media' | 'timeline' | 'godmode' | 'sequence' | 'export';
+export type TabId = 'dashboard' | 'media' | 'timeline' | 'godmode' | 'export';

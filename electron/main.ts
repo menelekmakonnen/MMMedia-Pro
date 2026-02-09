@@ -10,7 +10,7 @@ const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 
 function createWindow() {
     win = new BrowserWindow({
-        icon: join(process.env.VITE_PUBLIC, 'icon.png'),
+        icon: join(process.env.VITE_PUBLIC, 'logo.png'),
         frame: false,
         width: 1400,
         height: 900,

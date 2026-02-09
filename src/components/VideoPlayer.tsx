@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Volume2 } from 'lucide-react';
 import { AudioVisualizer } from './AudioVisualizer';
+import { useProjectStore } from '../store/projectStore';
 
 interface VideoPlayerProps {
     videoPath?: string;
@@ -11,6 +12,7 @@ interface VideoPlayerProps {
     playbackSpeed?: number;
     clipSpeed?: number;
     centerControls?: React.ReactNode;
+    stopAtFrame?: number;
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -22,26 +24,65 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     playbackSpeed = 1,
     clipSpeed = 1,
     centerControls,
+    stopAtFrame,
 }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
+    const bgVideoRef = useRef<HTMLVideoElement>(null);
     const [isPlaying, setIsPlaying] = useState(false);
+    const [isReady, setIsReady] = useState(false);
     const [volume, setVolume] = useState(1);
     const [duration, setDuration] = useState(0);
+
+    const { settings } = useProjectStore();
+    const backgroundFillMode = settings.backgroundFillMode;
+    const aspectRatio = settings.aspectRatio;
 
     // Calculate effective playback speed (global * clip-specific)
     const effectiveSpeed = playbackSpeed * clipSpeed;
 
+    useEffect(() => {
+        setIsReady(false);
+    }, [videoPath]);
+
     // Sync video current time with frame
     useEffect(() => {
-        if (videoRef.current && !isPlaying) {
-            videoRef.current.currentTime = currentFrame / fps;
+        if (!isReady) return; // Wait for metadata
+
+        if (videoRef.current) {
+            const targetTime = currentFrame / fps;
+            // Only sync if not playing OR if there is a significant deviation (e.g. clip change / seek)
+            // Deviation > 0.5s usually means we swapped clips or user scrubbed far away
+            if (!isPlaying || Math.abs(videoRef.current.currentTime - targetTime) > 0.5) {
+                videoRef.current.currentTime = targetTime;
+
+                // CRITICAL: If we were playing and swapped source (deviation), ensure we keep playing
+                if (isPlaying) {
+                    const playPromise = videoRef.current.play();
+                    if (playPromise !== undefined) {
+                        playPromise.catch(() => {
+                            // Verify console logs for "DOMException: The play() request was interrupted"
+                            // If it fails (e.g. not loaded), onLoadedMetadata should handle it or next tick
+                        });
+                    }
+                }
+            }
         }
-    }, [currentFrame, fps, isPlaying]);
+        // Sync background video too
+        if (bgVideoRef.current) {
+            const targetTime = currentFrame / fps;
+            if (!isPlaying || Math.abs(bgVideoRef.current.currentTime - targetTime) > 0.5) {
+                bgVideoRef.current.currentTime = targetTime;
+            }
+        }
+    }, [currentFrame, fps, isPlaying, videoPath, isReady]); // Added videoPath as dependency to ensure re-check on swap
 
     // Apply playback speed to video element
     useEffect(() => {
         if (videoRef.current) {
             videoRef.current.playbackRate = effectiveSpeed;
+        }
+        if (bgVideoRef.current) {
+            bgVideoRef.current.playbackRate = effectiveSpeed;
         }
     }, [effectiveSpeed]);
 
@@ -50,8 +91,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (!videoRef.current || !isPlaying) return;
 
         const interval = setInterval(() => {
+            if (!isReady) return; // Guard: Wait for metadata
+
             if (videoRef.current) {
                 const newFrame = Math.floor(videoRef.current.currentTime * fps);
+                // Check if we hit the limit
+                if (stopAtFrame !== undefined && newFrame >= stopAtFrame) {
+                    setIsPlaying(false);
+                    videoRef.current.pause();
+                    if (bgVideoRef.current) bgVideoRef.current.pause();
+                    onFrameChange(stopAtFrame); // Snap to end
+                    return;
+                }
                 onFrameChange(newFrame);
             }
         }, 1000 / fps);
@@ -64,9 +115,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
         if (isPlaying) {
             videoRef.current.pause();
+            if (bgVideoRef.current) bgVideoRef.current.pause();
             setIsPlaying(false);
         } else {
             videoRef.current.play();
+            if (bgVideoRef.current) bgVideoRef.current.play();
             setIsPlaying(true);
         }
     };
@@ -75,8 +128,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (videoRef.current) {
             const vidDuration = videoRef.current.duration;
             setDuration(vidDuration);
+
+            // Mark as ready
+            setIsReady(true);
+
+            // Immediate initial seek on load to prevent frame 0 flash
+            if (currentFrame > 0) {
+                videoRef.current.currentTime = currentFrame / fps;
+            }
+
             if (onDurationChange) {
                 onDurationChange(vidDuration);
+            }
+
+            // If we are supposed to be playing, ensure we play
+            if (isPlaying) {
+                videoRef.current.play().catch(() => { });
             }
         }
     };
@@ -94,25 +161,42 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     return (
         <div className="flex flex-col h-full bg-black/50 rounded-lg overflow-hidden">
-            {/* Video Container - Responsive with object-fit contain */}
+            {/* Video Container - Aspect ratio aware with background fill */}
             <div
-                className="flex-1 relative bg-black flex items-center justify-center min-h-0 overflow-hidden cursor-pointer"
+                className="flex-1 relative flex items-center justify-center min-h-0 overflow-hidden cursor-pointer"
+                style={{
+                    aspectRatio: aspectRatio,
+                    backgroundColor: backgroundFillMode === 'black' ? '#000000' : undefined
+                }}
                 onClick={togglePlayPause}
                 title={isPlaying ? "Click to pause" : "Click to play"}
             >
                 {videoPath ? (
-                    <video
-                        ref={videoRef}
-                        src={`file://${videoPath}`}
-                        className="w-full h-full object-contain"
-                        style={{ maxHeight: '100%', maxWidth: '100%' }}
-                        onLoadedMetadata={handleLoadedMetadata}
-                        onEnded={() => setIsPlaying(false)}
-                    />
+                    <>
+                        {/* Blurred background video */}
+                        {backgroundFillMode === 'blur' && (
+                            <video
+                                ref={bgVideoRef}
+                                src={`file://${videoPath}`}
+                                className="absolute inset-0 w-full h-full object-cover blur-2xl opacity-60"
+                                muted
+                            />
+                        )}
+
+                        {/* Main video - centered with contain */}
+                        <video
+                            ref={videoRef}
+                            src={`file://${videoPath}`}
+                            className="relative w-full h-full object-contain z-10"
+                            onLoadedMetadata={handleLoadedMetadata}
+                            onEnded={() => setIsPlaying(false)}
+                        />
+                    </>
                 ) : (
                     <div className="text-white/40 text-sm">No video loaded</div>
                 )}
-            </div >
+            </div>
+
 
             {/* Transport Controls - Always visible */}
             < div className="bg-[#0a0a15] border-t border-white/10 px-4 py-2 flex-shrink-0" >

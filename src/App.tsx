@@ -3,7 +3,6 @@ import { useViewStore } from './store/viewStore';
 import { SettingsTab } from './features/Settings/SettingsTab';
 import { MediaManagerTab } from './features/MediaManager/MediaManagerTab';
 import { TimelineTab } from './features/Timeline/TimelineTab';
-import { SequenceTab } from './features/Sequence/SequenceTab';
 import { ExportTab } from './features/Export/ExportTab';
 import { Minus, Square, X } from 'lucide-react';
 
@@ -18,8 +17,6 @@ function App() {
                 return <MediaManagerTab />;
             case 'timeline':
                 return <TimelineTab />;
-            case 'sequence':
-                return <SequenceTab />;
             case 'export':
                 return <ExportTab />;
             default:

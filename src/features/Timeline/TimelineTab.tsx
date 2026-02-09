@@ -196,6 +196,7 @@ export const TimelineTab: React.FC = () => {
                             playbackSpeed={globalPlaybackSpeed}
                             clipSpeed={selectedClip?.speed}
                             centerControls={selectedClip ? <SegmentSelector clipId={selectedClip.id} /> : null}
+                            stopAtFrame={selectedClip ? (selectedClip.trimEndFrame || selectedClip.endFrame) : undefined}
                         />
                     </div>
                     {selectedClip && (
