@@ -1,0 +1,11 @@
+{
+    "id": "fx_gen_17",
+    "name": "Generated Effect 17",
+    "type": "effect",
+    "description": "Auto-generated effect variant 17",
+    "shader": "hue-rotate(170deg) sepia(85%)",
+    "parameters": {
+        "hue": 170,
+        "sepia": 85
+    }
+}

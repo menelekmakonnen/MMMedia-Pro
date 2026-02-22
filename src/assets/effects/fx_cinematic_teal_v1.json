@@ -1,0 +1,12 @@
+{
+    "id": "fx_cinematic_teal_v1",
+    "type": "effect",
+    "name": "Cinematic Teal & Orange",
+    "description": "Classic cinema color grading",
+    "lumetriPreset": "cinematic_teal_orange.cube",
+    "parameters": {
+        "contrast": 1.2,
+        "saturation": 1.1,
+        "temperature": -10
+    }
+}

@@ -1,0 +1,11 @@
+{
+    "id": "fx_gen_11",
+    "name": "Generated Effect 11",
+    "type": "effect",
+    "description": "Auto-generated effect variant 11",
+    "shader": "hue-rotate(110deg) sepia(55%)",
+    "parameters": {
+        "hue": 110,
+        "sepia": 55
+    }
+}

@@ -1,0 +1,20 @@
+{
+    "id": "ramp_flash_in",
+    "name": "Flash In",
+    "type": "speed-ramp",
+    "description": "Start fast, slow down to normal speed.",
+    "points": [
+        {
+            "x": 0,
+            "y": 8.0
+        },
+        {
+            "x": 0.2,
+            "y": 1.0
+        },
+        {
+            "x": 1.0,
+            "y": 1.0
+        }
+    ]
+}

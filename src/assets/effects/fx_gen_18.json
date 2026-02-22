@@ -1,0 +1,11 @@
+{
+    "id": "fx_gen_18",
+    "name": "Generated Effect 18",
+    "type": "effect",
+    "description": "Auto-generated effect variant 18",
+    "shader": "hue-rotate(180deg) sepia(90%)",
+    "parameters": {
+        "hue": 180,
+        "sepia": 90
+    }
+}

@@ -1,0 +1,11 @@
+{
+    "id": "fx_gen_16",
+    "name": "Generated Effect 16",
+    "type": "effect",
+    "description": "Auto-generated effect variant 16",
+    "shader": "hue-rotate(160deg) sepia(80%)",
+    "parameters": {
+        "hue": 160,
+        "sepia": 80
+    }
+}

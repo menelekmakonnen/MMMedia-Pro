@@ -1,0 +1,12 @@
+{
+    "id": "fx_vintage_film_v1",
+    "type": "effect",
+    "name": "Vintage Film",
+    "description": "Old film aesthetic with grain and vignette",
+    "lumetriPreset": "vintage_film.cube",
+    "parameters": {
+        "grain": 0.3,
+        "vignette": 0.4,
+        "desaturation": 0.2
+    }
+}

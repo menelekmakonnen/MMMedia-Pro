@@ -60,8 +60,8 @@ export const GlobalControls: React.FC<GlobalControlsProps> = ({
             <div className={`bg-[#080816] ${isVertical ? 'h-full border-l border-white/10 flex flex-col' : 'border-t border-white/10'} ${slim ? 'p-2 space-y-4 items-center' : 'p-4 space-y-4'} ${className}`}>
 
                 {/* Stats Section */}
-                {sections.includes('stats') && (
-                    <div className={`flex ${isVertical ? 'flex-col gap-3' : 'items-center gap-4 border-b border-white/5 pb-0'} order-1`}>
+                {!isVertical && sections.includes('stats') && (
+                    <div className={`flex items-center gap-4 border-b border-white/5 pb-0 order-1`}>
                         {isVertical && !slim && (
                             <div className="text-xs font-bold text-white/40 uppercase tracking-widest mb-1">Project Stats</div>
                         )}
@@ -108,8 +108,8 @@ export const GlobalControls: React.FC<GlobalControlsProps> = ({
                 )}
 
                 {/* Automation Suite */}
-                {sections.includes('automation') && (
-                    <div className={`order-2 ${isVertical ? 'flex-1 overflow-y-auto min-h-0 custom-scrollbar w-full' : 'pt-2'}`}>
+                {!isVertical && sections.includes('automation') && (
+                    <div className={`order-2 pt-2`}>
                         {isVertical && !slim && (
                             <div className="text-xs font-bold text-white/40 uppercase tracking-widest mb-3 mt-2">Automation</div>
                         )}
@@ -127,41 +127,41 @@ export const GlobalControls: React.FC<GlobalControlsProps> = ({
 
                 {/* Actions & Mute Section */}
                 {(sections.includes('actions') || sections.includes('mute')) && (
-                    <div className={`order-3 ${isVertical ? 'flex flex-col gap-3 mt-auto pt-4 border-t border-white/5 w-full' : 'flex flex-wrap items-center justify-between gap-4 border-t border-white/5 pt-4'}`}>
+                    <div className={`order-3 ${isVertical ? 'flex flex-col gap-4 my-auto w-full pt-4' : 'flex flex-wrap items-center justify-between gap-4 border-t border-white/5 pt-4'}`}>
 
                         {/* Center Section: Actions */}
                         {sections.includes('actions') && (
-                            <div className={`flex ${isVertical ? 'flex-col gap-3' : 'items-center gap-3'}`}>
+                            <div className={`flex w-full ${isVertical ? 'flex-col gap-4' : 'items-center gap-3'}`}>
                                 <button
                                     onClick={() => useClipStore.getState().shuffleClips()}
-                                    className={`h-10 ${slim ? 'px-0 w-10 justify-center' : 'px-6'} bg-white/5 hover:bg-white/10 rounded-xl flex items-center ${isVertical ? (slim ? 'justify-center' : 'justify-between') : 'gap-2'} transition-all border border-white/10 hover:border-white/20 active:scale-95 group`}
+                                    className={`${isVertical ? 'h-16 w-full flex-col justify-center px-0 rounded-2xl' : 'h-10 px-6 ' + (slim ? 'w-10 justify-center px-0' : '') + ' rounded-xl'} bg-white/5 hover:bg-white/10 flex items-center justify-center gap-2 transition-all border border-white/10 hover:border-white/20 active:scale-95 group`}
                                     title="Shuffle Clip Order"
                                 >
-                                    <div className="flex items-center gap-2">
-                                        <ArrowRightLeft size={iconSize} className="text-white/60 group-hover:text-white" />
-                                        {!isSlim && <span className="text-sm font-bold text-white/80 group-hover:text-white">SHUFFLE</span>}
+                                    <div className="flex items-center justify-center gap-2">
+                                        <ArrowRightLeft size={isVertical ? 24 : iconSize} className="text-white/60 group-hover:text-white" />
+                                        {!isVertical && !isSlim && <span className="text-sm font-bold text-white/80 group-hover:text-white">SHUFFLE</span>}
                                     </div>
                                 </button>
 
                                 <button
                                     onClick={() => useClipStore.getState().setGlobalFlux()}
-                                    className={`h-10 ${slim ? 'px-0 w-10 justify-center' : 'px-6'} bg-primary/20 hover:bg-primary/40 text-primary-light rounded-xl flex items-center ${isVertical ? (slim ? 'justify-center' : 'justify-between') : 'gap-2'} transition-all border border-primary/20 hover:border-primary/40 active:scale-95 group shadow-lg shadow-primary/10`}
+                                    className={`${isVertical ? 'h-16 w-full flex-col justify-center px-0 rounded-2xl' : 'h-10 px-6 ' + (slim ? 'w-10 justify-center px-0' : '') + ' rounded-xl'} bg-primary/20 hover:bg-primary/40 text-primary-light flex items-center justify-center gap-2 transition-all border border-primary/20 hover:border-primary/40 active:scale-95 group shadow-lg shadow-primary/10`}
                                     title="Randomize All Durations & Segments"
                                 >
-                                    <div className="flex items-center gap-2">
-                                        <Sparkles size={iconSize} className="group-hover:scale-110 transition-transform" />
-                                        {!isSlim && <span className="text-sm font-bold">FLUX EVERYTHING</span>}
+                                    <div className="flex items-center justify-center gap-2">
+                                        <Sparkles size={isVertical ? 24 : iconSize} className="group-hover:scale-110 transition-transform" />
+                                        {!isVertical && !isSlim && <span className="text-sm font-bold">FLUX</span>}
                                     </div>
                                 </button>
 
                                 <button
                                     onClick={() => useClipStore.getState().chaos()}
-                                    className={`h-10 ${slim ? 'px-0 w-10 justify-center' : 'px-6'} bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl flex items-center ${isVertical ? (slim ? 'justify-center' : 'justify-between') : 'gap-2'} transition-all border border-red-500/20 hover:border-red-500/40 active:scale-95 group`}
+                                    className={`${isVertical ? 'h-16 w-full flex-col justify-center px-0 rounded-2xl' : 'h-10 px-6 ' + (slim ? 'w-10 justify-center px-0' : '') + ' rounded-xl'} bg-red-500/10 hover:bg-red-500/20 text-red-500 flex items-center justify-center gap-2 transition-all border border-red-500/20 hover:border-red-500/40 active:scale-95 group`}
                                     title="Shuffle + Flux Everything"
                                 >
-                                    <div className="flex items-center gap-2">
-                                        <Zap size={iconSize} fill="currentColor" className="group-hover:animate-pulse" />
-                                        {!isSlim && <span className="text-sm font-bold">CHAOS</span>}
+                                    <div className="flex items-center justify-center gap-2">
+                                        <Zap size={isVertical ? 24 : iconSize} fill="currentColor" className="group-hover:animate-pulse" />
+                                        {!isVertical && !isSlim && <span className="text-sm font-bold">CHAOS</span>}
                                     </div>
                                 </button>
                             </div>

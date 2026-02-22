@@ -1,0 +1,11 @@
+{
+    "id": "fx_gen_7",
+    "name": "Generated Effect 7",
+    "type": "effect",
+    "description": "Auto-generated effect variant 7",
+    "shader": "hue-rotate(70deg) sepia(35%)",
+    "parameters": {
+        "hue": 70,
+        "sepia": 35
+    }
+}

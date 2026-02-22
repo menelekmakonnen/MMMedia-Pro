@@ -1,0 +1,20 @@
+{
+    "id": "ramp_gen_11",
+    "name": "Generated Ramp 11",
+    "type": "speed-ramp",
+    "description": "Auto-generated speed ramp 11",
+    "points": [
+        {
+            "x": 0,
+            "y": 1
+        },
+        {
+            "x": 0.5,
+            "y": 2.1
+        },
+        {
+            "x": 1,
+            "y": 1
+        }
+    ]
+}

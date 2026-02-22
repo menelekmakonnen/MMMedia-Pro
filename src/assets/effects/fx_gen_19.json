@@ -1,0 +1,11 @@
+{
+    "id": "fx_gen_19",
+    "name": "Generated Effect 19",
+    "type": "effect",
+    "description": "Auto-generated effect variant 19",
+    "shader": "hue-rotate(190deg) sepia(95%)",
+    "parameters": {
+        "hue": 190,
+        "sepia": 95
+    }
+}

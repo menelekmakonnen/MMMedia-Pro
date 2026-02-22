@@ -7,15 +7,16 @@ export const DEFAULT_FPS = 30;
 
 /**
  * Converts seconds to frames.
- * Uses Math.floor to strictly adhere to the start of the frame.
+ * Uses a small epsilon to handle floating point drift before flooring.
+ * 0.033333333333 * 30 should be 1, not 0.
  */
 export function secondsToFrames(seconds: number, fps: number = DEFAULT_FPS): number {
-    return Math.floor(seconds * fps);
+    return Math.floor(seconds * fps + 0.0001);
 }
 
 /**
  * Converts frames to seconds.
- * returns seconds (potentially float) for display or playback positioning.
+ * Returns seconds (potentially float) for display or playback positioning.
  */
 export function framesToSeconds(frames: number, fps: number = DEFAULT_FPS): number {
     return frames / fps;
@@ -26,7 +27,7 @@ export function framesToSeconds(frames: number, fps: number = DEFAULT_FPS): numb
  */
 export function formatTimecode(frames: number, fps: number = DEFAULT_FPS): string {
     const totalSeconds = Math.floor(frames / fps);
-    const frameRemainder = frames % fps;
+    const frameRemainder = Math.floor(frames % fps);
 
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -42,18 +43,6 @@ export function formatTimecode(frames: number, fps: number = DEFAULT_FPS): strin
  */
 export function verifyFrameConsistency(frames: number, fps: number = DEFAULT_FPS): boolean {
     const seconds = framesToSeconds(frames, fps);
-    const backToFrames = secondsToFrames(seconds, fps); // Note: this might fail if using floor on small deltas? 
-    // Actually, secondsToFrames(frames/fps) should equal frames if frames is integer.
-    // The spec says: frames = Math.floor(seconds * fps) (always floor, never round)
-    // Let's ensure this is robust.
-    // Example: 1 frame at 30fps = 0.033333...
-    // 0.033333 * 30 = 0.99999... Math.floor -> 0 (ERROR!)
-    // WAIT. If I use exactly frame/fps, I get exact float.
-    // 
-    // Correction: Standard video editing logic usually allows a small epsilon for floating point drift 
-    // OR uses strict rational numbers. 
-    // However, the Spec says "frames = Math.floor(seconds * fps)". 
-    // If I have 1 frame, sec = 1/30. sec*30 = 1. floor(1) = 1. Correct.
-    // But 0.03333333333333333 (double precision of 1/30) * 30 is exactly 1.0 in JS.
-    return Math.abs(backToFrames - frames) < 1;
+    const backToFrames = secondsToFrames(seconds, fps);
+    return backToFrames === frames;
 }

@@ -30,6 +30,15 @@ try {
         loadProject: () => ipcRenderer.invoke('load-project'),
         exportManifest: (content: string) => ipcRenderer.invoke('export-manifest', content),
         importManifest: () => ipcRenderer.invoke('import-manifest'),
+
+        // Export API
+        showExportDialog: (options: any) => ipcRenderer.invoke('show-export-dialog', options),
+        exportProject: (args: { filePath: string, clips: any[], settings: any }) => ipcRenderer.invoke('export-project', args),
+        onExportProgress: (callback: (progress: number) => void) => {
+            const listener = (_event: any, progress: number) => callback(progress);
+            ipcRenderer.on('export-progress', listener);
+            return () => ipcRenderer.removeListener('export-progress', listener);
+        },
     })
 
     console.log('[Preload] ✅ IPC API successfully exposed to window.ipcRenderer');

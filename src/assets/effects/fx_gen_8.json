@@ -1,0 +1,11 @@
+{
+    "id": "fx_gen_8",
+    "name": "Generated Effect 8",
+    "type": "effect",
+    "description": "Auto-generated effect variant 8",
+    "shader": "hue-rotate(80deg) sepia(40%)",
+    "parameters": {
+        "hue": 80,
+        "sepia": 40
+    }
+}

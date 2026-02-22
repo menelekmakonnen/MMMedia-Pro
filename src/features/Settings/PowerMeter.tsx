@@ -4,18 +4,25 @@ import { Activity } from 'lucide-react';
 interface PowerMeterProps {
     label?: string;
     color?: string;
+    value?: number; // Optional controlled value
 }
 
 export const PowerMeter: React.FC<PowerMeterProps> = ({
     label = "System Power",
-    color = "#8b5cf6"
+    color = "#8b5cf6",
+    value: controlledValue
 }) => {
-    const [value, setValue] = useState(0);
+    const [internalValue, setInternalValue] = useState(0);
+
+    // Use controlled value if provided, otherwise internal state
+    const displayValue = controlledValue !== undefined ? controlledValue : internalValue;
 
     useEffect(() => {
+        if (controlledValue !== undefined) return;
+
         // Simulate fluctuating power levels
         const interval = setInterval(() => {
-            setValue(prev => {
+            setInternalValue(prev => {
                 const change = (Math.random() - 0.5) * 10;
                 const newValue = prev + change;
                 return Math.max(20, Math.min(98, newValue)); // Keep between 20% and 98%
@@ -23,14 +30,14 @@ export const PowerMeter: React.FC<PowerMeterProps> = ({
         }, 1000);
 
         return () => clearInterval(interval);
-    }, []);
+    }, [controlledValue]);
 
     // SVG parameters
     const size = 120;
     const strokeWidth = 8;
     const radius = (size - strokeWidth) / 2;
     const circumference = radius * 2 * Math.PI;
-    const offset = circumference - (value / 100) * circumference;
+    const offset = circumference - (displayValue / 100) * circumference;
 
     return (
         <div className="flex flex-col items-center justify-center p-4 bg-white/5 rounded-xl border border-white/10 backdrop-blur-sm">
@@ -63,7 +70,7 @@ export const PowerMeter: React.FC<PowerMeterProps> = ({
 
                 {/* Center Text */}
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
-                    <span className="text-2xl font-bold font-mono">{Math.round(value)}%</span>
+                    <span className="text-2xl font-bold font-mono">{Math.round(displayValue)}%</span>
                     <Activity size={16} className="text-white/40 mt-1 animate-pulse" />
                 </div>
             </div>

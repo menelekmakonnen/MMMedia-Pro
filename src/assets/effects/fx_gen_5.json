@@ -1,0 +1,11 @@
+{
+    "id": "fx_gen_5",
+    "name": "Generated Effect 5",
+    "type": "effect",
+    "description": "Auto-generated effect variant 5",
+    "shader": "hue-rotate(50deg) sepia(25%)",
+    "parameters": {
+        "hue": 50,
+        "sepia": 25
+    }
+}

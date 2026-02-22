@@ -1,0 +1,11 @@
+{
+    "id": "fx_gen_12",
+    "name": "Generated Effect 12",
+    "type": "effect",
+    "description": "Auto-generated effect variant 12",
+    "shader": "hue-rotate(120deg) sepia(60%)",
+    "parameters": {
+        "hue": 120,
+        "sepia": 60
+    }
+}

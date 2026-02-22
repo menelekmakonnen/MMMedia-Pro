@@ -5,13 +5,16 @@ interface TimelineWaveformProps {
     width: number;
     height: number;
     color?: string;
+    beatMarkers?: { time: number, energy: number }[];
+    onAudioLoaded?: (buffer: AudioBuffer) => void;
 }
 
 const waveformCache = new Map<string, Float32Array>();
 
-export const TimelineWaveform: React.FC<TimelineWaveformProps> = memo(({ path, width, height, color = '#8b5cf6' }) => {
+export const TimelineWaveform: React.FC<TimelineWaveformProps> = memo(({ path, width, height, color = '#8b5cf6', beatMarkers, onAudioLoaded }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [audioData, setAudioData] = useState<Float32Array | null>(null);
+    const [duration, setDuration] = useState<number>(0);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -47,6 +50,11 @@ export const TimelineWaveform: React.FC<TimelineWaveformProps> = memo(({ path, w
                 // Decode audio
                 const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
                 const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+                if (isMounted) {
+                    setDuration(audioBuffer.duration);
+                    if (onAudioLoaded) onAudioLoaded(audioBuffer);
+                }
 
                 // Downsample for visualization (get peaks)
                 const rawData = audioBuffer.getChannelData(0); // Use first channel
@@ -130,6 +138,23 @@ export const TimelineWaveform: React.FC<TimelineWaveformProps> = memo(({ path, w
         });
 
         ctx.fill();
+
+        // Draw Beat Markers
+        if (beatMarkers && beatMarkers.length > 0 && duration > 0) {
+            ctx.fillStyle = 'rgba(52, 211, 153, 0.8)'; // Green-ish beat marker
+            beatMarkers.forEach(marker => {
+                const x = (marker.time / duration) * width;
+                if (x >= 0 && x <= width) {
+                    // Draw a vertical line
+                    ctx.fillRect(x, 0, 1, height);
+
+                    // Draw a small dot at the bottom
+                    ctx.beginPath();
+                    ctx.arc(x, height - 2, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            });
+        }
 
     }, [audioData, width, height, color]);
 

@@ -17,7 +17,7 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
     const audioContextRef = useRef<AudioContext | null>(null);
     const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
     const analyserRef = useRef<AnalyserNode | null>(null);
-    const animationRef = useRef<number>();
+    const animationRef = useRef<number | undefined>(undefined);
 
     useEffect(() => {
         if (!videoElement) return;

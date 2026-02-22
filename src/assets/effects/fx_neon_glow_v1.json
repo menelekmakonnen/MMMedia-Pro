@@ -1,0 +1,12 @@
+{
+    "id": "fx_neon_glow_v1",
+    "type": "effect",
+    "name": "Neon Glow",
+    "description": "Vibrant neon color grading",
+    "lumetriPreset": "neon_glow.cube",
+    "parameters": {
+        "saturation": 1.5,
+        "glow": 0.6,
+        "contrast": 1.3
+    }
+}

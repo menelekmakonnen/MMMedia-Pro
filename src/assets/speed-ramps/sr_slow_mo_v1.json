@@ -1,0 +1,21 @@
+{
+    "id": "sr_slow_mo_v1",
+    "type": "speedRamp",
+    "name": "Smooth Slow Mo",
+    "description": "Gradual slow-motion effect for dramatic moments",
+    "keyframes": [
+        {
+            "frame": 0,
+            "speed": 1.0
+        },
+        {
+            "frame": 15,
+            "speed": 0.4
+        },
+        {
+            "frame": 30,
+            "speed": 1.0
+        }
+    ],
+    "easing": "ease-in-out"
+}

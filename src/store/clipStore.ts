@@ -1,22 +1,15 @@
 import { create } from 'zustand';
+import { DEFAULT_FPS, secondsToFrames } from '../lib/time';
+import { SeededRandom, generateSeed } from '../lib/random';
+import { useProjectStore } from './projectStore';
+import { MediaFile } from './mediaStore';
+import { v4 as uuidv4 } from 'uuid';
+import { Clip as BaseClip } from '../types';
+import { analyzeAudio } from '../lib/audioAnalysis';
 
-export interface Clip {
-    id: string;
-    type: 'video' | 'audio' | 'image';
-    path: string;
-    filename: string;
-    startFrame: number;
-    endFrame: number;
-    sourceDurationFrames: number;
-    trimStartFrame: number;
-    trimEndFrame: number;
-    isPinned?: boolean;
-    volume?: number; // 0-100
-    isMuted?: boolean;
-    speed?: number; // playback speed multiplier (default: 1.0)
-    track?: number;
+// Extend BaseClip with store-specific properties
+export interface Clip extends BaseClip {
     isFolded?: boolean;
-    reversed?: boolean;
 }
 
 export interface SelectedSegment {
@@ -33,13 +26,13 @@ interface ClipStore {
     globalPlaybackSpeed: number;
     transitionStrategy: 'cut' | 'cross-dissolve' | 'fade-to-black';
 
+    setClips: (clips: Clip[]) => void;
     addClip: (clip: Clip) => void;
     removeClip: (id: string) => void;
     updateClip: (id: string, updates: Partial<Clip>) => void;
     selectClip: (id: string) => void;
     deselectClip: (id: string) => void;
     selectSingleClip: (id: string) => void;
-    setClips: (clips: Clip[]) => void;
 
     // New actions
     duplicateClip: (id: string) => void;
@@ -48,12 +41,14 @@ interface ClipStore {
     randomizeClipDuration: (id: string) => void;
     setGlobalFlux: () => void;
     pinClip: (id: string, pinned: boolean) => void;
+    lockClip: (id: string, locked: boolean) => void; // Phase 5: Ownership protection
     setClipVolume: (id: string, volume: number) => void;
     setClipMuted: (id: string, muted: boolean) => void;
     setGlobalMute: (muted: boolean) => void;
     selectSegment: (clipId: string, startFrame: number, endFrame: number) => void;
     clearSegmentSelection: () => void;
     moveSegment: (clipId: string, newStartFrame: number) => void;
+    updateClipSource: (clipId: string, newTrimStart: number, newTrimEnd: number) => void;
 
     // Phase 2 features
     shuffleClips: () => void;
@@ -76,6 +71,10 @@ interface ClipStore {
     // Phase 18: Sequence Actions
     magnetizeClips: () => void;
     reorderClips: (fromIndex: number, toIndex: number) => void;
+
+    // Automation
+    regenerateTimeline: (sourceFiles: MediaFile[], seed: string) => void;
+    detectBeats: (id: string, audioBuffer: AudioBuffer) => Promise<void>;
 }
 
 export const useClipStore = create<ClipStore>((set, get) => ({
@@ -86,6 +85,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
     globalPlaybackSpeed: 1.0,
     transitionStrategy: 'cut',
 
+    setClips: (clips) => set({ clips }),
     addClip: (clip) => set((state) => ({ clips: [...state.clips, clip] })),
 
     removeClip: (id) => set((state) => ({
@@ -111,11 +111,14 @@ export const useClipStore = create<ClipStore>((set, get) => ({
         const clip = get().clips.find((c) => c.id === id);
         set({
             selectedClipIds: [id],
-            selectedSegment: clip ? { clipId: clip.id, startFrame: clip.startFrame, endFrame: clip.endFrame } : null
+            // Use TRIM frames (Source) for the segment selector
+            selectedSegment: clip ? {
+                clipId: clip.id,
+                startFrame: clip.trimStartFrame ?? 0,
+                endFrame: clip.trimEndFrame ?? (clip.sourceDurationFrames || 0)
+            } : null
         });
     },
-
-    setClips: (clips) => set({ clips }),
 
     // New implementations
     duplicateClip: (id) => {
@@ -139,7 +142,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
         if (!clip) return;
 
         // If duration is 0 (not loaded yet) or very short, do nothing
-        if (!clip.sourceDurationFrames || clip.sourceDurationFrames < 30) {
+        if (!clip.sourceDurationFrames || clip.sourceDurationFrames < DEFAULT_FPS) {
             console.warn('[ClipStore] Cannot randomize: invalid source duration', clip.sourceDurationFrames);
             return;
         }
@@ -147,21 +150,29 @@ export const useClipStore = create<ClipStore>((set, get) => ({
         // Phase 2: Respect pinned state
         if (clip.isPinned) {
             console.warn('[ClipStore] Cannot randomize: clip is pinned', clip.id);
-            // In a real app we'd dispatch a toast here. For now validation is enough.
             return;
         }
 
+        // Phase 5: Respect locked clips (Manual clips SHOULD be randomizable if user clicks the button)
+        if (clip.locked) {
+            console.warn('[ClipStore] Cannot randomize: clip is locked', clip.id);
+            return;
+        }
+
+        const seed = useProjectStore.getState().settings.seed || generateSeed();
+        const rng = new SeededRandom(seed + id); // Add clip ID for unique but deterministic variation
+
         const maxDuration = clip.sourceDurationFrames;
-        const segmentDuration = clip.endFrame - clip.startFrame;
+        const segmentDuration = (clip.trimEndFrame || 0) - (clip.trimStartFrame || 0);
 
         // Ensure segment isn't longer than source
         if (segmentDuration >= maxDuration) return;
 
         const maxStart = Math.max(0, maxDuration - segmentDuration);
-        const randomStart = Math.floor(Math.random() * maxStart);
+        const randomStart = rng.randInt(0, maxStart);
         const randomEnd = randomStart + segmentDuration;
 
-        console.log('[ClipStore] Randomizing segment:', { from: clip.startFrame, to: randomStart });
+        console.log('[ClipStore] Randomizing segment:', { from: clip.trimStartFrame, to: randomStart });
 
         set((state) => {
             const updatedSelectedSegment = state.selectedSegment?.clipId === id
@@ -173,8 +184,9 @@ export const useClipStore = create<ClipStore>((set, get) => ({
                     c.id === id
                         ? {
                             ...c,
-                            startFrame: randomStart,
-                            endFrame: randomEnd,
+                            trimStartFrame: randomStart,
+                            trimEndFrame: randomEnd,
+                            // Timeline start stays same, timeline end stays same (Slip)
                         }
                         : c
                 ),
@@ -186,17 +198,23 @@ export const useClipStore = create<ClipStore>((set, get) => ({
     // NEW: Randomizes both duration and position (The "Flux" feature)
     randomizeClipDuration: (id) => {
         const clip = get().clips.find((c) => c.id === id);
-        if (!clip || !clip.sourceDurationFrames || clip.isPinned) return; // Respect pinned state
+        if (!clip || !clip.sourceDurationFrames) return;
 
-        const fps = 30; // Assuming 30fps for now
+        // Respect ownership and locked state
+        if (clip.isPinned || clip.locked) return;
+
+        const seed = useProjectStore.getState().settings.seed || generateSeed();
+        const rng = new SeededRandom(seed + id + '_duration'); // Unique seed for duration variation
+
+        const fps = DEFAULT_FPS;
         const minDuration = 1 * fps;
         const maxDuration = Math.min(clip.sourceDurationFrames, 10 * fps);
 
         if (maxDuration <= minDuration) return;
 
-        const newDuration = Math.floor(Math.random() * (maxDuration - minDuration + 1)) + minDuration;
+        const newDuration = rng.randInt(minDuration, maxDuration + 1);
         const maxStart = Math.max(0, clip.sourceDurationFrames - newDuration);
-        const newStart = Math.floor(Math.random() * maxStart);
+        const newStart = rng.randInt(0, maxStart);
         const newEnd = newStart + newDuration;
 
         set((state) => {
@@ -206,7 +224,12 @@ export const useClipStore = create<ClipStore>((set, get) => ({
 
             return {
                 clips: state.clips.map((c) =>
-                    c.id === id ? { ...c, startFrame: newStart, endFrame: newEnd } : c
+                    c.id === id ? {
+                        ...c,
+                        trimStartFrame: newStart,
+                        trimEndFrame: newEnd,
+                        endFrame: c.startFrame + newDuration // Sync timeline duration
+                    } : c
                 ),
                 selectedSegment: updatedSelectedSegment
             };
@@ -214,49 +237,165 @@ export const useClipStore = create<ClipStore>((set, get) => ({
     },
 
     setGlobalFlux: () => {
-        // Optimized: Single state update for all clips
         const { clips, selectedSegment } = get();
-        const fps = 30;
+        // Skip operation if no clips
+        if (clips.length === 0) return;
 
-        const newClips = clips.map(clip => {
-            if (clip.isPinned) return clip;
+        const fps = DEFAULT_FPS;
+        const targetSeconds = useProjectStore.getState().settings.targetDurationSeconds;
 
-            // FALLBACK: If sourceDurationFrames is 0 (not loaded), use a safe default of 1 minute (1800 frames)
-            // or use the current endFrame if it's > 0.
-            const effectiveMaxDuration = clip.sourceDurationFrames || Math.max(clip.endFrame, 1800);
+        let newClips = clips.map(clip => ({ ...clip }));
 
-            const minDuration = 1 * fps;
-            const maxDuration = Math.min(effectiveMaxDuration, 10 * fps);
+        // Split clips into locked/pinned (fixed) vs fluxable (mutable)
+        const fixedClips = newClips.filter(c => c.isPinned || c.locked);
+        let mutableClips = newClips.filter(c => !c.isPinned && !c.locked);
 
-            if (maxDuration <= minDuration) return clip;
+        // Calculate fixed duration already committed
+        const fixedFrames = fixedClips.reduce((sum, c) => sum + ((c.trimEndFrame || 0) - (c.trimStartFrame || 0)), 0);
 
-            const newDuration = Math.floor(Math.random() * (maxDuration - minDuration + 1)) + minDuration;
-            const maxStart = Math.max(0, effectiveMaxDuration - newDuration);
-            const newStart = Math.floor(Math.random() * maxStart);
-            const newEnd = newStart + newDuration;
+        if (targetSeconds !== undefined) {
+            // ----- EXACT TARGET DURATION MATH -----
+            const targetFrames = Math.max(0, (targetSeconds * fps) - fixedFrames);
 
-            return { ...clip, startFrame: newStart, endFrame: newEnd, sourceDurationFrames: effectiveMaxDuration };
+            // 1. Initial constraint calculation
+            // Base minimum per user request is 0.25s
+            const minFrames = Math.max(Math.floor(0.25 * fps), 1);
+
+            // Get effective max duration possible for each mutable clip
+            const maxSources = mutableClips.map(clip => {
+                return (clip.sourceDurationFrames || 1800);
+            });
+
+            // Note: If the sum of all source videos is less than target, they will max out. 
+            // We cannot manufacture footage that doesn't exist.
+
+            let allocatedFrames = mutableClips.map(() => 0);
+            let remainingTarget = targetFrames;
+
+            // First pass: Assign minimums
+            mutableClips.forEach((_, i) => {
+                const alloc = Math.min(minFrames, maxSources[i]);
+                allocatedFrames[i] = alloc;
+                remainingTarget -= alloc;
+            });
+
+            // Iterative Maximum Cap Allocation
+            // While we have frames to give, and there are clips that can still take more
+            let canTakeMore = true;
+            while (remainingTarget > 0 && canTakeMore) {
+                canTakeMore = false;
+
+                // Count how many clips can still absorb more frames
+                let absorbCount = 0;
+                for (let i = 0; i < mutableClips.length; i++) {
+                    if (allocatedFrames[i] < maxSources[i]) absorbCount++;
+                }
+
+                if (absorbCount === 0) break; // All clips maxed out!
+
+                // Distribute a slice (at least 1 frame) to each capable clip
+                const slice = Math.max(1, Math.floor(remainingTarget / absorbCount));
+
+                for (let i = 0; i < mutableClips.length && remainingTarget > 0; i++) {
+                    const headroom = maxSources[i] - allocatedFrames[i];
+                    if (headroom > 0) {
+                        canTakeMore = true;
+                        const take = Math.min(slice, headroom, remainingTarget);
+                        allocatedFrames[i] += take;
+                        remainingTarget -= take;
+                    }
+                }
+            }
+
+            // 3. Apply randomized start position based on exact calculated length
+            mutableClips = mutableClips.map((clip, i) => {
+                const maxSource = maxSources[i];
+                const finalDuration = allocatedFrames[i];
+
+                // Safety bounds
+                const safeDuration = Math.min(finalDuration, maxSource);
+                const maxStart = Math.max(0, maxSource - safeDuration);
+
+                const newStart = Math.floor(Math.random() * maxStart);
+                const newEnd = newStart + safeDuration;
+
+                return {
+                    ...clip,
+                    trimStartFrame: newStart,
+                    trimEndFrame: newEnd,
+                    sourceDurationFrames: maxSource,
+                    endFrame: clip.startFrame + safeDuration
+                };
+            });
+
+        } else {
+            // ----- NO TARGET DURATION (Standard Chaotic Flux) -----
+            mutableClips = mutableClips.map(clip => {
+                const effectiveMaxDuration = clip.sourceDurationFrames || Math.max(clip.endFrame, 1800);
+
+                // Floor is still 0.25s
+                const minDuration = Math.max(Math.floor(0.25 * fps), 1);
+                // Roof is 10s for chaotic mode
+                const maxDuration = Math.min(effectiveMaxDuration, 10 * fps);
+
+                if (maxDuration <= minDuration) return clip;
+
+                const newDuration = Math.floor(Math.random() * (maxDuration - minDuration + 1)) + minDuration;
+                const maxStart = Math.max(0, effectiveMaxDuration - newDuration);
+                const newStart = Math.floor(Math.random() * maxStart);
+                const newEnd = newStart + newDuration;
+
+                return {
+                    ...clip,
+                    trimStartFrame: newStart,
+                    trimEndFrame: newEnd,
+                    sourceDurationFrames: effectiveMaxDuration,
+                    endFrame: clip.startFrame + newDuration
+                };
+            });
+        }
+
+        // Re-combine and Magnetize (Snap back-to-back sequentially)
+        const combinedClips = [...fixedClips, ...mutableClips].sort((a, b) => a.startFrame - b.startFrame);
+
+        let currentFrame = 0;
+        const finalizedClips = combinedClips.map(clip => {
+            const duration = (clip.trimEndFrame || 0) - (clip.trimStartFrame || 0);
+            const start = currentFrame;
+            const end = start + duration;
+            currentFrame = end;
+            return {
+                ...clip,
+                startFrame: start,
+                endFrame: end
+            };
         });
 
         // Update selected segment if its clip changed
         let newSelectedSegment = selectedSegment;
         if (selectedSegment) {
-            const updatedClip = newClips.find(c => c.id === selectedSegment.clipId);
+            const updatedClip = finalizedClips.find(c => c.id === selectedSegment.clipId);
             if (updatedClip) {
                 newSelectedSegment = {
                     ...selectedSegment,
-                    startFrame: updatedClip.startFrame,
-                    endFrame: updatedClip.endFrame
+                    startFrame: updatedClip.trimStartFrame ?? 0,
+                    endFrame: updatedClip.trimEndFrame ?? 0
                 };
             }
         }
 
-        set({ clips: newClips, selectedSegment: newSelectedSegment });
+        set({ clips: finalizedClips, selectedSegment: newSelectedSegment });
     },
 
     pinClip: (id, pinned) => {
         set((state) => ({
             clips: state.clips.map((c) => (c.id === id ? { ...c, isPinned: pinned } : c)),
+        }));
+    },
+
+    lockClip: (id, locked) => {
+        set((state) => ({
+            clips: state.clips.map((c) => (c.id === id ? { ...c, locked } : c)),
         }));
     },
 
@@ -280,49 +419,62 @@ export const useClipStore = create<ClipStore>((set, get) => ({
 
     clearSegmentSelection: () => set({ selectedSegment: null }),
 
-    moveSegment: (clipId, newStartFrame) => {
+    // Replaces moveSegment for Source Trim updates
+    updateClipSource: (clipId: string, newTrimStart: number, newTrimEnd: number) => {
         const { selectedSegment } = get();
-        if (!selectedSegment || selectedSegment.clipId !== clipId) return;
 
-        const segmentDuration = selectedSegment.endFrame - selectedSegment.startFrame;
-        const clip = get().clips.find((c) => c.id === clipId);
-        if (!clip) return;
-
-        const maxStart = Math.max(0, clip.sourceDurationFrames - segmentDuration);
-        const clampedStart = Math.max(0, Math.min(maxStart, newStartFrame));
+        // Calculate new duration
+        const newDuration = newTrimEnd - newTrimStart;
 
         set((state) => ({
             clips: state.clips.map((c) =>
                 c.id === clipId
                     ? {
                         ...c,
-                        startFrame: clampedStart,
-                        endFrame: clampedStart + segmentDuration,
+                        trimStartFrame: newTrimStart,
+                        trimEndFrame: newTrimEnd,
+                        endFrame: c.startFrame + newDuration, // Sync timeline duration
                     }
                     : c
             ),
-            selectedSegment: {
+            // Loop back to selected segment if matches
+            selectedSegment: selectedSegment && selectedSegment.clipId === clipId ? {
                 ...selectedSegment,
-                startFrame: clampedStart,
-                endFrame: clampedStart + segmentDuration,
-            },
+                startFrame: newTrimStart,
+                endFrame: newTrimEnd
+            } : selectedSegment
         }));
+    },
+
+    moveSegment: (clipId, newStartFrame) => {
+        // Legacy: kept for simple move? Actually simpler to just use updateClipSource for SegmentSelector
+        // Just forwarding to updateClipSource logic but assuming slip (duration constant)
+        const { selectedSegment } = get();
+        if (!selectedSegment) return;
+        const duration = selectedSegment.endFrame - selectedSegment.startFrame;
+        get().updateClipSource(clipId, newStartFrame, newStartFrame + duration);
     },
 
     shuffleClips: () => {
         const { clips } = get();
-        // Identify unpinned clips
-        const unpinnedClips = clips.filter(c => !c.isPinned);
-        if (unpinnedClips.length < 2) return; // Nothing to shuffle
+        const seed = useProjectStore.getState().settings.seed || generateSeed();
+        const rng = new SeededRandom(seed);
 
-        // Shuffle unpinned clips
-        const shuffled = [...unpinnedClips].sort(() => Math.random() - 0.5);
+        // Filter clips that can be shuffled (not manual, not locked, not pinned)
+        const canShuffle = (c: Clip) =>
+            c.origin !== 'manual' && !c.locked && !c.isPinned;
 
-        // Reconstruct array: keep pinned clips in place, fill others with shuffled
-        let unpinnedIndex = 0;
+        const shuffleableClips = clips.filter(canShuffle);
+        if (shuffleableClips.length < 2) return; // Nothing to shuffle
+
+        // Use SeededRandom to shuffle
+        const shuffled = rng.shuffle(shuffleableClips);
+
+        // Reconstruct array: keep protected clips in place, fill others with shuffled
+        let shuffledIndex = 0;
         const newClips = clips.map(clip => {
-            if (clip.isPinned) return clip;
-            return shuffled[unpinnedIndex++];
+            if (!canShuffle(clip)) return clip;
+            return shuffled[shuffledIndex++];
         });
 
         set({ clips: newClips });
@@ -366,10 +518,16 @@ export const useClipStore = create<ClipStore>((set, get) => ({
     // Phase 3: Speed controls
     setClipSpeed: (id, speed) => {
         set((state) => ({
-            clips: state.clips.map(clip =>
-                clip.id === id ? { ...clip, speed } : clip
-            )
+            clips: state.clips.map(clip => {
+                if (clip.id === id) {
+                    const segmentLength = (clip.trimEndFrame || 0) - (clip.trimStartFrame || 0);
+                    const newDuration = Math.round(segmentLength / speed);
+                    return { ...clip, speed, endFrame: clip.startFrame + newDuration };
+                }
+                return clip;
+            })
         }));
+        get().magnetizeClips();
     },
 
     setGlobalPlaybackSpeed: (globalPlaybackSpeed) => set({ globalPlaybackSpeed }),
@@ -392,8 +550,8 @@ export const useClipStore = create<ClipStore>((set, get) => ({
 
     setClipDuration: (id, durationInSeconds) => {
         set((state) => {
-            const fps = 30; // Global constant matching project settings
-            const durationFrames = Math.floor(durationInSeconds * fps);
+            const fps = DEFAULT_FPS;
+            const durationFrames = secondsToFrames(durationInSeconds, fps);
 
             return {
                 clips: state.clips.map((c) => {
@@ -426,20 +584,22 @@ export const useClipStore = create<ClipStore>((set, get) => ({
             let currentFrame = 0;
             const newClips = sortedClips.map(clip => {
                 // Determine clip duration
-                // Fix: Ensure we use the actual clip visibility duration (end - start) or sourceDuration if fresh
+                // Determine clip duration based on current state (respecting trims)
                 const duration = clip.endFrame - clip.startFrame;
 
-                // If it's a video on track 1 (or we treat all videos as sequence)
-                // For "Sequence View", we likely want to flatten everything or just Video 1?
-                // The prompt says "arrange and rearrange videos... side by side". 
-                // Let's assume we are sequencing ALL clips linearly for now, or just Track 1.
-                // Let's target Track 1 specifically for "The Sequence".
-
+                // For Sequence View, we arrange clips sequentially on Track 1
                 if (clip.track === 1 || !clip.track) {
-                    const start = currentFrame;
-                    const end = start + duration;
-                    currentFrame = end;
-                    return { ...clip, startFrame: start, endFrame: end };
+                    const newStart = currentFrame;
+                    const newEnd = newStart + duration;
+                    currentFrame = newEnd;
+
+                    return {
+                        ...clip,
+                        startFrame: newStart,
+                        endFrame: newEnd,
+                        // IMPORANT: trimStartFrame and trimEndFrame stay exactly as they were
+                        // The duration (end - start) matches (trimEnd - trimStart)
+                    };
                 }
                 return clip;
             });
@@ -469,5 +629,99 @@ export const useClipStore = create<ClipStore>((set, get) => ({
 
             return { clips: updatedClips };
         });
+    },
+
+    regenerateTimeline: (sourceFiles, seed) => {
+        set((state) => {
+            if (sourceFiles.length === 0) return state;
+
+            const rng = new SeededRandom(seed);
+
+            // 1. Keep protected clips (manual, locked, pinned)
+            const protectedClips = state.clips.filter(c =>
+                c.origin === 'manual' || c.locked || c.isPinned
+            );
+
+            // 2. Generate new clips
+            const numClips = rng.randInt(5, 15);
+            const newClips: Clip[] = [];
+
+            for (let i = 0; i < numClips; i++) {
+                const sourceFile = rng.choice(sourceFiles);
+                if (!sourceFile) continue;
+
+                // Determine clip duration
+                const fps = 30;
+                const sourceDurationFrames = Math.floor(sourceFile.duration * fps);
+                const minFrames = 2 * fps;
+
+                // If source is too short, we can't make a good clip, skip or use whole
+                if (sourceDurationFrames < minFrames) continue;
+
+                const maxFrames = Math.min(8 * fps, sourceDurationFrames);
+
+                const durationFrames = rng.randInt(minFrames, maxFrames);
+
+                // Random start point
+                const maxStart = sourceDurationFrames - durationFrames;
+                const startFrame = rng.randInt(0, maxStart);
+
+                newClips.push({
+                    id: uuidv4(),
+                    type: sourceFile.type,
+                    path: sourceFile.path,
+                    filename: sourceFile.filename,
+                    startFrame: 0,
+                    endFrame: durationFrames,
+                    sourceDurationFrames: sourceDurationFrames,
+                    trimStartFrame: startFrame,
+                    trimEndFrame: startFrame + durationFrames,
+                    speed: 1.0,
+                    volume: 100,
+                    isMuted: false,
+                    isPinned: false,
+                    origin: 'auto',
+                    locked: false,
+                    track: 1,
+                    reversed: false,
+                });
+            }
+
+            // 3. Append new clips AFTER protected clips
+            // Recalculate startFrame/endFrame to be sequential (Magnetize)
+
+            const allClips = [...protectedClips, ...newClips];
+
+            let currentFrame = 0;
+            const updatedClips = allClips.map(clip => {
+                const duration = clip.endFrame - clip.startFrame;
+                const start = currentFrame;
+                const end = start + duration;
+                currentFrame = end;
+                return { ...clip, startFrame: start, endFrame: end };
+            });
+
+            return { clips: updatedClips };
+        });
+    },
+
+    detectBeats: async (id, audioBuffer) => {
+        try {
+            console.log('[ClipStore] Analyzing audio for clip:', id);
+            const result = await analyzeAudio(audioBuffer);
+
+            set((state) => ({
+                clips: state.clips.map((c) =>
+                    c.id === id ? {
+                        ...c,
+                        bpm: result.bpm,
+                        beatMarkers: result.peaks
+                    } : c
+                ),
+            }));
+            console.log('[ClipStore] Analysis complete:', result);
+        } catch (error) {
+            console.error('[ClipStore] Audio analysis failed:', error);
+        }
     },
 }));

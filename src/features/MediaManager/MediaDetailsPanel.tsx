@@ -131,7 +131,7 @@ export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, onCl
                  */}
                 <button
                     onClick={() => {
-                        addClip({ ...clip, id: crypto.randomUUID() });
+                        addClip({ ...clip, id: crypto.randomUUID(), origin: 'manual' });
                     }}
                     className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-white p-3 rounded-lg font-medium transition-colors"
                 >
@@ -139,6 +139,6 @@ export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, onCl
                     Add to Timeline
                 </button>
             </div>
-        </div>
+        </div >
     );
 };

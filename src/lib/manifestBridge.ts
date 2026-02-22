@@ -50,10 +50,13 @@ export const loadManifestToStore = (manifest: Manifest) => {
         fps: manifest.project.fps
     });
 
-    // Resolution matching logic
-    if (manifest.project.resolution.height === 1080) setResolution('1080p');
-    else if (manifest.project.resolution.height === 2160) setResolution('4K');
-    else setResolution('720p'); // Fallback
+    // Resolution matching logic - match based on aspect ratio
+    const aspectRatio = manifest.project.resolution.width / manifest.project.resolution.height;
+    if (Math.abs(aspectRatio - 16 / 9) < 0.01) setResolution('16:9');
+    else if (Math.abs(aspectRatio - 9 / 16) < 0.01) setResolution('9:16');
+    else if (Math.abs(aspectRatio - 1) < 0.01) setResolution('1:1');
+    else if (Math.abs(aspectRatio - 4 / 3) < 0.01) setResolution('4:3');
+    else setResolution('16:9'); // Default fallback
 
     // 2. Reconstruct Clips
     const restoredClips: Clip[] = manifest.media.map((mClip: ManifestClip) => ({

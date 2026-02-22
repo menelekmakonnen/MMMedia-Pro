@@ -1,0 +1,11 @@
+{
+    "id": "fx_gen_9",
+    "name": "Generated Effect 9",
+    "type": "effect",
+    "description": "Auto-generated effect variant 9",
+    "shader": "hue-rotate(90deg) sepia(45%)",
+    "parameters": {
+        "hue": 90,
+        "sepia": 45
+    }
+}

@@ -1,0 +1,11 @@
+{
+    "id": "fx_gen_13",
+    "name": "Generated Effect 13",
+    "type": "effect",
+    "description": "Auto-generated effect variant 13",
+    "shader": "hue-rotate(130deg) sepia(65%)",
+    "parameters": {
+        "hue": 130,
+        "sepia": 65
+    }
+}

@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Volume2 } from 'lucide-react';
 import { AudioVisualizer } from './AudioVisualizer';
 import { useProjectStore } from '../store/projectStore';
+import { secondsToFrames } from '../lib/time';
 
 interface VideoPlayerProps {
     videoPath?: string;
@@ -13,6 +14,11 @@ interface VideoPlayerProps {
     clipSpeed?: number;
     centerControls?: React.ReactNode;
     stopAtFrame?: number;
+    zoomLevel?: number;
+    zoomOrigin?: 'center' | 'top' | 'bottom' | 'left' | 'right';
+    volume?: number;
+    hideTransport?: boolean;
+    bgOnly?: boolean;
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -23,14 +29,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     onDurationChange,
     playbackSpeed = 1,
     clipSpeed = 1,
+    volume = 1,
     centerControls,
     stopAtFrame,
+    zoomLevel = 100,
+    zoomOrigin = 'center',
+    hideTransport = false,
+    bgOnly = false,
 }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const bgVideoRef = useRef<HTMLVideoElement>(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [isReady, setIsReady] = useState(false);
-    const [volume, setVolume] = useState(1);
+    const [localVolume, setLocalVolume] = useState(1);
     const [duration, setDuration] = useState(0);
 
     const { settings } = useProjectStore();
@@ -43,6 +54,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     useEffect(() => {
         setIsReady(false);
     }, [videoPath]);
+
+    // Apply strictly controlled volume prop
+    useEffect(() => {
+        if (videoRef.current) {
+            try {
+                videoRef.current.volume = Math.max(0, Math.min(volume, 1));
+            } catch (e) {
+                console.warn("Failed to set volume on foreground video:", volume, e);
+            }
+        }
+    }, [volume]);
 
     // Sync video current time with frame
     useEffect(() => {
@@ -78,11 +100,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     // Apply playback speed to video element
     useEffect(() => {
+        // Chromium limits playbackRate to [0.0625, 16.0]. We clamp to [0.1, 16.0] to be safe.
+        const safeSpeed = Math.max(0.1, Math.min(effectiveSpeed, 16.0));
+
         if (videoRef.current) {
-            videoRef.current.playbackRate = effectiveSpeed;
+            try {
+                videoRef.current.playbackRate = safeSpeed;
+            } catch (e) {
+                console.warn("Failed to set playbackRate on foreground video:", safeSpeed, e);
+            }
         }
         if (bgVideoRef.current) {
-            bgVideoRef.current.playbackRate = effectiveSpeed;
+            try {
+                bgVideoRef.current.playbackRate = safeSpeed;
+            } catch (e) {
+                console.warn("Failed to set playbackRate on background video:", safeSpeed, e);
+            }
         }
     }, [effectiveSpeed]);
 
@@ -94,7 +127,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             if (!isReady) return; // Guard: Wait for metadata
 
             if (videoRef.current) {
-                const newFrame = Math.floor(videoRef.current.currentTime * fps);
+                // Use robust conversion
+                const newFrame = secondsToFrames(videoRef.current.currentTime, fps);
+
                 // Check if we hit the limit
                 if (stopAtFrame !== undefined && newFrame >= stopAtFrame) {
                     setIsPlaying(false);
@@ -108,7 +143,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }, 1000 / fps);
 
         return () => clearInterval(interval);
-    }, [isPlaying, fps, onFrameChange]);
+    }, [isPlaying, fps, onFrameChange, stopAtFrame, isReady]);
 
     const togglePlayPause = () => {
         if (!videoRef.current) return;
@@ -174,109 +209,121 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                 {videoPath ? (
                     <>
                         {/* Blurred background video */}
-                        {backgroundFillMode === 'blur' && (
+                        {(backgroundFillMode === 'blur' || bgOnly) && (
                             <video
                                 ref={bgVideoRef}
                                 src={`file://${videoPath}`}
-                                className="absolute inset-0 w-full h-full object-cover blur-2xl opacity-60"
+                                className={`absolute inset-0 w-full h-full object-cover ${bgOnly ? 'blur-[80px] opacity-40 scale-110 saturate-150' : 'blur-2xl opacity-60'}`}
                                 muted
                             />
                         )}
 
                         {/* Main video - centered with contain */}
-                        <video
-                            ref={videoRef}
-                            src={`file://${videoPath}`}
-                            className="relative w-full h-full object-contain z-10"
-                            onLoadedMetadata={handleLoadedMetadata}
-                            onEnded={() => setIsPlaying(false)}
-                        />
+                        {!bgOnly && (
+                            <video
+                                ref={videoRef}
+                                src={`file://${videoPath}`}
+                                className="relative w-full h-full object-contain z-10 transition-transform duration-300"
+                                style={{
+                                    transform: `scale(${zoomLevel / 100})`,
+                                    transformOrigin: zoomOrigin
+                                }}
+                                onLoadedMetadata={handleLoadedMetadata}
+                                onEnded={() => setIsPlaying(false)}
+                            />
+                        )}
                     </>
                 ) : (
                     <div className="text-white/40 text-sm">No video loaded</div>
                 )}
             </div>
 
-
-            {/* Transport Controls - Always visible */}
-            < div className="bg-[#0a0a15] border-t border-white/10 px-4 py-2 flex-shrink-0" >
-                <div className="flex items-center gap-4 h-12">
-                    {/* Left: Playback Controls */}
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                        <button
-                            onClick={skipBackward}
-                            className="h-8 w-8 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded transition-colors"
-                        >
-                            <SkipBack size={16} />
-                        </button>
-                        <button
-                            onClick={togglePlayPause}
-                            disabled={!videoPath}
-                            className="h-10 w-10 flex items-center justify-center bg-primary hover:bg-primary/80 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
-                        </button>
-                        <button
-                            onClick={skipForward}
-                            className="h-8 w-8 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded transition-colors"
-                        >
-                            <SkipForward size={16} />
-                        </button>
-                    </div>
-
-                    {/* Center: Custom Controls (Segment Selector) */}
-                    <div className="flex-1 flex justify-center min-w-0">
-                        {centerControls && (
-                            <div className="w-full max-w-2xl">
-                                {centerControls}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Right: Info & Volume */}
-                    <div className="flex items-center gap-4 flex-shrink-0">
-                        {/* Audio Visualizer */}
-                        <div className="h-8 w-24 bg-black/20 rounded overflow-hidden flex items-center border border-white/5 hidden xl:flex">
-                            <AudioVisualizer
-                                videoElement={videoRef.current}
-                                width={96}
-                                height={32}
-                                barColor="#06b6d4"
-                            />
+            {/* Transport Controls - Optionally hidden */}
+            {!hideTransport && !bgOnly && (
+                <div className="bg-[#0a0a15] border-t border-white/10 px-4 py-2 flex-shrink-0">
+                    <div className="flex items-center gap-4 h-12">
+                        {/* Left: Playback Controls */}
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                            <button
+                                onClick={skipBackward}
+                                title="Skip Backward 1s"
+                                className="h-8 w-8 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded transition-colors"
+                            >
+                                <SkipBack size={16} />
+                            </button>
+                            <button
+                                onClick={togglePlayPause}
+                                disabled={!videoPath}
+                                title={isPlaying ? "Pause" : "Play"}
+                                className="h-10 w-10 flex items-center justify-center bg-primary hover:bg-primary/80 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
+                            </button>
+                            <button
+                                onClick={skipForward}
+                                title="Skip Forward 1s"
+                                className="h-8 w-8 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded transition-colors"
+                            >
+                                <SkipForward size={16} />
+                            </button>
                         </div>
 
-                        {/* Timecode */}
-                        <div className="text-right hidden lg:block">
-                            <div className="font-mono text-sm text-white/90">
-                                {Math.floor(currentFrame / fps / 60).toString().padStart(2, '0')}:
-                                {Math.floor((currentFrame / fps) % 60).toString().padStart(2, '0')}:
-                                {(currentFrame % fps).toString().padStart(2, '0')}
-                            </div>
-                            <div className="text-[10px] text-white/40">Frame {currentFrame}</div>
+                        {/* Center: Custom Controls (Segment Selector) */}
+                        <div className="flex-1 flex justify-center min-w-0">
+                            {centerControls && (
+                                <div className="w-full max-w-2xl">
+                                    {centerControls}
+                                </div>
+                            )}
                         </div>
 
-                        {/* Volume */}
-                        <div className="flex items-center gap-2">
-                            <Volume2 size={16} className="text-white/60" />
-                            <input
-                                type="range"
-                                min="0"
-                                max="1"
-                                step="0.01"
-                                value={volume}
-                                onChange={(e) => {
-                                    const newVolume = parseFloat(e.target.value);
-                                    setVolume(newVolume);
-                                    if (videoRef.current) {
-                                        videoRef.current.volume = newVolume;
-                                    }
-                                }}
-                                className="w-16 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
-                            />
+                        {/* Right: Info & Volume */}
+                        <div className="flex items-center gap-4 flex-shrink-0">
+                            {/* Audio Visualizer */}
+                            <div className="h-8 w-24 bg-black/20 rounded overflow-hidden flex items-center border border-white/5 hidden xl:flex">
+                                <AudioVisualizer
+                                    videoElement={videoRef.current}
+                                    width={96}
+                                    height={32}
+                                    barColor="#06b6d4"
+                                />
+                            </div>
+
+                            {/* Timecode */}
+                            <div className="text-right hidden lg:block">
+                                <div className="font-mono text-sm text-white/90">
+                                    {Math.floor(currentFrame / fps / 60).toString().padStart(2, '0')}:
+                                    {Math.floor((currentFrame / fps) % 60).toString().padStart(2, '0')}:
+                                    {(currentFrame % fps).toString().padStart(2, '0')}
+                                </div>
+                                <div className="text-[10px] text-white/40">Frame {currentFrame}</div>
+                            </div>
+
+                            {/* Volume */}
+                            <div className="flex items-center gap-2">
+                                <Volume2 size={16} className="text-white/60" />
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max="1"
+                                    step="0.01"
+                                    value={localVolume}
+                                    title="Volume"
+                                    placeholder="Volume"
+                                    onChange={(e) => {
+                                        const newVolume = parseFloat(e.target.value);
+                                        setLocalVolume(newVolume);
+                                        if (videoRef.current) {
+                                            videoRef.current.volume = newVolume;
+                                        }
+                                    }}
+                                    className="w-16 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
+                                />
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div >
+            )}
         </div >
     );
 };

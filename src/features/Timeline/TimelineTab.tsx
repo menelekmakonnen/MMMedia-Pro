@@ -7,6 +7,7 @@ import { ClipControls } from './ClipControls';
 import { GlobalControls } from './GlobalControls';
 import { ClipItem } from './ClipItem';
 import { SegmentSelector } from './SegmentSelector';
+import { ZoomControls } from './ZoomControls';
 
 export const TimelineTab: React.FC = () => {
     const {
@@ -14,7 +15,6 @@ export const TimelineTab: React.FC = () => {
         selectedClipIds,
         selectSingleClip,
         updateClip,
-        selectedSegment,
         globalPlaybackSpeed,
         setAllClipsFolded,
         transitionStrategy,
@@ -34,15 +34,16 @@ export const TimelineTab: React.FC = () => {
         }
     }, [clips, selectedClipIds, selectSingleClip]);
 
-    // Sync video player to segment start when selection changes (e.g. dragging or randomizing)
-    useEffect(() => {
-        if (selectedSegment) {
-            setCurrentFrame(selectedSegment.startFrame);
-        }
-    }, [selectedSegment]);
-
     const selectedClipId = selectedClipIds[0];
     const selectedClip = clips.find((c) => c.id === selectedClipId);
+
+    // Sync video player to segment start when selection changes (e.g. dragging or randomizing)
+    // This ensures that when "Flux" changes the start point, the video player jumps to show it.
+    useEffect(() => {
+        if (selectedClip) {
+            setCurrentFrame(selectedClip.trimStartFrame ?? 0);
+        }
+    }, [selectedClip?.trimStartFrame, selectedClip?.id]);
 
     const handleDurationChange = (duration: number) => {
         if (selectedClip && selectedClip.sourceDurationFrames === 0) {
@@ -132,6 +133,7 @@ export const TimelineTab: React.FC = () => {
                                 className="bg-black/20 text-xs text-white/60 border border-white/10 rounded px-2 py-1 outline-none focus:border-primary/50"
                                 value={transitionStrategy}
                                 onChange={(e) => setTransitionStrategy(e.target.value as any)}
+                                title="Transition Strategy"
                             >
                                 <option value="cut">Cut</option>
                                 <option value="cross-dissolve">Dissolve</option>
@@ -161,7 +163,7 @@ export const TimelineTab: React.FC = () => {
                                 <div className="text-xs mt-2">Import media from Media Manager</div>
                             </div>
                         ) : (
-                            clips.map((clip) => (
+                            clips.filter(c => c.type === 'video').map((clip) => (
                                 <ClipItem
                                     key={clip.id}
                                     clip={clip}
@@ -195,13 +197,16 @@ export const TimelineTab: React.FC = () => {
                             onDurationChange={handleDurationChange}
                             playbackSpeed={globalPlaybackSpeed}
                             clipSpeed={selectedClip?.speed}
-                            centerControls={selectedClip ? <SegmentSelector clipId={selectedClip.id} /> : null}
+                            centerControls={selectedClip ? <SegmentSelector clipId={selectedClip.id} onScrub={setCurrentFrame} /> : null}
                             stopAtFrame={selectedClip ? (selectedClip.trimEndFrame || selectedClip.endFrame) : undefined}
+                            zoomLevel={selectedClip?.zoomLevel}
+                            zoomOrigin={selectedClip?.zoomOrigin}
                         />
                     </div>
                     {selectedClip && (
-                        <div className="p-4 border-t border-white/5 bg-[#0a0a12]">
-                            <ClipControls clipId={selectedClip.id} />
+                        <div className="p-4 border-t border-white/5 bg-[#0a0a12] flex items-start justify-between gap-4 overflow-x-auto custom-scrollbar">
+                            <ClipControls clipId={selectedClip.id} variant="player" />
+                            <ZoomControls clipId={selectedClip.id} />
                         </div>
                     )}
                 </div>

@@ -1,0 +1,11 @@
+{
+    "id": "fx_bw_contrast",
+    "name": "B&W High Contrast",
+    "type": "effect",
+    "description": "Black and white with boosted contrast.",
+    "shader": "grayscale(100%) contrast(150%)",
+    "parameters": {
+        "contrast": 150,
+        "grayscale": 100
+    }
+}

@@ -4,6 +4,7 @@ import { SettingsTab } from './features/Settings/SettingsTab';
 import { MediaManagerTab } from './features/MediaManager/MediaManagerTab';
 import { TimelineTab } from './features/Timeline/TimelineTab';
 import { ExportTab } from './features/Export/ExportTab';
+import { SequenceViewTab } from './features/SequenceView/SequenceViewTab';
 import { Minus, Square, X } from 'lucide-react';
 
 function App() {
@@ -15,6 +16,8 @@ function App() {
                 return <SettingsTab />;
             case 'media':
                 return <MediaManagerTab />;
+            case 'sequence':
+                return <SequenceViewTab />;
             case 'timeline':
                 return <TimelineTab />;
             case 'export':
@@ -36,18 +39,21 @@ function App() {
                     <button
                         className="h-6 w-6 flex items-center justify-center hover:bg-white/10 rounded transition-colors"
                         onClick={() => window.ipcRenderer.send('window-control', 'minimize')}
+                        title="Minimize"
                     >
                         <Minus size={14} />
                     </button>
                     <button
                         className="h-6 w-6 flex items-center justify-center hover:bg-white/10 rounded transition-colors"
                         onClick={() => window.ipcRenderer.send('window-control', 'maximize')}
+                        title="Maximize"
                     >
                         <Square size={12} />
                     </button>
                     <button
                         className="h-6 w-6 flex items-center justify-center hover:bg-red-500/20 rounded transition-colors"
                         onClick={() => window.ipcRenderer.send('window-control', 'close')}
+                        title="Close"
                     >
                         <X size={14} />
                     </button>

@@ -1,0 +1,263 @@
+:root {
+    --bg-color: #030014;
+    --surface-color: rgba(255, 255, 255, 0.03);
+    --border-color: rgba(255, 255, 255, 0.08);
+    --primary-color: #8b5cf6;
+    --primary-glow: rgba(139, 92, 246, 0.5);
+    --accent-color: #ec4899;
+    --text-main: #ffffff;
+    --text-dim: #94a3b8;
+    --font-main: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+* {
+    box-sizing: border-box;
+    -webkit-font-smoothing: antialiased;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-color);
+    color: var(--text-main);
+    font-family: var(--font-main);
+    user-select: none;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+}
+
+.ambient-glow {
+    position: fixed;
+    top: -10%;
+    left: -10%;
+    width: 120%;
+    height: 120%;
+    background: radial-gradient(circle at 20% 30%, rgba(139, 92, 246, 0.15) 0%, transparent 50%),
+        radial-gradient(circle at 80% 70%, rgba(236, 72, 153, 0.1) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+}
+
+.app-container {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 20px;
+    max-width: 400px;
+    /* Constrain for a focused UI */
+    margin: 0 auto;
+    /* Center the entire app */
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+}
+
+.logo-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.logo-icon {
+    width: 12px;
+    height: 12px;
+    background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+    border-radius: 3px;
+    box-shadow: 0 0 15px var(--primary-glow);
+}
+
+.logo-text {
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin: 0;
+}
+
+.logo-text .accent {
+    opacity: 0.5;
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    padding: 4px 10px;
+    border-radius: 20px;
+    border: 1px solid var(--border-color);
+}
+
+.pulse {
+    width: 6px;
+    height: 6px;
+    background-color: #10b981;
+    border-radius: 50%;
+    box-shadow: 0 0 8px #10b981;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+    }
+
+    70% {
+        transform: scale(1);
+        box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+    }
+
+    100% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+    }
+}
+
+.status-msg {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+}
+
+main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    /* Center items horizontally */
+    width: 100%;
+    max-width: 400px;
+    /* Prevent over-stretching on wide screens */
+    margin: 0 auto;
+    /* Center main within app-container */
+}
+
+.glass {
+    background: var(--surface-color);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    width: 100%;
+    /* Fill the max-width of main */
+}
+
+.drop-zone {
+    padding: 30px 20px;
+    text-align: center;
+    transition: all 0.3s ease;
+}
+
+.icon-circle {
+    width: 50px;
+    height: 50px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 20px;
+    color: var(--primary-color);
+    border: 1px solid var(--border-color);
+}
+
+.drop-zone h3 {
+    font-size: 16px;
+    margin: 0 0 8px;
+    font-weight: 600;
+}
+
+.drop-zone p {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin: 0 0 25px;
+    line-height: 1.5;
+}
+
+.primary-btn {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, var(--primary-color), #6d28d9);
+    border: none;
+    border-radius: 12px;
+    color: white;
+    font-family: var(--font-main);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+.primary-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px var(--primary-glow);
+}
+
+.primary-btn:active {
+    transform: translateY(0);
+}
+
+.shimmer {
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    animation: shimmer 3s infinite;
+}
+
+@keyframes shimmer {
+    100% {
+        left: 100%;
+    }
+}
+
+.info-footer {
+    margin-top: 20px;
+    text-align: center;
+    width: 100%;
+}
+
+.status-text {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-style: italic;
+    opacity: 0.8;
+}
+
+footer {
+    margin-top: 30px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 1px solid var(--border-color);
+    padding-top: 15px;
+}
+
+.version {
+    font-size: 10px;
+    color: var(--text-dim);
+    opacity: 0.5;
+}
+
+.tagline {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--primary-color);
+    opacity: 0.8;
+    text-transform: uppercase;
+}

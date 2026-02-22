@@ -1,0 +1,11 @@
+{
+    "id": "fx_gen_14",
+    "name": "Generated Effect 14",
+    "type": "effect",
+    "description": "Auto-generated effect variant 14",
+    "shader": "hue-rotate(140deg) sepia(70%)",
+    "parameters": {
+        "hue": 140,
+        "sepia": 70
+    }
+}

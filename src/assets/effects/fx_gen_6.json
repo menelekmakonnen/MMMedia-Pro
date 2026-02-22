@@ -1,0 +1,11 @@
+{
+    "id": "fx_gen_6",
+    "name": "Generated Effect 6",
+    "type": "effect",
+    "description": "Auto-generated effect variant 6",
+    "shader": "hue-rotate(60deg) sepia(30%)",
+    "parameters": {
+        "hue": 60,
+        "sepia": 30
+    }
+}
