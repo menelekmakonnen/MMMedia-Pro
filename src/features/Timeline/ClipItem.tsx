@@ -1,5 +1,5 @@
 import React, { memo } from 'react';
-import { ChevronDown, ChevronUp, Bot, Hand, Lock, Pin, Eye, EyeOff } from 'lucide-react';
+import { ChevronDown, ChevronUp, Bot, Hand, Lock, Pin, Eye, EyeOff, LayoutGrid } from 'lucide-react';
 import { Clip, useClipStore } from '../../store/clipStore';
 import { ClipControls } from './ClipControls';
 import { SegmentSelector } from './SegmentSelector';
@@ -74,21 +74,25 @@ export const ClipItem: React.FC<ClipItemProps> = memo(({ clip, isSelected, onSel
                     </div>
 
                     {/* Thumbnail */}
-                    <div className="h-12 w-20 bg-black/50 rounded overflow-hidden flex-shrink-0 border border-white/10">
-                        <video
-                            src={clip.path}
-                            className="h-full w-full object-cover"
-                            onLoadedMetadata={(e) => {
-                                e.currentTarget.currentTime = (clip.trimStartFrame ?? 0) / 30; // Assuming 30fps
-                            }}
-                            // Update time if startFrame changes (e.g. via Flux)
-                            ref={(el) => {
-                                if (el) el.currentTime = (clip.trimStartFrame ?? 0) / 30;
-                            }}
-                            muted
-                            preload="metadata"
-                            onError={(e) => console.error("Thumbnail load error for:", clip.path, e.currentTarget.error)}
-                        />
+                    <div className="h-12 w-20 bg-black/50 rounded overflow-hidden flex-shrink-0 border border-white/10 flex items-center justify-center text-white/30">
+                        {clip.type === 'grid' ? (
+                            <LayoutGrid size={24} />
+                        ) : (
+                            <video
+                                src={clip.path}
+                                className="h-full w-full object-cover"
+                                onLoadedMetadata={(e) => {
+                                    e.currentTarget.currentTime = (clip.trimStartFrame ?? 0) / 30; // Assuming 30fps
+                                }}
+                                // Update time if startFrame changes (e.g. via Flux)
+                                ref={(el) => {
+                                    if (el) el.currentTime = (clip.trimStartFrame ?? 0) / 30;
+                                }}
+                                muted
+                                preload="metadata"
+                                onError={(e) => console.error("Thumbnail load error for:", clip.path, e.currentTarget.error)}
+                            />
+                        )}
                     </div>
 
                     <div className="flex-1 min-w-0">
@@ -104,7 +108,7 @@ export const ClipItem: React.FC<ClipItemProps> = memo(({ clip, isSelected, onSel
                                 {clip.origin === 'auto' && (
                                     <>
                                         <span>•</span>
-                                        <span className="text-blue-400 flex items-center gap-1" title="Auto-generated">
+                                        <span className="text-primary flex items-center gap-1" title="Auto-generated">
                                             <Bot size={12} /> Auto
                                         </span>
                                     </>
@@ -159,7 +163,7 @@ export const ClipItem: React.FC<ClipItemProps> = memo(({ clip, isSelected, onSel
                         {/* Always show status if folded */}
                         {isFolded && (
                             <div className="flex gap-2 mt-0.5">
-                                {clip.origin === 'auto' && <div title="Auto"><Bot size={12} className="text-blue-400" /></div>}
+                                {clip.origin === 'auto' && <div title="Auto"><Bot size={12} className="text-primary" /></div>}
                                 {clip.origin === 'manual' && <div title="Manual"><Hand size={12} className="text-green-400" /></div>}
                                 {clip.locked && <div title="Locked"><Lock size={12} className="text-yellow-500" /></div>}
                                 {clip.isPinned && <div title="Pinned"><Pin size={12} className="text-accent" /></div>}
@@ -170,10 +174,16 @@ export const ClipItem: React.FC<ClipItemProps> = memo(({ clip, isSelected, onSel
             </div>
 
             {/* Clip Controls */}
-            <ClipControls clipId={clip.id} />
+            {clip.type !== 'grid' && <ClipControls clipId={clip.id} />}
 
             {/* Segment Selector - Hide when folded */}
-            {!isFolded && <SegmentSelector clipId={clip.id} />}
+            {!isFolded && clip.type !== 'grid' && <SegmentSelector clipId={clip.id} />}
+
+            {!isFolded && clip.type === 'grid' && (
+                <div className="text-xs text-white/50 px-4 pb-2 italic">
+                    Grid playback settings must be edited in the Grid Editor.
+                </div>
+            )}
         </div>
     );
 });

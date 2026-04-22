@@ -5,10 +5,28 @@ import { MediaManagerTab } from './features/MediaManager/MediaManagerTab';
 import { TimelineTab } from './features/Timeline/TimelineTab';
 import { ExportTab } from './features/Export/ExportTab';
 import { SequenceViewTab } from './features/SequenceView/SequenceViewTab';
+import { GridEditorTab } from './features/GridEditor/GridEditorTab';
+import { TrailerRouter } from './features/TrailerGenerator/TrailerRouter';
+import { GlobalSettingsTab } from './features/GlobalSettings/GlobalSettingsTab';
+import { GodModeTab } from './features/GodMode/GodModeTab';
+import { SpaceBackground } from './components/SpaceBackground';
+import { useUserStore } from './store/userStore';
 import { Minus, Square, X } from 'lucide-react';
+import { useEffect } from 'react';
+import { BridgeListener } from './components/BridgeListener';
+import { ToastContainer } from './components/Toast';
+import { ConfirmDialog } from './components/ConfirmDialog';
+import { MMLogo } from './components/MMLogo';
+import { AppHealthMonitor } from './components/AppHealthMonitor';
 
 function App() {
     const { activeTab } = useViewStore();
+    const { theme, sidebarPosition, enableSpaceBackground } = useUserStore();
+
+    useEffect(() => {
+        // Apply theme class to document body
+        document.body.className = `theme-${theme}`;
+    }, [theme]);
 
     const renderContent = () => {
         switch (activeTab) {
@@ -16,26 +34,39 @@ function App() {
                 return <SettingsTab />;
             case 'media':
                 return <MediaManagerTab />;
+            case 'godmode':
+                return <GodModeTab />;
             case 'sequence':
                 return <SequenceViewTab />;
+            case 'grideditor':
+                return <GridEditorTab />;
             case 'timeline':
                 return <TimelineTab />;
+            case 'trailer':
+                return <TrailerRouter />;
             case 'export':
                 return <ExportTab />;
+            case 'global-settings':
+                return <GlobalSettingsTab />;
             default:
                 return <SettingsTab />;
         }
     };
 
+    const showSpaceBackground = enableSpaceBackground && activeTab !== 'sequence';
+
     return (
-        <div className="h-screen w-screen flex flex-col bg-background text-white overflow-hidden">
+        <div className={`h-screen w-screen flex flex-col ${showSpaceBackground ? 'bg-transparent' : 'bg-background'} text-white overflow-hidden`}>
+            {showSpaceBackground && <SpaceBackground />}
+            
             {/* Custom Title Bar */}
-            <div className="h-8 bg-[#0a0a15] border-b border-white/5 flex items-center justify-between px-4 drag">
+            <div className="h-8 bg-[#0a0a15]/80 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-4 drag z-10">
                 <div className="flex items-center gap-3">
-                    <img src="/logo.png" alt="MMMedia Pro" className="h-5 w-auto" />
-                    <span className="text-xs font-medium text-white/60">MMMedia Pro</span>
+                    <MMLogo size={24} />
+                    <span className="text-xs font-semibold text-white/50 tracking-wide">MMMedia Pro</span>
                 </div>
                 <div className="flex items-center gap-2 no-drag">
+                    <BridgeListener />
                     <button
                         className="h-6 w-6 flex items-center justify-center hover:bg-white/10 rounded transition-colors"
                         onClick={() => window.ipcRenderer.send('window-control', 'minimize')}
@@ -61,12 +92,17 @@ function App() {
             </div>
 
             {/* Main Content */}
-            <div className="flex flex-1 overflow-hidden">
+            <div className={`flex flex-1 overflow-hidden ${sidebarPosition === 'right' ? 'flex-row-reverse' : 'flex-row'}`}>
                 <Sidebar />
                 <main className="flex-1 overflow-hidden">
                     {renderContent()}
                 </main>
             </div>
+
+            {/* Global UI Overlays */}
+            <ToastContainer />
+            <ConfirmDialog />
+            <AppHealthMonitor />
         </div>
     );
 }

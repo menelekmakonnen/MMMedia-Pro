@@ -22,10 +22,35 @@ export const generateManifest = (): Manifest => {
         track: clip.track || 0,
         speed: clip.speed,
         volume: clip.volume,
-        reversed: clip.reversed
+        reversed: clip.reversed,
+        ...(clip.type === 'grid' && {
+            gridFormat: (clip as any).gridFormat,
+            numCells: (clip as any).numCells,
+            backgroundMode: (clip as any).backgroundMode,
+            cells: (clip as any).cells.map((cell: any) => ({
+                id: cell.id,
+                x: cell.x,
+                y: cell.y,
+                width: cell.width,
+                height: cell.height,
+                clip: cell.clip ? {
+                    id: cell.clip.id,
+                    file: cell.clip.path,
+                    type: cell.clip.type,
+                    timelineIn: cell.clip.startFrame,
+                    timelineOut: cell.clip.endFrame,
+                    sourceIn: cell.clip.trimStartFrame,
+                    sourceOut: cell.clip.trimEndFrame,
+                    speed: cell.clip.speed,
+                    volume: cell.clip.volume,
+                    metadata: { durationFrames: cell.clip.sourceDurationFrames }
+                } : null
+            }))
+        })
     }));
 
     return {
+        manifestVersion: MANIFEST_VERSION,
         project: {
             name: settings.name,
             resolution: settings.resolution,
@@ -33,7 +58,7 @@ export const generateManifest = (): Manifest => {
             seed: "default-seed", // TODO: Add seed to project settings
             schemaVersion: MANIFEST_VERSION
         },
-        media: manifestClips
+        clips: manifestClips
     };
 };
 
@@ -59,7 +84,7 @@ export const loadManifestToStore = (manifest: Manifest) => {
     else setResolution('16:9'); // Default fallback
 
     // 2. Reconstruct Clips
-    const restoredClips: Clip[] = manifest.media.map((mClip: ManifestClip) => ({
+    const restoredClips: Clip[] = manifest.clips.map((mClip: ManifestClip) => ({
         id: mClip.id || uuidv4(),
         type: (mClip.type === 'video' || mClip.type === 'audio' || mClip.type === 'image') ? mClip.type : 'video',
         path: mClip.file,
@@ -74,7 +99,34 @@ export const loadManifestToStore = (manifest: Manifest) => {
         volume: mClip.volume ?? 1.0,
         reversed: mClip.reversed || false,
         locked: false,
-    }));
+        ...(mClip.type === 'grid' && {
+            gridFormat: mClip.gridFormat || 'horizontal',
+            numCells: mClip.numCells || 2,
+            backgroundMode: mClip.backgroundMode || 'blur',
+            cells: (mClip.cells || []).map((cell: any) => ({
+                id: cell.id || uuidv4(),
+                x: cell.x || 0,
+                y: cell.y || 0,
+                width: cell.width || 0,
+                height: cell.height || 0,
+                clip: cell.clip ? {
+                    id: cell.clip.id || uuidv4(),
+                    path: cell.clip.file,
+                    filename: cell.clip.file.split(/[/\\]/).pop() || cell.clip.file,
+                    type: cell.clip.type,
+                    startFrame: cell.clip.timelineIn,
+                    endFrame: cell.clip.timelineOut,
+                    sourceDurationFrames: cell.clip.metadata?.durationFrames || 9999,
+                    trimStartFrame: cell.clip.sourceIn,
+                    trimEndFrame: cell.clip.sourceOut,
+                    speed: cell.clip.speed || 1.0,
+                    volume: cell.clip.volume ?? 1.0,
+                    reversed: false,
+                    locked: false
+                } : null
+            }))
+        })
+    } as any));
 
     setClips(restoredClips);
 };

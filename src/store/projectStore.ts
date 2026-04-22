@@ -22,8 +22,7 @@ const generateProjectName = (): string => {
     const day = String(now.getDate()).padStart(2, '0');
     const hours = String(now.getHours()).padStart(2, '0');
     const minutes = String(now.getMinutes()).padStart(2, '0');
-
-    return `${year}-${month}-${day} MMMEdia Project ${hours}:${minutes}`;
+    return `${year}-${month}-${day} MMMedia Project ${hours}:${minutes}`;
 };
 
 // Mobile-first resolution presets
@@ -129,7 +128,13 @@ export const useProjectStore = create<ProjectState>()(
             })
         }),
         {
-            name: 'mmmedia-project-storage', // unique name
+            name: 'mmmedia-project-storage',
             storage: createJSONStorage(() => localStorage),
+            onRehydrateStorage: () => (state) => {
+                // Auto-refresh project name to current date/time on each app load
+                if (state) {
+                    state.updateSettings({ name: generateProjectName() });
+                }
+            },
         }
     ));

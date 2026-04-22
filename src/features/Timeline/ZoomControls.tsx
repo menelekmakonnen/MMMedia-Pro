@@ -1,5 +1,5 @@
 import React from 'react';
-import { ZoomIn, ZoomOut, MoveDiagonal, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Focus } from 'lucide-react';
+import { ZoomIn, ZoomOut, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Focus } from 'lucide-react';
 import { useClipStore } from '../../store/clipStore';
 
 interface ZoomControlsProps {

@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F0524"/>
+      <stop offset="100%" stop-color="#1A0838"/>
+    </linearGradient>
+
+    <!-- Back M — cool indigo -->
+    <linearGradient id="m-back" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3730A3"/>
+      <stop offset="100%" stop-color="#4F46E5"/>
+    </linearGradient>
+
+    <!-- Mid M — vibrant violet -->
+    <linearGradient id="m-mid" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7C3AED"/>
+      <stop offset="100%" stop-color="#A78BFA"/>
+    </linearGradient>
+
+    <!-- Front M — hot magenta/pink -->
+    <linearGradient id="m-front" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#D946EF"/>
+      <stop offset="100%" stop-color="#F0ABFC"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect x="4" y="4" width="248" height="248" rx="48" ry="48" fill="url(#bg)"/>
+  <rect x="4" y="4" width="248" height="248" rx="48" ry="48" fill="none" stroke="#7C3AED" stroke-opacity="0.08" stroke-width="2"/>
+
+  <!-- ═══ BACK M — largest, leftmost, indigo ═══ -->
+  <g>
+    <path d="M22 206 L22 56 L68 120 L68 206 Z" fill="url(#m-back)" opacity="0.55"/>
+    <path d="M22 56 L94 206 L166 56 L132 56 L94 118 L68 56 Z" fill="url(#m-back)" opacity="0.55"/>
+    <path d="M132 206 L132 120 L166 56 L166 206 Z" fill="url(#m-back)" opacity="0.55"/>
+  </g>
+
+  <!-- ═══ MIDDLE M — medium, violet, offset +30px right, +8px down ═══ -->
+  <g>
+    <path d="M52 210 L52 72 L90 128 L90 210 Z" fill="url(#m-mid)" opacity="0.75"/>
+    <path d="M52 72 L116 210 L180 72 L150 72 L116 126 L90 72 Z" fill="url(#m-mid)" opacity="0.75"/>
+    <path d="M150 210 L150 128 L180 72 L180 210 Z" fill="url(#m-mid)" opacity="0.75"/>
+  </g>
+
+  <!-- ═══ FRONT M — smallest, brightest magenta, offset +60px right, +16px down ═══ -->
+  <g>
+    <path d="M82 214 L82 88 L112 136 L112 214 Z" fill="url(#m-front)"/>
+    <path d="M82 88 L138 214 L194 88 L168 88 L138 134 L112 88 Z" fill="url(#m-front)"/>
+    <path d="M168 214 L168 136 L194 88 L194 214 Z" fill="url(#m-front)"/>
+  </g>
+</svg>

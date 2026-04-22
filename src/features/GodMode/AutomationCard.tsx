@@ -9,6 +9,7 @@ interface AutomationCardProps {
     color?: string;
     compact?: boolean;
     iconSize?: number;
+    isLoading?: boolean;
 }
 
 export const AutomationCard: React.FC<AutomationCardProps> = ({
@@ -18,7 +19,8 @@ export const AutomationCard: React.FC<AutomationCardProps> = ({
     onRun,
     color = "text-primary",
     compact = false,
-    iconSize = 18
+    iconSize = 18,
+    isLoading = false
 }) => {
     const [status, setStatus] = useState<'idle' | 'running' | 'completed'>('idle');
 
@@ -40,8 +42,8 @@ export const AutomationCard: React.FC<AutomationCardProps> = ({
         return (
             <button
                 onClick={handleRun}
-                disabled={status === 'running'}
-                className={`flex flex-col items-center justify-center p-3 rounded-xl border border-white/5 transition-all active:scale-95 group relative overflow-hidden ${status === 'running' ? 'bg-white/5 cursor-wait' : 'bg-white/5 hover:bg-white/10 hover:border-white/20'
+                disabled={status === 'running' || isLoading}
+                className={`flex flex-col items-center justify-center p-3 rounded-xl border border-white/5 transition-all active:scale-95 group relative overflow-hidden ${(status === 'running' || isLoading) ? 'bg-white/5 cursor-wait' : 'bg-white/5 hover:bg-white/10 hover:border-white/20'
                     }`}
             >
                 <div className={`mb-1 ${color} ${status === 'running' ? 'animate-pulse' : 'group-hover:scale-110 transition-transform'}`}>
@@ -80,8 +82,8 @@ export const AutomationCard: React.FC<AutomationCardProps> = ({
 
             <button
                 onClick={handleRun}
-                disabled={status === 'running'}
-                className={`flex items-center justify-center gap-2 w-full py-3 rounded-lg font-medium transition-all ${status === 'running'
+                disabled={status === 'running' || isLoading}
+                className={`flex items-center justify-center gap-2 w-full py-3 rounded-lg font-medium transition-all ${(status === 'running' || isLoading)
                     ? 'bg-white/5 text-white/50 cursor-wait'
                     : 'bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 hover:shadow-primary/40'
                     }`}

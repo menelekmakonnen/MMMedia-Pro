@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { motion } from 'framer-motion';
 import { GripVertical, LayoutGrid, Minus, Square } from 'lucide-react';
 import { useClipStore } from '../../store/clipStore';
 import { useProjectStore } from '../../store/projectStore';
@@ -27,12 +28,15 @@ export const TimelineTab: React.FC = () => {
     const [isResizing, setIsResizing] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
 
+    // Only show video/grid clips in the timeline (audio is sequence-only)
+    const timelineClips = clips.filter(c => c.type === 'video' || c.type === 'grid');
+
     // Auto-select first clip if none selected
     useEffect(() => {
-        if (clips.length > 0 && selectedClipIds.length === 0) {
-            selectSingleClip(clips[0].id);
+        if (timelineClips.length > 0 && selectedClipIds.length === 0) {
+            selectSingleClip(timelineClips[0].id);
         }
-    }, [clips, selectedClipIds, selectSingleClip]);
+    }, [timelineClips, selectedClipIds, selectSingleClip]);
 
     const selectedClipId = selectedClipIds[0];
     const selectedClip = clips.find((c) => c.id === selectedClipId);
@@ -139,31 +143,35 @@ export const TimelineTab: React.FC = () => {
                                 <option value="cross-dissolve">Dissolve</option>
                                 <option value="fade-to-black">Fade</option>
                             </select>
-                            <button
+                            <motion.button
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
                                 onClick={() => setAllClipsFolded(true)}
                                 className="p-1 hover:bg-white/10 rounded text-white/40 hover:text-white transition-colors"
                                 title="Collapse All"
                             >
                                 <Minus size={14} />
-                            </button>
-                            <button
+                            </motion.button>
+                            <motion.button
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
                                 onClick={() => setAllClipsFolded(false)}
                                 className="p-1 hover:bg-white/10 rounded text-white/40 hover:text-white transition-colors"
                                 title="Expand All"
                             >
                                 <Square size={14} />
-                            </button>
+                            </motion.button>
                         </div>
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-                        {clips.length === 0 ? (
+                        {timelineClips.length === 0 ? (
                             <div className="text-center py-12 text-white/40">
                                 No clips in timeline
                                 <div className="text-xs mt-2">Import media from Media Manager</div>
                             </div>
                         ) : (
-                            clips.filter(c => c.type === 'video').map((clip) => (
+                            timelineClips.map((clip) => (
                                 <ClipItem
                                     key={clip.id}
                                     clip={clip}

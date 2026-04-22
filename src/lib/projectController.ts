@@ -2,6 +2,8 @@ import { useProjectStore } from '../store/projectStore';
 import { useClipStore } from '../store/clipStore';
 import { createManifestFromState, validateManifest, Manifest } from '../manifest';
 import { Clip } from '../types';
+import { toast } from '../components/Toast';
+import { confirm } from '../components/ConfirmDialog';
 
 export const saveProject = async (): Promise<boolean> => {
     try {
@@ -15,7 +17,7 @@ export const saveProject = async (): Promise<boolean> => {
         const validation = validateManifest(manifest);
         if (!validation.valid) {
             console.error("Manifest validation failed:", validation.errors);
-            alert(`Project validation failed:\n${validation.errors.join('\n')}`);
+            toast.error(`Project validation failed: ${validation.errors.join(', ')}`);
             return false;
         }
 
@@ -29,7 +31,7 @@ export const saveProject = async (): Promise<boolean> => {
                 return true;
             } else {
                 console.error("Failed to save project:", result.error);
-                alert(`Failed to save project: ${result.error}`);
+                toast.error(`Failed to save project: ${result.error}`);
                 return false;
             }
         } else {
@@ -52,14 +54,13 @@ export const saveProject = async (): Promise<boolean> => {
 export const loadProject = async (): Promise<boolean> => {
     try {
         let content: string | undefined;
-        let filePath: string | undefined;
 
         if (window.ipcRenderer) {
             const result = await window.ipcRenderer.loadProject();
             if (result.canceled) return false;
             if (!result.success || !result.content) {
                 console.error("Failed to load project:", result.error);
-                alert(`Failed to load project: ${result.error}`);
+                toast.error(`Failed to load project: ${result.error}`);
                 return false;
             }
             content = result.content;
@@ -108,7 +109,7 @@ export const exportManifest = async (): Promise<boolean> => {
 
         const validation = validateManifest(manifest);
         if (!validation.valid) {
-            const proceed = confirm(`Manifest has validation warnings:\n${validation.errors.join('\n')}\n\nExport anyway?`);
+            const proceed = await confirm(`Manifest has validation warnings:\n${validation.errors.join('\n')}`, { title: 'Validation Warnings', confirmText: 'Export Anyway', variant: 'warning' });
             if (!proceed) return false;
         }
 
@@ -117,10 +118,10 @@ export const exportManifest = async (): Promise<boolean> => {
         if (window.ipcRenderer) {
             const result = await window.ipcRenderer.exportManifest(json);
             if (result.success) {
-                alert(`Manifest exported successfully to ${result.filePath}`);
+                toast.success(`Manifest exported successfully to ${result.filePath}`);
                 return true;
             } else {
-                alert(`Failed to export manifest: ${result.error}`);
+                toast.error(`Failed to export manifest: ${result.error}`);
                 return false;
             }
         } else {
@@ -140,7 +141,7 @@ async function processLoadedContent(content: string): Promise<boolean> {
         // Validate
         const validation = validateManifest(manifest);
         if (!validation.valid) {
-            const proceed = confirm(`Project file has validation warnings:\n${validation.errors.join('\n')}\n\nLoad anyway?`);
+            const proceed = await confirm(`Project file has validation warnings:\n${validation.errors.join('\n')}`, { title: 'Validation Warnings', confirmText: 'Load Anyway', variant: 'warning' });
             if (!proceed) return false;
         }
 
@@ -191,7 +192,7 @@ async function processLoadedContent(content: string): Promise<boolean> {
 
     } catch (e) {
         console.error("Failed to process project content:", e);
-        alert("Failed to parse project file.");
+        toast.error("Failed to parse project file.");
         return false;
     }
 }

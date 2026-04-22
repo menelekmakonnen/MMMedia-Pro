@@ -3,3 +3,15 @@ dist
 dist-electron
 .DS_Store
 .env
+
+# Build artifacts & releases
+release/
+*.exe
+*.blockmap
+
+# Test & temp files
+test.mp4
+*.log
+build_error.txt
+builder_error.txt
+render_log.txt

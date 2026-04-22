@@ -2,6 +2,10 @@
     "name": "mmmedia-pro",
     "private": true,
     "version": "1.0.0",
+    "author": {
+        "name": "Menelek Makonnen"
+    },
+    "description": "Professional Media Editor by ICUNI Labs",
     "main": "dist-electron/main.js",
     "scripts": {
         "dev": "cross-env ELECTRON_RUN_AS_NODE= vite",
@@ -11,15 +15,32 @@
         "electron:build": "npm run build && electron-builder",
         "build:electron": "tsc -p electron/tsconfig.json"
     },
+    "build": {
+        "appId": "com.icunilabs.mmmediapro",
+        "productName": "MMMedia Pro",
+        "copyright": "Copyright © 2026 ICUNI Group - ICUNI Labs",
+        "win": {
+            "target": [
+                "nsis",
+                "portable"
+            ],
+            "icon": "public/icon.ico"
+        },
+        "directories": {
+            "output": "release/${version}"
+        }
+    },
     "dependencies": {
         "clsx": "^2.1.1",
         "fluent-ffmpeg": "^2.1.3",
+        "framer-motion": "^12.38.0",
         "lucide-react": "^0.462.0",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",
         "seedrandom": "^3.0.5",
         "tailwind-merge": "^3.4.0",
         "uuid": "^11.0.5",
+        "ws": "^8.20.0",
         "zustand": "^5.0.3"
     },
     "devDependencies": {
@@ -39,6 +60,7 @@
         "eslint-plugin-react": "^7.37.3",
         "ffmpeg-static": "^5.3.0",
         "postcss": "^8.4.49",
+        "sharp": "^0.34.5",
         "tailwindcss": "^3.4.18",
         "typescript": "~5.7.3",
         "vite": "^5.4.21",

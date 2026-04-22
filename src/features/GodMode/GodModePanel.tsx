@@ -44,13 +44,15 @@ export const GodModePanel: React.FC = () => {
     return (
         <div className="h-full flex flex-col p-6 overflow-y-auto animate-in fade-in duration-300">
             {/* Header */}
-            <div className="flex items-center gap-3 mb-8">
-                <div className="p-3 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 shadow-lg shadow-violet-500/20">
-                    <Sparkles className="text-white" size={24} />
-                </div>
-                <div>
-                    <h2 className="text-2xl font-bold tracking-tight">God Mode</h2>
-                    <p className="text-white/50 text-sm">AI-driven creativity and automation.</p>
+            <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-3">
+                    <div className="p-3 rounded-xl bg-gradient-to-br from-primary to-accent shadow-lg shadow-primary/20">
+                        <Sparkles className="text-white" size={24} />
+                    </div>
+                    <div>
+                        <h2 className="text-2xl font-bold tracking-tight">God Mode</h2>
+                        <p className="text-white/50 text-sm">AI-driven creativity and automation.</p>
+                    </div>
                 </div>
             </div>
 
@@ -60,7 +62,7 @@ export const GodModePanel: React.FC = () => {
                     title="Auto-Edit"
                     description="Generate a complete edit from your media using the current seed."
                     icon={Wand2}
-                    color="text-violet-400"
+                    color="text-primary"
                     onRun={handleAutoEdit}
                     isLoading={isGenerating}
                 />
@@ -85,7 +87,7 @@ export const GodModePanel: React.FC = () => {
                     title="Smart B-Roll"
                     description="Insert B-roll automatically based on voiceover context."
                     icon={Layers}
-                    color="text-blue-400"
+                    color="text-accent"
                     onRun={() => Promise.resolve(console.log("Smart B-Roll"))}
                 />
             </div>
@@ -103,11 +105,11 @@ export const GodModePanel: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4 text-sm">
                     <div className="flex justify-between p-3 rounded-lg bg-white/5 border border-white/5">
                         <span className="text-white/60">Chaos Level</span>
-                        <span className="text-violet-400 font-bold">15%</span>
+                        <span className="text-primary font-bold">15%</span>
                     </div>
                     <div className="flex justify-between p-3 rounded-lg bg-white/5 border border-white/5">
                         <span className="text-white/60">Pacing</span>
-                        <span className="text-violet-400 font-bold">Dynamic</span>
+                        <span className="text-primary font-bold">Dynamic</span>
                     </div>
                 </div>
             </div>

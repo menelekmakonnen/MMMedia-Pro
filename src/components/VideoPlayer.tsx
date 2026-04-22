@@ -3,6 +3,7 @@ import { Play, Pause, SkipBack, SkipForward, Volume2 } from 'lucide-react';
 import { AudioVisualizer } from './AudioVisualizer';
 import { useProjectStore } from '../store/projectStore';
 import { secondsToFrames } from '../lib/time';
+import { getReversedSourceTime } from '../lib/reversePlayback';
 
 interface VideoPlayerProps {
     videoPath?: string;
@@ -19,6 +20,10 @@ interface VideoPlayerProps {
     volume?: number;
     hideTransport?: boolean;
     bgOnly?: boolean;
+    reversed?: boolean;
+    trimStartFrame?: number;
+    trimEndFrame?: number;
+    clipDurationFrames?: number;
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -36,6 +41,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     zoomOrigin = 'center',
     hideTransport = false,
     bgOnly = false,
+    reversed = false,
+    trimStartFrame = 0,
+    trimEndFrame = 0,
+    clipDurationFrames = 0,
 }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const bgVideoRef = useRef<HTMLVideoElement>(null);
@@ -119,31 +128,50 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
     }, [effectiveSpeed]);
 
-    // Update frame from video playback
+    // Update frame from video playback (supports forward and reverse)
     useEffect(() => {
         if (!videoRef.current || !isPlaying) return;
 
         const interval = setInterval(() => {
-            if (!isReady) return; // Guard: Wait for metadata
+            if (!isReady) return;
 
             if (videoRef.current) {
-                // Use robust conversion
-                const newFrame = secondsToFrames(videoRef.current.currentTime, fps);
+                if (reversed && clipDurationFrames > 0) {
+                    // REVERSE MODE: Decrement frame and seek backward
+                    const newFrame = currentFrame + 1; // Timeline still advances forward
+                    const clipLocalFrame = newFrame % clipDurationFrames;
+                    const reversedTime = getReversedSourceTime(
+                        trimStartFrame, trimEndFrame, fps,
+                        clipLocalFrame, clipDurationFrames
+                    );
+                    videoRef.current.currentTime = reversedTime;
+                    if (bgVideoRef.current) bgVideoRef.current.currentTime = reversedTime;
 
-                // Check if we hit the limit
-                if (stopAtFrame !== undefined && newFrame >= stopAtFrame) {
-                    setIsPlaying(false);
-                    videoRef.current.pause();
-                    if (bgVideoRef.current) bgVideoRef.current.pause();
-                    onFrameChange(stopAtFrame); // Snap to end
-                    return;
+                    if (stopAtFrame !== undefined && newFrame >= stopAtFrame) {
+                        setIsPlaying(false);
+                        videoRef.current.pause();
+                        if (bgVideoRef.current) bgVideoRef.current.pause();
+                        onFrameChange(stopAtFrame);
+                        return;
+                    }
+                    onFrameChange(newFrame);
+                } else {
+                    // FORWARD MODE: Standard playback
+                    const newFrame = secondsToFrames(videoRef.current.currentTime, fps);
+                    if (stopAtFrame !== undefined && newFrame >= stopAtFrame) {
+                        setIsPlaying(false);
+                        videoRef.current.pause();
+                        if (bgVideoRef.current) bgVideoRef.current.pause();
+                        onFrameChange(stopAtFrame);
+                        return;
+                    }
+                    onFrameChange(newFrame);
                 }
-                onFrameChange(newFrame);
             }
         }, 1000 / fps);
 
         return () => clearInterval(interval);
-    }, [isPlaying, fps, onFrameChange, stopAtFrame, isReady]);
+    }, [isPlaying, fps, onFrameChange, stopAtFrame, isReady, reversed, trimStartFrame, trimEndFrame, clipDurationFrames, currentFrame]);
 
     const togglePlayPause = () => {
         if (!videoRef.current) return;

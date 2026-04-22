@@ -29,7 +29,7 @@ export interface ProjectSettings {
 }
 
 // Clip Types
-export type ClipType = 'video' | 'image' | 'audio';
+export type ClipType = 'video' | 'image' | 'audio' | 'grid';
 
 export interface Asset {
     id: string;
@@ -76,7 +76,9 @@ export interface Clip {
     isPinned?: boolean;   // NEW: Prevents clip from being moved
     isMuted?: boolean;    // NEW: Per-clip mute
     disabled?: boolean;   // NEW: Non-destructive deletion (hides from playback/export)
-    zoomLevel?: number;   // 100 to 200 percentage
+    zoomLevel?: number;   // 100 to 200 percentage (Static fallback)
+    zoomStart?: number;   // Dynamic zoom start percentage
+    zoomEnd?: number;     // Dynamic zoom end percentage
     zoomOrigin?: 'center' | 'top' | 'bottom' | 'left' | 'right'; // Anchor point for zoom
 
     // Audio Analysis
@@ -98,8 +100,35 @@ export interface Clip {
     // Ownership (Contract 5)
     origin?: 'auto' | 'manual';
 
+    // Transitions (Comprehensive transition system)
+    transitionEnter?: string | string[]; // TransitionType | TransitionType[]
+    transitionExit?: string | string[];  // TransitionType | TransitionType[]
+    transitionDurationFrames?: number;
+
+    // Source orientation for rendering decisions
+    sourceOrientation?: 'horizontal' | 'vertical' | 'square';
+
     // Linkage
     mediaLibraryId?: string; // ID of the MediaFile this clip was created from
+}
+
+export interface GridCell {
+    id: string; // Internal cell id
+    clip: Clip | null; // The clip placed in this cell (if any)
+    x: number; // 0-1 percentage
+    y: number; // 0-1 percentage
+    width: number; // 0-1 percentage
+    height: number; // 0-1 percentage
+}
+
+export type GridFormat = 'horizontal' | 'vertical' | 'square';
+
+export interface GridClip extends Clip {
+    type: 'grid';
+    gridFormat: GridFormat;
+    numCells: number; // 2 to 12
+    cells: GridCell[];
+    backgroundMode: BackgroundFillMode;
 }
 
 // Manifest Protocol (Contract 2)
@@ -109,4 +138,4 @@ export interface Manifest {
     clips: Clip[];
 }
 
-export type TabId = 'dashboard' | 'media' | 'timeline' | 'godmode' | 'export' | 'sequence';
+export type TabId = 'dashboard' | 'media' | 'trailer' | 'timeline' | 'grideditor' | 'godmode' | 'export' | 'sequence' | 'global-settings';

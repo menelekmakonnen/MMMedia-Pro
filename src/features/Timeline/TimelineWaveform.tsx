@@ -83,10 +83,12 @@ export const TimelineWaveform: React.FC<TimelineWaveformProps> = memo(({ path, w
 
                 audioContext.close();
             } catch (error: any) {
-                // Suppress "File size is greater than 2 GiB" error as we handle it gracefully via UI placeholder
-                const isLargeFileError = error?.message?.includes("File size") && error?.message?.includes("2 GiB");
+                // Suppress "File size is greater than 2 GiB" error and "Array buffer allocation failed" as we handle it gracefully via UI placeholder
+                const msg = error?.message || String(error);
+                const isLargeFileError = msg.includes("File size") && msg.includes("2 GiB");
+                const isAllocationError = msg.includes("Array buffer allocation failed") || msg.includes("buffer is too large");
 
-                if (!isLargeFileError) {
+                if (!isLargeFileError && !isAllocationError) {
                     console.error("Failed to load waveform:", error);
                 }
 

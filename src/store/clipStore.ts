@@ -4,13 +4,12 @@ import { SeededRandom, generateSeed } from '../lib/random';
 import { useProjectStore } from './projectStore';
 import { MediaFile } from './mediaStore';
 import { v4 as uuidv4 } from 'uuid';
-import { Clip as BaseClip } from '../types';
+import { Clip as BaseClip, GridClip, GridCell } from '../types';
+import { useUserStore } from './userStore';
 import { analyzeAudio } from '../lib/audioAnalysis';
 
 // Extend BaseClip with store-specific properties
-export interface Clip extends BaseClip {
-    isFolded?: boolean;
-}
+export type Clip = (BaseClip | GridClip) & { isFolded?: boolean };
 
 export interface SelectedSegment {
     clipId: string;
@@ -37,6 +36,7 @@ interface ClipStore {
     // New actions
     duplicateClip: (id: string) => void;
     deleteClip: (id: string) => void;
+    moveClip: (id: string, direction: 'up' | 'down') => void;
     randomizeSegment: (id: string) => void;
     randomizeClipDuration: (id: string) => void;
     setGlobalFlux: () => void;
@@ -63,6 +63,14 @@ interface ClipStore {
     setClipFolded: (id: string, folded: boolean) => void;
     setAllClipsFolded: (folded: boolean) => void;
 
+    // Grid Editor Actions
+    createGrid: (numCells: number, gridFormat: 'horizontal' | 'vertical' | 'square', initialClip?: Clip) => void;
+    updateGrid: (id: string, updates: Partial<GridClip>) => void;
+    updateGridCell: (gridId: string, cellId: string, updates: Partial<GridCell>) => void;
+    shuffleGridItems: (gridId: string) => void;
+    shuffleAllGrids: () => void;
+    distributeMediaToGrid: (gridId: string, files: MediaFile[]) => void;
+
     // Phase 7: Advanced
     setTransitionStrategy: (strategy: 'cut' | 'cross-dissolve' | 'fade-to-black') => void;
     setClipDuration: (id: string, durationInSeconds: number) => void;
@@ -71,6 +79,7 @@ interface ClipStore {
     // Phase 18: Sequence Actions
     magnetizeClips: () => void;
     reorderClips: (fromIndex: number, toIndex: number) => void;
+    applyEditingStyle: (clipId: string, styleName: 'rubber-band-standard' | 'rubber-band-zoom' | 'rubber-band-zoom-speed' | 'rubber-band-extreme' | 'multi-boomerang' | 'triple-shot') => void;
 
     // Automation
     regenerateTimeline: (sourceFiles: MediaFile[], seed: string) => void;
@@ -83,7 +92,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
     selectedSegment: null,
     globalMute: false,
     globalPlaybackSpeed: 1.0,
-    transitionStrategy: 'cut',
+    transitionStrategy: useUserStore.getState().defaultTransition,
 
     setClips: (clips) => set({ clips }),
     addClip: (clip) => set((state) => ({ clips: [...state.clips, clip] })),
@@ -136,6 +145,25 @@ export const useClipStore = create<ClipStore>((set, get) => ({
     deleteClip: (id) => {
         get().removeClip(id);
     },
+
+    moveClip: (id, direction) => set((state) => {
+        const index = state.clips.findIndex(c => c.id === id);
+        if (index === -1) return state;
+
+        const newClips = [...state.clips];
+        if (direction === 'up' && index > 0) {
+            // Swap with previous
+            const temp = newClips[index - 1];
+            newClips[index - 1] = newClips[index];
+            newClips[index] = temp;
+        } else if (direction === 'down' && index < newClips.length - 1) {
+            // Swap with next
+            const temp = newClips[index + 1];
+            newClips[index + 1] = newClips[index];
+            newClips[index] = temp;
+        }
+        return { clips: newClips };
+    }),
 
     randomizeSegment: (id) => {
         const clip = get().clips.find((c) => c.id === id);
@@ -544,6 +572,157 @@ export const useClipStore = create<ClipStore>((set, get) => ({
             clips: state.clips.map((clip) => ({ ...clip, isFolded })),
         })),
 
+    // Grid implementations
+    createGrid: (numCells, gridFormat, initialClip) => {
+        const newGrid: GridClip = {
+            id: uuidv4(),
+            type: 'grid',
+            path: '',
+            filename: `Grid ${numCells}x`,
+            startFrame: 0,
+            endFrame: 150, // Default 5s at 30fps
+            sourceDurationFrames: 150,
+            trimStartFrame: 0,
+            trimEndFrame: 150,
+            track: 1,
+            speed: 1,
+            volume: 100,
+            reversed: false,
+            locked: false,
+            origin: 'manual',
+            gridFormat,
+            numCells,
+            backgroundMode: 'blur',
+            cells: Array.from({ length: numCells }).map((_, i) => ({
+                id: uuidv4(),
+                clip: i === 0 && initialClip ? initialClip : null,
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1
+            }))
+        };
+        set((state) => ({ clips: [...state.clips, newGrid] }));
+    },
+
+    updateGrid: (id, updates) =>
+        set((state) => ({
+            clips: state.clips.map((c) =>
+                c.id === id && c.type === 'grid' ? { ...c, ...updates } as GridClip : c
+            ),
+        })),
+
+    updateGridCell: (gridId, cellId, updates) =>
+        set((state) => ({
+            clips: state.clips.map((c) => {
+                if (c.id === gridId && c.type === 'grid') {
+                    const grid = c as GridClip;
+                    return {
+                        ...grid,
+                        cells: grid.cells.map(cell =>
+                            cell.id === cellId ? { ...cell, ...updates } : cell
+                        )
+                    };
+                }
+                return c;
+            })
+        })),
+
+    distributeMediaToGrid: (gridId, files) => {
+        if (!files.length) return;
+        set((state) => {
+            const gridIndex = state.clips.findIndex(c => c.id === gridId && c.type === 'grid');
+            if (gridIndex === -1) return state;
+            const grid = state.clips[gridIndex] as GridClip;
+            const newCells = [...grid.cells];
+
+            const fps = 30;
+            const gridDurationFrames = grid.endFrame - grid.startFrame || 150;
+
+            const filesAvailable = files.map(f => ({
+                ...f,
+                durationFrames: Math.floor(f.duration * fps),
+                usedUntil: 0
+            }));
+
+            let currentFileIndex = 0;
+            for (let i = 0; i < grid.numCells; i++) {
+                const fIndex = currentFileIndex % filesAvailable.length;
+                const file = filesAvailable[fIndex];
+
+                let startTrim = file.usedUntil;
+                let endTrim = startTrim + gridDurationFrames;
+
+                if (endTrim > file.durationFrames) {
+                    startTrim = 0;
+                    endTrim = gridDurationFrames > file.durationFrames ? file.durationFrames : gridDurationFrames;
+                }
+                file.usedUntil = endTrim;
+
+                newCells[i] = {
+                    ...newCells[i],
+                    clip: {
+                        id: uuidv4(),
+                        mediaLibraryId: file.id,
+                        type: file.type,
+                        path: file.path,
+                        filename: file.filename,
+                        startFrame: 0,
+                        endFrame: gridDurationFrames,
+                        sourceDurationFrames: file.durationFrames,
+                        trimStartFrame: startTrim,
+                        trimEndFrame: endTrim,
+                        track: 1,
+                        speed: 1.0,
+                        volume: 100,
+                        reversed: false,
+                        isMuted: false,
+                        isPinned: false,
+                        origin: 'manual',
+                        locked: false
+                    }
+                };
+                currentFileIndex++;
+            }
+
+            const newClips = [...state.clips];
+            newClips[gridIndex] = { ...grid, cells: newCells };
+            return { clips: newClips };
+        });
+    },
+
+    shuffleGridItems: (gridId) => set((state) => {
+        const grid = state.clips.find(c => c.id === gridId && c.type === 'grid') as GridClip;
+        if (!grid) return state;
+
+        const cells = [...grid.cells];
+        const seed = useProjectStore.getState().settings.seed || generateSeed();
+        const rng = new SeededRandom(seed + gridId);
+
+        // Extract clips
+        const cellClips = cells.map(c => c.clip);
+        // Shuffle clips
+        const shuffledClips = rng.shuffle(cellClips);
+
+        const newCells = cells.map((cell, i) => ({
+            ...cell,
+            clip: shuffledClips[i]
+        }));
+
+        return {
+            clips: state.clips.map((c) => c.id === gridId ? { ...(c as GridClip), cells: newCells } : c)
+        };
+    }),
+
+    shuffleAllGrids: () => {
+        const { clips } = get();
+        clips.forEach(clip => {
+            if (clip.type === 'grid') {
+                get().shuffleGridItems(clip.id);
+            }
+        });
+    },
+
     setTransitionStrategy: (transitionStrategy) => set({ transitionStrategy }),
 
     nukeLibrary: () => set({ clips: [], selectedClipIds: [], selectedSegment: null }),
@@ -631,6 +810,249 @@ export const useClipStore = create<ClipStore>((set, get) => ({
         });
     },
 
+    applyEditingStyle: (clipId, styleName) => {
+        const state = get();
+        const clipIndex = state.clips.findIndex(c => c.id === clipId);
+        if (clipIndex === -1) return;
+        const originalClip = state.clips[clipIndex];
+        
+        // Ensure we are working with a video clip
+        if (originalClip.type !== 'video' && originalClip.type !== 'image') return;
+
+        // Base properties to copy
+        const baseClip = {
+            ...originalClip,
+            isPinned: false,
+            locked: false,
+            effectIds: [],
+        };
+
+        const newClips: Clip[] = [];
+        let currentStartFrame = originalClip.startFrame;
+
+        // Macro Logic
+        if (styleName === 'rubber-band-standard') {
+            const availSourceFrames = originalClip.trimEndFrame - originalClip.trimStartFrame;
+            
+            // Slice 1: Forward Fast (first 15% of source)
+            const s1SourceLen = Math.floor(availSourceFrames * 0.15);
+            const s1Speed = 2.0;
+            const s1Dur = Math.floor(s1SourceLen / s1Speed);
+            newClips.push({
+                ...baseClip, id: uuidv4(),
+                trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + s1SourceLen,
+                startFrame: currentStartFrame, endFrame: currentStartFrame + s1Dur, speed: s1Speed, reversed: false
+            });
+            currentStartFrame += s1Dur;
+
+            // Slice 2: Forward Slow (next 35% of source)
+            const s2SourceLen = Math.floor(availSourceFrames * 0.35);
+            const s2Speed = 0.3;
+            const s2Dur = Math.floor(s2SourceLen / s2Speed);
+            newClips.push({
+                ...baseClip, id: uuidv4(),
+                trimStartFrame: originalClip.trimStartFrame + s1SourceLen, trimEndFrame: originalClip.trimStartFrame + s1SourceLen + s2SourceLen,
+                startFrame: currentStartFrame, endFrame: currentStartFrame + s2Dur, speed: s2Speed, reversed: false
+            });
+            currentStartFrame += s2Dur;
+
+            // Slice 3: Reverse Slow (returning the 35% of source)
+            newClips.push({
+                ...baseClip, id: uuidv4(),
+                trimStartFrame: originalClip.trimStartFrame + s1SourceLen, trimEndFrame: originalClip.trimStartFrame + s1SourceLen + s2SourceLen,
+                startFrame: currentStartFrame, endFrame: currentStartFrame + s2Dur, speed: s2Speed, reversed: true
+            });
+            currentStartFrame += s2Dur;
+
+            // Slice 4: Reverse Fast (returning the 15% of source)
+            newClips.push({
+                ...baseClip, id: uuidv4(),
+                trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + s1SourceLen,
+                startFrame: currentStartFrame, endFrame: currentStartFrame + s1Dur, speed: s1Speed, reversed: true
+            });
+            currentStartFrame += s1Dur;
+
+        } else if (styleName === 'rubber-band-zoom') {
+            const availSrc = originalClip.trimEndFrame - originalClip.trimStartFrame;
+            const halfSrc = Math.floor(availSrc / 2);
+            const sDur = Math.floor((originalClip.endFrame - originalClip.startFrame) / 2);
+            
+            // Forward half: zoom in, play forward from trim start
+            newClips.push({
+                ...baseClip, id: uuidv4(),
+                trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + halfSrc,
+                startFrame: currentStartFrame, endFrame: currentStartFrame + sDur, 
+                reversed: false, zoomStart: 100, zoomEnd: 150
+            });
+            currentStartFrame += sDur;
+
+            // Reverse half: zoom out, play reversed from same source range
+            newClips.push({
+                ...baseClip, id: uuidv4(),
+                trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + halfSrc,
+                startFrame: currentStartFrame, endFrame: currentStartFrame + sDur, 
+                reversed: true, zoomStart: 150, zoomEnd: 100
+            });
+            currentStartFrame += sDur;
+
+        } else if (styleName === 'rubber-band-extreme') {
+            const availSourceFrames = originalClip.trimEndFrame - originalClip.trimStartFrame;
+            
+            const s1SourceLen = Math.floor(availSourceFrames * 0.15);
+            const s1Speed = 2.0;
+            const s1Dur = Math.floor(s1SourceLen / s1Speed);
+            newClips.push({
+                ...baseClip, id: uuidv4(),
+                trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + s1SourceLen,
+                startFrame: currentStartFrame, endFrame: currentStartFrame + s1Dur, speed: s1Speed, reversed: false,
+                zoomStart: 100, zoomEnd: 110
+            });
+            currentStartFrame += s1Dur;
+
+            const s2SourceLen = Math.floor(availSourceFrames * 0.35);
+            const s2Speed = 0.3;
+            const s2Dur = Math.floor(s2SourceLen / s2Speed);
+            newClips.push({
+                ...baseClip, id: uuidv4(),
+                trimStartFrame: originalClip.trimStartFrame + s1SourceLen, trimEndFrame: originalClip.trimStartFrame + s1SourceLen + s2SourceLen,
+                startFrame: currentStartFrame, endFrame: currentStartFrame + s2Dur, speed: s2Speed, reversed: false,
+                zoomStart: 110, zoomEnd: 160
+            });
+            currentStartFrame += s2Dur;
+
+            newClips.push({
+                ...baseClip, id: uuidv4(),
+                trimStartFrame: originalClip.trimStartFrame + s1SourceLen, trimEndFrame: originalClip.trimStartFrame + s1SourceLen + s2SourceLen,
+                startFrame: currentStartFrame, endFrame: currentStartFrame + s2Dur, speed: s2Speed, reversed: true,
+                zoomStart: 160, zoomEnd: 110
+            });
+            currentStartFrame += s2Dur;
+
+            newClips.push({
+                ...baseClip, id: uuidv4(),
+                trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + s1SourceLen,
+                startFrame: currentStartFrame, endFrame: currentStartFrame + s1Dur, speed: s1Speed, reversed: true,
+                zoomStart: 110, zoomEnd: 100
+            });
+            currentStartFrame += s1Dur;
+
+        } else if (styleName === 'multi-boomerang') {
+            // 4 slices: forward-reverse-forward-reverse with advancing source windows
+            const slices = 4;
+            const availSrc = originalClip.trimEndFrame - originalClip.trimStartFrame;
+            const sliceSrcLen = Math.floor(availSrc / 2); // Each slice uses half the source
+            const sDur = Math.floor((originalClip.endFrame - originalClip.startFrame) / slices);
+            
+            // Slice 1: Forward from start
+            newClips.push({
+                ...baseClip, id: uuidv4(),
+                trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + sliceSrcLen,
+                startFrame: currentStartFrame, endFrame: currentStartFrame + sDur, reversed: false
+            });
+            currentStartFrame += sDur;
+            // Slice 2: Reverse same segment
+            newClips.push({
+                ...baseClip, id: uuidv4(),
+                trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + sliceSrcLen,
+                startFrame: currentStartFrame, endFrame: currentStartFrame + sDur, reversed: true
+            });
+            currentStartFrame += sDur;
+            // Slice 3: Forward from second half
+            newClips.push({
+                ...baseClip, id: uuidv4(),
+                trimStartFrame: originalClip.trimStartFrame + sliceSrcLen, trimEndFrame: originalClip.trimEndFrame,
+                startFrame: currentStartFrame, endFrame: currentStartFrame + sDur, reversed: false
+            });
+            currentStartFrame += sDur;
+            // Slice 4: Reverse second half
+            newClips.push({
+                ...baseClip, id: uuidv4(),
+                trimStartFrame: originalClip.trimStartFrame + sliceSrcLen, trimEndFrame: originalClip.trimEndFrame,
+                startFrame: currentStartFrame, endFrame: currentStartFrame + sDur, reversed: true
+            });
+            currentStartFrame += sDur;
+
+        } else if (styleName === 'rubber-band-zoom-speed') {
+            const availSourceFrames = originalClip.trimEndFrame - originalClip.trimStartFrame;
+            const s1SourceLen = Math.floor(availSourceFrames * 0.15);
+            const s1Speed = 2.0;
+            const s1Dur = Math.floor(s1SourceLen / s1Speed);
+            newClips.push({
+                ...baseClip, id: uuidv4(),
+                trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + s1SourceLen,
+                startFrame: currentStartFrame, endFrame: currentStartFrame + s1Dur, speed: s1Speed, reversed: false,
+                zoomStart: 100, zoomEnd: 110
+            });
+            currentStartFrame += s1Dur;
+
+            const s2SourceLen = Math.floor(availSourceFrames * 0.35);
+            const s2Speed = 0.3;
+            const s2Dur = Math.floor(s2SourceLen / s2Speed);
+            newClips.push({
+                ...baseClip, id: uuidv4(),
+                trimStartFrame: originalClip.trimStartFrame + s1SourceLen, trimEndFrame: originalClip.trimStartFrame + s1SourceLen + s2SourceLen,
+                startFrame: currentStartFrame, endFrame: currentStartFrame + s2Dur, speed: s2Speed, reversed: false,
+                zoomStart: 110, zoomEnd: 160
+            });
+            currentStartFrame += s2Dur;
+
+            newClips.push({
+                ...baseClip, id: uuidv4(),
+                trimStartFrame: originalClip.trimStartFrame + s1SourceLen, trimEndFrame: originalClip.trimStartFrame + s1SourceLen + s2SourceLen,
+                startFrame: currentStartFrame, endFrame: currentStartFrame + s2Dur, speed: s2Speed, reversed: true,
+                zoomStart: 160, zoomEnd: 110
+            });
+            currentStartFrame += s2Dur;
+
+            newClips.push({
+                ...baseClip, id: uuidv4(),
+                trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + s1SourceLen,
+                startFrame: currentStartFrame, endFrame: currentStartFrame + s1Dur, speed: s1Speed, reversed: true,
+                zoomStart: 110, zoomEnd: 100
+            });
+            currentStartFrame += s1Dur;
+
+        } else if (styleName === 'triple-shot') {
+            // A -> B -> A pattern: uses the NEXT clip in timeline as B
+            const allClips = state.clips.filter(c => c.track === originalClip.track);
+            const currentIdx = allClips.findIndex(c => c.id === clipId);
+            const nextClip = currentIdx >= 0 && currentIdx < allClips.length - 1 ? allClips[currentIdx + 1] : null;
+
+            const aDur = originalClip.endFrame - originalClip.startFrame;
+            newClips.push({ ...baseClip, id: uuidv4(), startFrame: currentStartFrame, endFrame: currentStartFrame + aDur, reversed: false });
+            currentStartFrame += aDur;
+
+            if (nextClip) {
+                const bDur = nextClip.endFrame - nextClip.startFrame;
+                newClips.push({
+                    ...nextClip, id: uuidv4(), isPinned: false, locked: false,
+                    startFrame: currentStartFrame, endFrame: currentStartFrame + bDur, reversed: false
+                });
+                currentStartFrame += bDur;
+            }
+
+            newClips.push({ ...baseClip, id: uuidv4(), startFrame: currentStartFrame, endFrame: currentStartFrame + aDur, reversed: true });
+            currentStartFrame += aDur;
+        }
+
+        // Shift subsequent clips on the SAME track to prevent overlap or gaps
+        const shiftAmount = currentStartFrame - originalClip.endFrame;
+
+        set((currentState) => {
+            const updatedClips = currentState.clips.filter(c => c.id !== originalClip.id).map(c => {
+                if (c.track === originalClip.track && c.startFrame >= originalClip.endFrame) {
+                    return { ...c, startFrame: c.startFrame + shiftAmount, endFrame: c.endFrame + shiftAmount };
+                }
+                return c;
+            });
+
+            return {
+                clips: [...updatedClips, ...newClips].sort((a, b) => a.startFrame - b.startFrame),
+                selectedClipIds: [newClips[0].id]
+            };
+        });
+    },
+
     regenerateTimeline: (sourceFiles, seed) => {
         set((state) => {
             if (sourceFiles.length === 0) return state;
@@ -715,11 +1137,11 @@ export const useClipStore = create<ClipStore>((set, get) => ({
                     c.id === id ? {
                         ...c,
                         bpm: result.bpm,
-                        beatMarkers: result.peaks
+                        beatMarkers: result.beats // Full BeatMarker[] with type classification
                     } : c
                 ),
             }));
-            console.log('[ClipStore] Analysis complete:', result);
+            console.log('[ClipStore] Beat analysis complete — BPM:', result.bpm, 'Beats:', result.beats.length);
         } catch (error) {
             console.error('[ClipStore] Audio analysis failed:', error);
         }

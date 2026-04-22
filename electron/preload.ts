@@ -22,22 +22,56 @@ try {
         },
 
         // File operations
-        selectFiles: () => ipcRenderer.invoke('select-files'),
+        selectFiles: (type?: string) => ipcRenderer.invoke('select-files', type),
         readFileBuffer: (path: string) => ipcRenderer.invoke('read-file-buffer', path),
 
         // Persistence & Manifest API
         saveProject: (content: string) => ipcRenderer.invoke('save-project', content),
         loadProject: () => ipcRenderer.invoke('load-project'),
         exportManifest: (content: string) => ipcRenderer.invoke('export-manifest', content),
+        saveManifest: (content: string) => ipcRenderer.invoke('export-manifest', content),
         importManifest: () => ipcRenderer.invoke('import-manifest'),
 
         // Export API
         showExportDialog: (options: any) => ipcRenderer.invoke('show-export-dialog', options),
-        exportProject: (args: { filePath: string, clips: any[], settings: any }) => ipcRenderer.invoke('export-project', args),
+        exportProject: (args: { filePath: string, clips: any[], settings: any, isIntermediate?: boolean }) => ipcRenderer.invoke('export-project', args),
+        openInAME: (filePath: string) => ipcRenderer.invoke('open-in-ame', filePath),
         onExportProgress: (callback: (progress: number) => void) => {
             const listener = (_event: any, progress: number) => callback(progress);
             ipcRenderer.on('export-progress', listener);
             return () => ipcRenderer.removeListener('export-progress', listener);
+        },
+
+        // Bridge Events
+        onBridgeClientConnected: (callback: (data: any) => void) => {
+            const listener = (_event: any, data: any) => callback(data);
+            ipcRenderer.on('bridge-client-connected', listener);
+            return () => ipcRenderer.removeListener('bridge-client-connected', listener);
+        },
+        onBridgeClientDisconnected: (callback: (data: any) => void) => {
+            const listener = (_event: any, data: any) => callback(data);
+            ipcRenderer.on('bridge-client-disconnected', listener);
+            return () => ipcRenderer.removeListener('bridge-client-disconnected', listener);
+        },
+        onBridgeReceiveClips: (callback: (clips: any[]) => void) => {
+            const listener = (_event: any, clips: any[]) => callback(clips);
+            ipcRenderer.on('bridge-receive-clips', listener);
+            return () => ipcRenderer.removeListener('bridge-receive-clips', listener);
+        },
+        onBridgeReceiveMedia: (callback: (files: any[]) => void) => {
+            const listener = (_event: any, files: any[]) => callback(files);
+            ipcRenderer.on('bridge-receive-media', listener);
+            return () => ipcRenderer.removeListener('bridge-receive-media', listener);
+        },
+        onBridgeReceiveProject: (callback: (content: string) => void) => {
+            const listener = (_event: any, content: string) => callback(content);
+            ipcRenderer.on('bridge-receive-project', listener);
+            return () => ipcRenderer.removeListener('bridge-receive-project', listener);
+        },
+        onBridgeReceiveFolder: (callback: (data: { folderPath: string; files: any[] }) => void) => {
+            const listener = (_event: any, data: any) => callback(data);
+            ipcRenderer.on('bridge-receive-folder', listener);
+            return () => ipcRenderer.removeListener('bridge-receive-folder', listener);
         },
     })
 

@@ -116,10 +116,10 @@ export const GlobalControls: React.FC<GlobalControlsProps> = ({
                         <div className={`grid ${isVertical ? 'grid-cols-1 gap-2' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3'}`}>
                             {/* In slim mode, Automation cards should be icon only? AutomationCard needs support for that or we just map differently */}
                             <AutomationCard title="Auto-Edit" description="Trim & arrange clips" icon={Scissors} color="text-pink-500" onRun={runAutoEdit} compact={compactMode} iconSize={iconSize} />
-                            <AutomationCard title="Viral 9:16" description="Vertical reformat" icon={Smartphone} color="text-indigo-500" onRun={async () => await simulateTask(2000)} compact={compactMode} iconSize={iconSize} />
+                            <AutomationCard title="Viral 9:16" description="Vertical reformat" icon={Smartphone} color="text-primary" onRun={async () => await simulateTask(2000)} compact={compactMode} iconSize={iconSize} />
                             <AutomationCard title="Silence" description="Strip dead air" icon={Activity} color="text-emerald-500" onRun={async () => await simulateTask(1200)} compact={compactMode} iconSize={iconSize} />
                             <AutomationCard title="Captions" description="Auto-subtitles" icon={TypeIcon} color="text-orange-500" onRun={async () => await simulateTask(2500)} compact={compactMode} iconSize={iconSize} />
-                            <AutomationCard title="Remix" description="Sync to music" icon={Music} color="text-blue-500" onRun={async () => await simulateTask(1800)} compact={compactMode} iconSize={iconSize} />
+                            <AutomationCard title="Remix" description="Sync to music" icon={Music} color="text-accent" onRun={async () => await simulateTask(1800)} compact={compactMode} iconSize={iconSize} />
                             <AutomationCard title="Export" description="Post to social" icon={Share2} color="text-red-500" onRun={async () => await simulateTask(3000)} compact={compactMode} iconSize={iconSize} />
                         </div>
                     </div>
@@ -134,36 +134,60 @@ export const GlobalControls: React.FC<GlobalControlsProps> = ({
                             <div className={`flex w-full ${isVertical ? 'flex-col gap-4' : 'items-center gap-3'}`}>
                                 <button
                                     onClick={() => useClipStore.getState().shuffleClips()}
-                                    className={`${isVertical ? 'h-16 w-full flex-col justify-center px-0 rounded-2xl' : 'h-10 px-6 ' + (slim ? 'w-10 justify-center px-0' : '') + ' rounded-xl'} bg-white/5 hover:bg-white/10 flex items-center justify-center gap-2 transition-all border border-white/10 hover:border-white/20 active:scale-95 group`}
+                                    className={`${isVertical ? 'h-14 w-full flex-col justify-center px-0 rounded-xl' : 'h-10 px-6 ' + (slim ? 'w-10 justify-center px-0' : '') + ' rounded-xl'} bg-white/5 hover:bg-white/10 flex items-center justify-center gap-2 transition-all border border-white/5 hover:border-white/20 active:scale-95 group`}
                                     title="Shuffle Clip Order"
                                 >
                                     <div className="flex items-center justify-center gap-2">
-                                        <ArrowRightLeft size={isVertical ? 24 : iconSize} className="text-white/60 group-hover:text-white" />
-                                        {!isVertical && !isSlim && <span className="text-sm font-bold text-white/80 group-hover:text-white">SHUFFLE</span>}
+                                        <ArrowRightLeft size={isVertical ? 20 : iconSize} className="text-white/60 group-hover:text-white" />
+                                        {!isVertical && !isSlim && <span className="text-[10px] font-black uppercase tracking-wider text-white/60 group-hover:text-white">Shuffle</span>}
                                     </div>
                                 </button>
 
                                 <button
                                     onClick={() => useClipStore.getState().setGlobalFlux()}
-                                    className={`${isVertical ? 'h-16 w-full flex-col justify-center px-0 rounded-2xl' : 'h-10 px-6 ' + (slim ? 'w-10 justify-center px-0' : '') + ' rounded-xl'} bg-primary/20 hover:bg-primary/40 text-primary-light flex items-center justify-center gap-2 transition-all border border-primary/20 hover:border-primary/40 active:scale-95 group shadow-lg shadow-primary/10`}
+                                    className={`${isVertical ? 'h-14 w-full flex-col justify-center px-0 rounded-xl' : 'h-10 px-6 ' + (slim ? 'w-10 justify-center px-0' : '') + ' rounded-xl'} bg-primary/20 hover:bg-primary/40 text-primary-light flex items-center justify-center gap-2 transition-all border border-primary/20 hover:border-primary/40 active:scale-95 group shadow-[0_0_10px_rgba(var(--color-primary),0.1)]`}
                                     title="Randomize All Durations & Segments"
                                 >
                                     <div className="flex items-center justify-center gap-2">
-                                        <Sparkles size={isVertical ? 24 : iconSize} className="group-hover:scale-110 transition-transform" />
-                                        {!isVertical && !isSlim && <span className="text-sm font-bold">FLUX</span>}
+                                        <Sparkles size={isVertical ? 20 : iconSize} className="group-hover:scale-110 transition-transform" />
+                                        {!isVertical && !isSlim && <span className="text-[10px] font-black uppercase tracking-wider">Flux</span>}
                                     </div>
                                 </button>
 
                                 <button
                                     onClick={() => useClipStore.getState().chaos()}
-                                    className={`${isVertical ? 'h-16 w-full flex-col justify-center px-0 rounded-2xl' : 'h-10 px-6 ' + (slim ? 'w-10 justify-center px-0' : '') + ' rounded-xl'} bg-red-500/10 hover:bg-red-500/20 text-red-500 flex items-center justify-center gap-2 transition-all border border-red-500/20 hover:border-red-500/40 active:scale-95 group`}
+                                    className={`${isVertical ? 'h-14 w-full flex-col justify-center px-0 rounded-xl' : 'h-10 px-6 ' + (slim ? 'w-10 justify-center px-0' : '') + ' rounded-xl'} bg-red-500/10 hover:bg-red-500/20 text-red-500 flex items-center justify-center gap-2 transition-all border border-red-500/10 hover:border-red-500/30 active:scale-95 group`}
                                     title="Shuffle + Flux Everything"
                                 >
                                     <div className="flex items-center justify-center gap-2">
-                                        <Zap size={isVertical ? 24 : iconSize} fill="currentColor" className="group-hover:animate-pulse" />
-                                        {!isVertical && !isSlim && <span className="text-sm font-bold">CHAOS</span>}
+                                        <Zap size={isVertical ? 20 : iconSize} fill="currentColor" className="group-hover:animate-pulse" />
+                                        {!isVertical && !isSlim && <span className="text-[10px] font-black uppercase tracking-wider">Chaos</span>}
                                     </div>
                                 </button>
+                            </div>
+                        )}
+
+                        {/* Editing Styles Quick-Apply */}
+                        {sections.includes('actions') && isVertical && !slim && (
+                            <div className="w-full space-y-2 pt-2 border-t border-white/5">
+                                <span className="text-[9px] font-black text-white/25 uppercase tracking-widest">Style</span>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                    {[
+                                        { style: 'rubber-band-standard' as const, label: 'Ramp', color: 'purple' },
+                                        { style: 'rubber-band-zoom' as const, label: 'Zoom', color: 'cyan' },
+                                        { style: 'multi-boomerang' as const, label: 'Boom', color: 'emerald' },
+                                        { style: 'triple-shot' as const, label: 'Triple', color: 'rose' },
+                                    ].map(s => (
+                                        <button key={s.style}
+                                            onClick={() => {
+                                                const sel = useClipStore.getState().selectedClipIds;
+                                                if (sel.length > 0) sel.forEach(id => useClipStore.getState().applyEditingStyle(id, s.style));
+                                            }}
+                                            className="px-2 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider bg-white/5 hover:bg-indigo-500/20 text-white/40 hover:text-indigo-300 border border-white/5 hover:border-indigo-500/30 transition-all active:scale-95"
+                                            title={`Apply ${s.label} to selected clips`}
+                                        >{s.label}</button>
+                                    ))}
+                                </div>
                             </div>
                         )}
 
@@ -174,14 +198,14 @@ export const GlobalControls: React.FC<GlobalControlsProps> = ({
                                     {sections.includes('mute') && (
                                         <button
                                             onClick={() => setGlobalMute(!globalMute)}
-                                            className={`h-10 ${slim ? 'w-10 px-0' : 'px-4 flex-1'} rounded-xl flex items-center gap-2 transition-all active:scale-95 justify-center ${globalMute
-                                                ? 'bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/20 shadow-lg shadow-red-500/10'
-                                                : 'bg-white/5 hover:bg-white/10 text-white/80 border border-white/10'
+                                            className={`h-10 ${slim ? 'w-10 px-0' : 'px-4 flex-1'} rounded-xl flex items-center gap-2 transition-all active:scale-95 justify-center border ${globalMute
+                                                ? 'bg-red-500/20 hover:bg-red-500/30 text-red-400 border-red-500/20'
+                                                : 'bg-white/5 hover:bg-white/10 text-white/60 border-white/5 hover:border-white/20'
                                                 }`}
                                             title={globalMute ? "Unmute All Clips" : "Mute All Clips"}
                                         >
                                             {globalMute ? <VolumeX size={iconSize} /> : <Volume2 size={iconSize} />}
-                                            {isVertical && !isSlim && <span className="text-xs font-bold ml-1">{globalMute ? 'MUTED' : 'MUTE'}</span>}
+                                            {isVertical && !isSlim && <span className="text-[10px] font-bold ml-1 uppercase tracking-wider">{globalMute ? 'Muted' : 'Mute'}</span>}
                                         </button>
                                     )}
 
@@ -189,7 +213,7 @@ export const GlobalControls: React.FC<GlobalControlsProps> = ({
                                     {sections.includes('actions') && (
                                         <button
                                             onClick={() => setIsGodModeOpen(true)}
-                                            className="h-10 w-10 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 rounded-xl flex items-center justify-center transition-all active:scale-95 flex-shrink-0"
+                                            className="h-10 w-10 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/10 hover:border-purple-500/30 rounded-xl flex items-center justify-center transition-all active:scale-95 flex-shrink-0"
                                             title="State Control & State Inspector"
                                         >
                                             <Wand2 size={iconSize} />

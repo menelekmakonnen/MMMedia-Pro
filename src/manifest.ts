@@ -16,7 +16,13 @@ export interface ManifestProjectSettings {
 export interface ManifestClip {
     id: string;
     file: string; // Filename relative or absolute
-    type: 'video' | 'audio' | 'image' | 'text';
+    type: 'video' | 'audio' | 'image' | 'text' | 'grid';
+
+    // Grid specific
+    gridFormat?: string;
+    numCells?: number;
+    backgroundMode?: string;
+    cells?: any[]; // Allow recursive or partial cells
 
     // Timing (Frames)
     timelineIn: number;
@@ -143,7 +149,31 @@ export function createManifestFromState(
                 width: clip.metadata?.width,
                 height: clip.metadata?.height,
                 durationFrames: clip.sourceDurationFrames
-            }
+            },
+            ...(clip.type === 'grid' && {
+                gridFormat: (clip as any).gridFormat,
+                numCells: (clip as any).numCells,
+                backgroundMode: (clip as any).backgroundMode,
+                cells: (clip as any).cells.map((cell: any) => ({
+                    id: cell.id,
+                    x: cell.x,
+                    y: cell.y,
+                    width: cell.width,
+                    height: cell.height,
+                    clip: cell.clip ? {
+                        id: cell.clip.id,
+                        file: cell.clip.filename,
+                        type: cell.clip.type,
+                        timelineIn: cell.clip.startFrame,
+                        timelineOut: cell.clip.endFrame,
+                        sourceIn: cell.clip.trimStartFrame,
+                        sourceOut: cell.clip.trimEndFrame,
+                        speed: cell.clip.speed,
+                        volume: cell.clip.volume,
+                        metadata: { durationFrames: cell.clip.sourceDurationFrames }
+                    } : null
+                }))
+            })
         })),
         textItems: [],
         gridLayouts: [],
