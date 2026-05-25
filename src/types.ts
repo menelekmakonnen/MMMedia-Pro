@@ -81,6 +81,9 @@ export interface Clip {
     zoomEnd?: number;     // Dynamic zoom end percentage
     zoomOrigin?: 'center' | 'top' | 'bottom' | 'left' | 'right'; // Anchor point for zoom
 
+    // Visual texture applied during trailer generation (exported to FFmpeg)
+    visualTexture?: 'none' | 'grain' | 'chromatic' | 'motion-blur' | 'vintage';
+
     // Audio Analysis
     bpm?: number;
     beatMarkers?: { time: number, energy: number }[];
@@ -108,13 +111,17 @@ export interface Clip {
     // Source orientation for rendering decisions
     sourceOrientation?: 'horizontal' | 'vertical' | 'square';
 
+    // Persistent rotation (0/90/180/270 degrees) — applied in preview AND export
+    rotation?: 0 | 90 | 180 | 270;
+
     // Linkage
     mediaLibraryId?: string; // ID of the MediaFile this clip was created from
 }
 
 export interface GridCell {
     id: string; // Internal cell id
-    clip: Clip | null; // The clip placed in this cell (if any)
+    clip: Clip | null; // Legacy — single clip for backward compatibility
+    clips: Clip[]; // Mini-timeline — ordered list of clips in sequence
     x: number; // 0-1 percentage
     y: number; // 0-1 percentage
     width: number; // 0-1 percentage
@@ -129,6 +136,9 @@ export interface GridClip extends Clip {
     numCells: number; // 2 to 12
     cells: GridCell[];
     backgroundMode: BackgroundFillMode;
+    // Global grid playback sync
+    globalShuffle?: boolean;
+    globalFlux?: boolean;
 }
 
 // Manifest Protocol (Contract 2)
@@ -138,4 +148,4 @@ export interface Manifest {
     clips: Clip[];
 }
 
-export type TabId = 'dashboard' | 'media' | 'trailer' | 'timeline' | 'grideditor' | 'godmode' | 'export' | 'sequence' | 'global-settings';
+export type TabId = 'dashboard' | 'media' | 'trailer' | 'timeline' | 'grideditor' | 'export' | 'sequence' | 'videoplayer' | 'edits' | 'global-settings';

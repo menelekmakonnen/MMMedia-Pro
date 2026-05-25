@@ -1,6 +1,19 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+export interface RecentFolder {
+    path: string;
+    name: string;
+    addedAt: number;
+    fileCount: number;
+}
+
+export interface RecentAudioFile {
+    path: string;
+    name: string;
+    addedAt: number;
+}
+
 export interface MediaFile {
     id: string;
     path: string;
@@ -10,6 +23,7 @@ export interface MediaFile {
     width?: number;
     height?: number;
     orientation?: 'horizontal' | 'vertical' | 'square';
+    rotation?: 0 | 90 | 180 | 270;  // Persistent rotation applied in preview + export
     format?: string;
     size?: number;
     createdAt?: number;
@@ -20,17 +34,30 @@ interface MediaState {
     selectedFileIds: string[];
     lastSelectedFileId: string | null;
     orientationFilter: 'all' | 'horizontal' | 'vertical' | 'square';
+    // Preloaded audio for Beat Intelligence Engine (set by MediaManager, consumed by TrailerWizard)
+    preloadedAudioPath: string | null;
+    preloadedAudioName: string | null;
+    // Recent imports (persisted for sidebar suggestions)
+    recentFolders: RecentFolder[];
+    recentAudioFiles: RecentAudioFile[];
 
     // Actions
     addFiles: (newFiles: MediaFile[]) => void;
     removeFile: (id: string) => void;
     clearLibrary: () => void;
     updateFile: (id: string, updates: Partial<MediaFile>) => void;
+    rotateFile: (id: string) => void;
     setOrientationFilter: (filter: 'all' | 'horizontal' | 'vertical' | 'square') => void;
+    setPreloadedAudio: (path: string | null, name: string | null) => void;
     // Multi-select actions
     toggleFileSelection: (id: string, mode: 'single' | 'ctrl' | 'shift', allVisibleIds?: string[]) => void;
-    selectAllFiles: () => void;
+    selectAllFiles: (visibleIds?: string[]) => void;
     clearSelection: () => void;
+    // Recent imports
+    addRecentFolder: (path: string, fileCount: number) => void;
+    removeRecentFolder: (path: string) => void;
+    addRecentAudio: (path: string) => void;
+    removeRecentAudio: (path: string) => void;
 }
 
 export const useMediaStore = create<MediaState>()(
@@ -40,6 +67,10 @@ export const useMediaStore = create<MediaState>()(
             selectedFileIds: [],
             lastSelectedFileId: null,
             orientationFilter: 'all',
+            preloadedAudioPath: null,
+            preloadedAudioName: null,
+            recentFolders: [],
+            recentAudioFiles: [],
 
             addFiles: (newFiles) => set((state) => {
                 return { files: [...state.files, ...newFiles] };
@@ -56,7 +87,17 @@ export const useMediaStore = create<MediaState>()(
                 files: state.files.map(f => f.id === id ? { ...f, ...updates } : f)
             })),
 
+            rotateFile: (id) => set((state) => ({
+                files: state.files.map(f => {
+                    if (f.id !== id) return f;
+                    const nextRotation = (((f.rotation || 0) + 90) % 360) as 0 | 90 | 180 | 270;
+                    return { ...f, rotation: nextRotation };
+                })
+            })),
+
             setOrientationFilter: (filter) => set({ orientationFilter: filter }),
+
+            setPreloadedAudio: (path, name) => set({ preloadedAudioPath: path, preloadedAudioName: name }),
 
             toggleFileSelection: (id, mode, allVisibleIds) => set((state) => {
                 if (mode === 'single') {
@@ -98,15 +139,39 @@ export const useMediaStore = create<MediaState>()(
                 return state;
             }),
 
-            selectAllFiles: () => set((state) => ({
-                selectedFileIds: state.files.map(f => f.id),
+            selectAllFiles: (visibleIds) => set((state) => ({
+                selectedFileIds: visibleIds ?? state.files.map(f => f.id),
             })),
 
             clearSelection: () => set({ selectedFileIds: [], lastSelectedFileId: null }),
+
+            addRecentFolder: (path, fileCount) => set((state) => {
+                const name = path.split(/[\\/]/).pop() || path;
+                const existing = state.recentFolders.filter(f => f.path !== path);
+                return { recentFolders: [{ path, name, addedAt: Date.now(), fileCount }, ...existing].slice(0, 10) };
+            }),
+
+            removeRecentFolder: (path) => set((state) => ({
+                recentFolders: state.recentFolders.filter(f => f.path !== path),
+            })),
+
+            addRecentAudio: (path) => set((state) => {
+                const name = path.split(/[\\/]/).pop() || path;
+                const existing = state.recentAudioFiles.filter(f => f.path !== path);
+                return { recentAudioFiles: [{ path, name, addedAt: Date.now() }, ...existing].slice(0, 10) };
+            }),
+
+            removeRecentAudio: (path) => set((state) => ({
+                recentAudioFiles: state.recentAudioFiles.filter(f => f.path !== path),
+            })),
         }),
         {
             name: 'mmmedia-media-storage',
-            partialize: (state) => ({ orientationFilter: state.orientationFilter }),
+            partialize: (state) => ({
+                orientationFilter: state.orientationFilter,
+                recentFolders: state.recentFolders,
+                recentAudioFiles: state.recentAudioFiles,
+            }),
         }
     )
 );

@@ -3,14 +3,13 @@ import { motion } from 'framer-motion';
 import { useMediaStore } from '../../store/mediaStore';
 import { usePresetUsageStore } from '../../store/presetUsageStore';
 import { TrailerSettings, DEFAULT_TRAILER_SETTINGS, EditingStyleOption, DEFAULT_STYLE_CONFIG } from '../../lib/trailerGenerator';
-import { Wand2, Clock, Zap, Settings2, Video, Flame, Scissors, Check, PlayCircle, Music, Upload, Play, Pause, Trash2, Loader2, Sparkles, Film, SlidersHorizontal, ChevronDown, ChevronUp, Crown, Heart, Camera, Clapperboard, Podcast, Smartphone, Monitor, Square, Globe, Dumbbell, Shuffle, ArrowLeftRight, Layers, Pin, Activity } from 'lucide-react';
+import { Wand2, Clock, Zap, Settings2, Video, Flame, Scissors, Check, PlayCircle, Music, Upload, Play, Pause, Trash2, Loader2, Sparkles, Film, SlidersHorizontal, ChevronDown, ChevronUp, Crown, Heart, Camera, Clapperboard, Podcast, Smartphone, Monitor, Square, Globe, Dumbbell, Shuffle, ArrowLeftRight, Layers, Pin } from 'lucide-react';
 import { TRANSITION_CATALOG, TransitionType, ALL_TRANSITION_TYPES } from '../../lib/transitions';
 import { analyzeAudio, AudioAnalysisResult, SegmentType } from '../../lib/audioAnalysis';
 import clsx from 'clsx';
-import { useGodModeStore } from '../../store/godModeStore';
 
 const TEMPLATES = [
-    { id: 'social', name: 'Social Snap', desc: 'Rapid 0.1s-0.5s â€” IG/TikTok energy', icon: Zap, settings: { shortestClip: 0.1, longestClip: 0.5, allowDuplicates: true } },
+    { id: 'social', name: 'Social Snap', desc: 'Rapid 0.1s-0.5s — IG/TikTok energy', icon: Zap, settings: { shortestClip: 0.1, longestClip: 0.5, allowDuplicates: true } },
     { id: 'kinetic', name: 'Kinetic Blitz', desc: 'Machine-gun 0.08s-0.25s cuts', icon: Flame, settings: { shortestClip: 0.08, longestClip: 0.25, allowDuplicates: true } },
     { id: 'epic', name: 'Cinematic Trailer', desc: 'Dramatic 0.5s-2.5s with breathing room', icon: Wand2, settings: { shortestClip: 0.5, longestClip: 2.5, allowDuplicates: false } },
     { id: 'gym', name: 'Pump Edit', desc: 'Athletic 0.15s-0.6s rhythm', icon: Video, settings: { shortestClip: 0.15, longestClip: 0.6, allowDuplicates: true } },
@@ -24,73 +23,70 @@ const TEMPLATES = [
 ];
 
 const STYLE_TEMPLATES = [
-    { id: 'music-video', name: 'Music Video', desc: 'Boomerangs, speed punches, drops', icon: Music,
-      mix: 'heavy' as const, styles: ['rubber-band', 'multi-boomerang', 'rubber-band-speed'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampSlowSpeed: 0.2, boomerangSlices: 4, reversalChance: 0.95, burstMode: 'short' as const } },
+    { id: 'music-video', name: 'Music Video', desc: 'Boomerangs, zoom punches, speed drops', icon: Music,
+      mix: 'heavy' as const, styles: ['rubber-band-zoom', 'multi-boomerang', 'rubber-band-zoom-speed'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampSlowSpeed: 0.2, zoomRange: 160, boomerangSlices: 4, reversalChance: 0.95, burstMode: 'short' as const } },
     { id: 'action-reel', name: 'Action Reel', desc: 'Hard ramps + triple-shot intercuts', icon: Flame,
-      mix: 'heavy' as const, styles: ['rubber-band-standard', 'triple-shot', 'rubber-band-speed'] as EditingStyleOption[],
+      mix: 'heavy' as const, styles: ['rubber-band-standard', 'triple-shot', 'rubber-band-zoom-speed'] as EditingStyleOption[],
       config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.5, rampSlowSpeed: 0.15, fastPortion: 0.1, slowPortion: 0.4, reversalChance: 1.0, burstMode: 'short' as const } },
-    { id: 'cinematic', name: 'Cinematic', desc: 'Elegant slow ramps + gentle drift', icon: Film,
-      mix: 'light' as const, styles: ['rubber-band-standard', 'rubber-band'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.8, rampSlowSpeed: 0.4, fastPortion: 0.2, slowPortion: 0.5, reversalChance: 0.7, burstMode: 'long' as const } },
-    { id: 'instagram', name: 'IG Reels', desc: 'Snappy boomerangs + speed drops', icon: Video,
-      mix: 'every' as const, styles: ['multi-boomerang', 'rubber-band'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.3, boomerangSlices: 4, reversalChance: 0.9, burstMode: 'short' as const } },
+    { id: 'cinematic', name: 'Cinematic', desc: 'Elegant slow ramps + gentle zoom', icon: Film,
+      mix: 'light' as const, styles: ['rubber-band-standard', 'rubber-band-zoom'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.8, rampSlowSpeed: 0.4, fastPortion: 0.2, slowPortion: 0.5, zoomRange: 125, reversalChance: 0.7, burstMode: 'long' as const } },
+    { id: 'instagram', name: 'IG Reels', desc: 'Snappy boomerangs + zoom drops', icon: Video,
+      mix: 'every' as const, styles: ['multi-boomerang', 'rubber-band-zoom'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.3, zoomRange: 170, boomerangSlices: 4, reversalChance: 0.9, burstMode: 'short' as const } },
     { id: 'whiplash', name: 'Whiplash', desc: 'Extreme speed contrast on every clip', icon: Zap,
-      mix: 'every' as const, styles: ['rubber-band-standard', 'rubber-band-speed', 'triple-shot'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 4.0, rampSlowSpeed: 0.1, fastPortion: 0.08, slowPortion: 0.45, reversalChance: 1.0, burstMode: 'short' as const } },
-    { id: 'dreamy', name: 'Dreamy', desc: 'Slow drifts with reversed flows', icon: Sparkles,
-      mix: 'heavy' as const, styles: ['rubber-band', 'rubber-band-standard'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.5, rampSlowSpeed: 0.15, fastPortion: 0.25, slowPortion: 0.5, reversalChance: 1.0, burstMode: 'long' as const } },
-    { id: 'film-noir', name: 'Film Noir', desc: 'Slow reveals, dramatic pacing', icon: Camera,
-      mix: 'light' as const, styles: ['rubber-band', 'rubber-band-standard'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.3, rampSlowSpeed: 0.2, fastPortion: 0.3, slowPortion: 0.5, reversalChance: 0.5, burstMode: 'long' as const } },
-    { id: 'pulse-drop', name: 'Pulse Drop', desc: 'Beat-sync speed drops + punches', icon: Heart,
-      mix: 'heavy' as const, styles: ['rubber-band-speed', 'rubber-band-standard', 'multi-boomerang'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.1, fastPortion: 0.12, slowPortion: 0.35, reversalChance: 0.85, burstMode: 'short' as const } },
+      mix: 'every' as const, styles: ['rubber-band-standard', 'rubber-band-zoom-speed', 'triple-shot'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 4.0, rampSlowSpeed: 0.1, fastPortion: 0.08, slowPortion: 0.45, zoomRange: 180, reversalChance: 1.0, burstMode: 'short' as const } },
+    { id: 'dreamy', name: 'Dreamy', desc: 'Slow zooms with reversed flows', icon: Sparkles,
+      mix: 'heavy' as const, styles: ['rubber-band-zoom', 'rubber-band-standard'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.5, rampSlowSpeed: 0.15, fastPortion: 0.25, slowPortion: 0.5, zoomRange: 130, reversalChance: 1.0, burstMode: 'long' as const } },
+    { id: 'film-noir', name: 'Film Noir', desc: 'Slow reveals, dramatic zoom crawls', icon: Camera,
+      mix: 'light' as const, styles: ['rubber-band-zoom', 'rubber-band-standard'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.3, rampSlowSpeed: 0.2, fastPortion: 0.3, slowPortion: 0.5, zoomRange: 115, reversalChance: 0.5, burstMode: 'long' as const } },
+    { id: 'pulse-drop', name: 'Pulse Drop', desc: 'Beat-sync speed drops + zoom punches', icon: Heart,
+      mix: 'heavy' as const, styles: ['rubber-band-zoom-speed', 'rubber-band-standard', 'multi-boomerang'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.1, fastPortion: 0.12, slowPortion: 0.35, zoomRange: 155, reversalChance: 0.85, burstMode: 'short' as const } },
     { id: 'stutter-cut', name: 'Stutter Cut', desc: 'Rapid micro-boomerangs + hard cuts', icon: Scissors,
       mix: 'every' as const, styles: ['multi-boomerang', 'triple-shot'] as EditingStyleOption[],
       config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 2.5, rampSlowSpeed: 0.3, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' as const } },
     { id: 'tiktok', name: 'TikTok Chaos', desc: 'Everything at once, maximum energy', icon: Zap,
-      mix: 'every' as const, styles: ['multi-boomerang', 'rubber-band-speed', 'triple-shot', 'rubber-band'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.8, rampSlowSpeed: 0.15, fastPortion: 0.1, slowPortion: 0.3, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' as const } },
+      mix: 'every' as const, styles: ['multi-boomerang', 'rubber-band-zoom-speed', 'triple-shot', 'rubber-band-zoom'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.8, rampSlowSpeed: 0.15, fastPortion: 0.1, slowPortion: 0.3, zoomRange: 175, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' as const } },
     { id: 'sports-hype', name: 'Sports Hype', desc: 'Speed ramps + triple-shot energy', icon: Dumbbell,
-      mix: 'heavy' as const, styles: ['rubber-band-speed', 'triple-shot'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.5, rampSlowSpeed: 0.2, fastPortion: 0.15, slowPortion: 0.35, reversalChance: 0.95, burstMode: 'short' as const } },
-    { id: 'retro-vhs', name: 'Retro VHS', desc: 'Loose boomerangs + slow ramps', icon: Film,
-      mix: 'light' as const, styles: ['multi-boomerang', 'rubber-band'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.6, rampSlowSpeed: 0.4, fastPortion: 0.2, slowPortion: 0.4, boomerangSlices: 3, reversalChance: 0.6, burstMode: 'long' as const } },
-    { id: 'asmr-flow', name: 'ASMR Flow', desc: 'Ultra-slow drifts, minimal cuts', icon: Sparkles,
-      mix: 'light' as const, styles: ['rubber-band'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.3, rampSlowSpeed: 0.15, fastPortion: 0.05, slowPortion: 0.6, reversalChance: 0.3, burstMode: 'long' as const } },
-    { id: 'concert-live', name: 'Concert Live', desc: 'Beat-locked punches + boomerangs', icon: Music,
-      mix: 'every' as const, styles: ['rubber-band-speed', 'multi-boomerang'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.2, rampSlowSpeed: 0.25, fastPortion: 0.12, slowPortion: 0.3, boomerangSlices: 4, reversalChance: 0.9, burstMode: 'short' as const } },
-    { id: 'beat-bounce', name: 'Beat Bounce', desc: 'Viral IG bounce — forward/reverse on beats', icon: ArrowLeftRight,
-      mix: 'every' as const, styles: ['beat-bounce'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.0, rampSlowSpeed: 0.4, fastPortion: 0.05, slowPortion: 0.15, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' as const } },
-    { id: 'travel-montage', name: 'Travel Montage', desc: 'Gentle ramps + dreamy drifts', icon: Globe,
-      mix: 'heavy' as const, styles: ['rubber-band-standard', 'rubber-band'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.6, rampSlowSpeed: 0.3, fastPortion: 0.1, slowPortion: 0.45, reversalChance: 0.65, burstMode: 'long' as const } },
+      mix: 'heavy' as const, styles: ['rubber-band-zoom-speed', 'triple-shot'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.5, rampSlowSpeed: 0.2, fastPortion: 0.15, slowPortion: 0.35, zoomRange: 165, reversalChance: 0.95, burstMode: 'short' as const } },
+    { id: 'retro-vhs', name: 'Retro VHS', desc: 'Loose boomerangs + slow zooms', icon: Film,
+      mix: 'light' as const, styles: ['multi-boomerang', 'rubber-band-zoom'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.6, rampSlowSpeed: 0.4, fastPortion: 0.2, slowPortion: 0.4, zoomRange: 120, boomerangSlices: 3, reversalChance: 0.6, burstMode: 'long' as const } },
+    { id: 'asmr-flow', name: 'ASMR Flow', desc: 'Ultra-slow zooms, minimal cuts', icon: Sparkles,
+      mix: 'light' as const, styles: ['rubber-band-zoom'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.3, rampSlowSpeed: 0.15, fastPortion: 0.05, slowPortion: 0.6, zoomRange: 115, reversalChance: 0.3, burstMode: 'long' as const } },
+    { id: 'concert-live', name: 'Concert Live', desc: 'Beat-locked zoom punches + boomerangs', icon: Music,
+      mix: 'every' as const, styles: ['rubber-band-zoom-speed', 'multi-boomerang'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.2, rampSlowSpeed: 0.25, fastPortion: 0.12, slowPortion: 0.3, zoomRange: 170, boomerangSlices: 4, reversalChance: 0.9, burstMode: 'short' as const } },
+    { id: 'travel-montage', name: 'Travel Montage', desc: 'Gentle ramps + dreamy zoom drifts', icon: Globe,
+      mix: 'heavy' as const, styles: ['rubber-band-standard', 'rubber-band-zoom'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.6, rampSlowSpeed: 0.3, fastPortion: 0.1, slowPortion: 0.45, zoomRange: 125, reversalChance: 0.65, burstMode: 'long' as const } },
     { id: 'horror-tension', name: 'Horror Tension', desc: 'Hard reversals + glitch-like stutter', icon: Zap,
       mix: 'heavy' as const, styles: ['rubber-band-standard', 'triple-shot', 'multi-boomerang'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.12, fastPortion: 0.08, slowPortion: 0.5, boomerangSlices: 3, reversalChance: 1.0, burstMode: 'short' as const } },
-    // â”€â”€ 2026 VIRAL STYLES â”€â”€
-    { id: 'viral-hook', name: 'Viral Hook', desc: 'Snap-speeds + pattern interrupts + hyper-cuts', icon: Zap,
-      mix: 'every' as const, styles: ['snap-burst', 'pattern-interrupt', 'hyper-cut'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.5, rampSlowSpeed: 0.15, boomerangSlices: 4, reversalChance: 0.9, burstMode: 'short' as const } },
-    { id: 'bear-style', name: 'The Bear', desc: 'Immersive chaos â€” tight crops + speed variation', icon: Flame,
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.12, fastPortion: 0.08, slowPortion: 0.5, zoomRange: 140, boomerangSlices: 3, reversalChance: 1.0, burstMode: 'short' as const } },
+    // ── 2026 VIRAL STYLES ──
+    { id: 'viral-hook', name: 'Viral Hook', desc: 'Snap-zooms + pattern interrupts + hyper-cuts', icon: Zap,
+      mix: 'every' as const, styles: ['snap-zoom-burst', 'pattern-interrupt', 'hyper-cut'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.5, rampSlowSpeed: 0.15, zoomRange: 280, boomerangSlices: 4, reversalChance: 0.9, burstMode: 'short' as const } },
+    { id: 'bear-style', name: 'The Bear', desc: 'Immersive chaos — tight crops + speed variation', icon: Flame,
       mix: 'heavy' as const, styles: ['bear-chaos', 'hyper-cut', 'triple-shot'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.2, reversalChance: 0.8, burstMode: 'short' as const } },
-    { id: 'pendulum-flow', name: 'Pendulum Flow', desc: 'Floating hover + gentle sway', icon: Sparkles,
-      mix: 'heavy' as const, styles: ['pendulum-sway', 'rubber-band'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.5, rampSlowSpeed: 0.3, reversalChance: 0.6, burstMode: 'long' as const } },
-    { id: 'retention-max', name: 'Max Retention', desc: 'Pattern interrupts + speed bursts + boomerangs', icon: Zap,
-      mix: 'every' as const, styles: ['pattern-interrupt', 'snap-burst', 'multi-boomerang', 'hyper-cut'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.8, rampSlowSpeed: 0.1, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' as const } },
-    { id: 'clean-viral', name: 'Clean Viral', desc: 'Minimal chaos â€” pendulum + light snap zooms', icon: Camera,
-      mix: 'light' as const, styles: ['pendulum-sway', 'snap-burst'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 2.0, rampSlowSpeed: 0.3, reversalChance: 0.4, burstMode: 'long' as const } },
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.2, zoomRange: 165, reversalChance: 0.8, burstMode: 'short' as const } },
+    { id: 'pendulum-flow', name: 'Pendulum Flow', desc: 'Floating hover + gentle zoom sway', icon: Sparkles,
+      mix: 'heavy' as const, styles: ['pendulum-sway', 'rubber-band-zoom'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.5, rampSlowSpeed: 0.3, zoomRange: 125, reversalChance: 0.6, burstMode: 'long' as const } },
+    { id: 'retention-max', name: 'Max Retention', desc: 'Pattern interrupts + snap zooms + boomerangs', icon: Zap,
+      mix: 'every' as const, styles: ['pattern-interrupt', 'snap-zoom-burst', 'multi-boomerang', 'hyper-cut'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.8, rampSlowSpeed: 0.1, zoomRange: 250, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' as const } },
+    { id: 'clean-viral', name: 'Clean Viral', desc: 'Minimal chaos — pendulum + light snap zooms', icon: Camera,
+      mix: 'light' as const, styles: ['pendulum-sway', 'snap-zoom-burst'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 2.0, rampSlowSpeed: 0.3, zoomRange: 150, reversalChance: 0.4, burstMode: 'long' as const } },
     { id: 'none', name: 'None', desc: 'No style injection', icon: Settings2, mix: 'none' as const, styles: [] as EditingStyleOption[], config: DEFAULT_STYLE_CONFIG },
     { id: 'custom-style', name: 'Custom', desc: 'Manual config', icon: SlidersHorizontal, mix: null, styles: null, config: null },
 ];
@@ -103,7 +99,7 @@ const GODMODE_TIERS = [
 ] as const;
 
 const GODMODE_PRESETS = [
-    // â”€â”€ Simple / Minimal â”€â”€
+    // ── Simple / Minimal ──
     { id: 'gm-clean-cut', name: 'Clean Cut', icon: Scissors, desc: 'Precise hard cuts, no effects',
       pacing: 'montage', style: 'none', duration: 30, tier: 0 },
     { id: 'gm-slideshow', name: 'Elegant Hold', icon: Monitor, desc: 'Long cinematic holds, zero noise',
@@ -114,25 +110,25 @@ const GODMODE_PRESETS = [
       pacing: 'social', style: 'none', duration: 15, tier: 0 },
     { id: 'gm-dynamic-intro', name: 'Dynamic Intro', icon: ArrowLeftRight, desc: 'Builds momentum, no effects',
       pacing: 'dynamic', style: 'none', duration: 20, tier: 0 },
-    // â”€â”€ Moderate â”€â”€
-    { id: 'gm-gentle-flow', name: 'Gentle Flow', icon: Camera, desc: 'Soft cinematic drifts, slow pace',
+    // ── Moderate ──
+    { id: 'gm-gentle-zoom', name: 'Gentle Zoom', icon: Camera, desc: 'Soft Ken Burns zooms, slow pace',
       pacing: 'filmscore', style: 'cinematic', duration: 60, tier: 1 },
-    { id: 'gm-wedding', name: 'Wedding Film', icon: Heart, desc: 'Slow ramps + gentle pacing',
+    { id: 'gm-wedding', name: 'Wedding Film', icon: Heart, desc: 'Slow zooms + gentle speed ramps',
       pacing: 'wedding', style: 'cinematic', duration: 45, tier: 1 },
     { id: 'gm-montage-mix', name: 'Montage Mix', icon: Clapperboard, desc: 'Mixed cuts, tasteful rubber-band',
       pacing: 'montage', style: 'cinematic', duration: 30, tier: 1 },
-    { id: 'gm-travel-diary', name: 'Travel Diary', icon: Globe, desc: 'Dreamy pacing + warm tones',
+    { id: 'gm-travel-diary', name: 'Travel Diary', icon: Globe, desc: 'Dreamy zooms + warm pacing',
       pacing: 'vlog', style: 'dreamy', duration: 30, tier: 1 },
     { id: 'gm-golden-hour', name: 'Golden Hour', icon: Sparkles, desc: 'Sunset vibes, slow reveals',
       pacing: 'filmscore', style: 'dreamy', duration: 45, tier: 1 },
     { id: 'gm-noir', name: 'Film Noir', icon: Film, desc: 'Dark drama, slow crawl zooms',
       pacing: 'filmscore', style: 'film-noir', duration: 90, tier: 1 },
-    // â”€â”€ High Energy â”€â”€
-    { id: 'gm-music-video', name: 'Music Video', icon: Music, desc: 'Beat-locked energy + boomerangs',
+    // ── High Energy ──
+    { id: 'gm-music-video', name: 'Music Video', icon: Music, desc: 'Beat-locked zooms + boomerangs',
       pacing: 'social', style: 'music-video', duration: 30, tier: 2 },
     { id: 'gm-action-trailer', name: 'Action Trailer', icon: Flame, desc: 'Hard ramps + triple-shot energy',
       pacing: 'epic', style: 'action-reel', duration: 60, tier: 2 },
-    { id: 'gm-instagram', name: 'Reels Banger', icon: Video, desc: 'Snappy speed drops + boomerangs',
+    { id: 'gm-instagram', name: 'Reels Banger', icon: Video, desc: 'Snappy zoom drops + boomerangs',
       pacing: 'social', style: 'instagram', duration: 15, tier: 2 },
     { id: 'gm-hyperlapse', name: 'Hyperlapse Rush', icon: Camera, desc: 'Relentless flow + pulse drops',
       pacing: 'hyperlapse', style: 'pulse-drop', duration: 20, tier: 2 },
@@ -142,9 +138,7 @@ const GODMODE_PRESETS = [
       pacing: 'kinetic', style: 'concert-live', duration: 30, tier: 2 },
     { id: 'gm-sports', name: 'Sports Hype', icon: Dumbbell, desc: 'Speed ramps + triple-shot intercuts',
       pacing: 'social', style: 'sports-hype', duration: 15, tier: 2 },
-    { id: 'gm-beat-bounce', name: 'Beat Bounce', icon: ArrowLeftRight, desc: 'Viral IG bounce — shot swap on beats',
-      pacing: 'social', style: 'beat-bounce', duration: 15, tier: 2 },
-    // â”€â”€ Maximum Chaos â”€â”€
+    // ── Maximum Chaos ──
     { id: 'gm-tiktok', name: 'TikTok Viral', icon: Zap, desc: 'Full chaos, every effect stacked',
       pacing: 'kinetic', style: 'tiktok', duration: 10, tier: 3 },
     { id: 'gm-whiplash', name: 'Whiplash', icon: Flame, desc: 'Extreme speed contrast, zero mercy',
@@ -183,7 +177,7 @@ interface WizardProps {
 }
 
 export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
-    const { files, orientationFilter, setOrientationFilter, selectedFileIds, preloadedAudioPath, preloadedAudioName, setPreloadedAudio } = useMediaStore();
+    const { files, orientationFilter, setOrientationFilter, selectedFileIds } = useMediaStore();
     const { incrementTemplate, incrementStyle, incrementGodMode, togglePinTemplate, togglePinStyle, togglePinGodMode, pinnedTemplates, pinnedStyles, pinnedGodModes, getTopTemplates, getTopStyles, getTopGodModes, templateUsage, styleUsage, godModeUsage } = usePresetUsageStore();
 
     // Smart-Preset: compute top-5 visible presets (pinned first, then by usage)
@@ -192,7 +186,7 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
     const topGodModeIds = useMemo(() => getTopGodModes(5), [godModeUsage, pinnedGodModes]);
 
     // Restore persisted settings from localStorage on mount
-    // NOTE: Audio/music keys are excluded from persistence â€” they are session-only.
+    // NOTE: Audio/music keys are excluded from persistence — they are session-only.
     const [settings, setSettings] = useState<TrailerSettings>(() => {
         try {
             const saved = localStorage.getItem('mmm_trailer_settings');
@@ -213,32 +207,21 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
     });
 
     const [audioFile, setAudioFile] = useState<File | null>(null);
+    const [audioUrl, setAudioUrl] = useState<string | null>(null);
     const [audioPlaying, setAudioPlaying] = useState(false);
+    const [audioTrimStart, setAudioTrimStart] = useState(0);
+    const [audioTrimEnd, setAudioTrimEnd] = useState(30);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
-
-    // ── GODMODE + AUDIO STATE: Read from Zustand store (survives navigation) ──
-    const gmStore = useGodModeStore();
-    const godMode = gmStore.enabled;
-    const setGodMode = (v: boolean) => gmStore.setEnabled(v);
-    const godModeDuration = gmStore.duration;
-    const setGodModeDuration = (v: number) => gmStore.setDuration(v);
-    const godModeVibe = gmStore.vibe;
-    const setGodModeVibe = (v: string | null) => gmStore.setVibe(v);
-    const godModeAdvanced = gmStore.advanced;
-    const setGodModeAdvanced = (v: boolean) => gmStore.setAdvanced(v);
-    const audioUrl = gmStore.audioUrl;
-    const setAudioUrl = (v: string | null) => gmStore.setAudioGuide({ useAudioGuide: !!v || gmStore.useAudioGuide, audioUrl: v });
-    const audioTrimStart = gmStore.audioTrimStart;
-    const setAudioTrimStart = (v: number) => gmStore.setAudioGuide({ useAudioGuide: gmStore.useAudioGuide, audioTrimStart: v });
-    const audioTrimEnd = gmStore.audioTrimEnd;
-    const setAudioTrimEnd = (v: number) => gmStore.setAudioGuide({ useAudioGuide: gmStore.useAudioGuide, audioTrimEnd: v });
-    const audioAnalysis = gmStore.audioAnalysis;
-    const setAudioAnalysis = (v: AudioAnalysisResult | null) => gmStore.setAudioGuide({ useAudioGuide: gmStore.useAudioGuide, audioAnalysis: v });
-
+    // GodMode state is SESSION-ONLY — resets to defaults on every reload
+    const [godMode, setGodMode] = useState(false);
+    const [godModeDuration, setGodModeDuration] = useState(30);
+    const [godModeVibe, setGodModeVibe] = useState<string | null>(null);
+    const [godModeAdvanced, setGodModeAdvanced] = useState(false);
     const audioRef = useRef<HTMLAudioElement>(null);
     const audioInputRef = useRef<HTMLInputElement>(null);
     const waveformRef = useRef<HTMLCanvasElement>(null);
-    const bestSegmentCycleRef = useRef<Record<number, number>>({});
+    const [audioAnalysis, setAudioAnalysis] = useState<AudioAnalysisResult | null>(null);
+    const bestSegmentCycleRef = useRef<Record<number, number>>({});  // tracks cycle index per targetDur
 
     // Audio interaction state
     const [isDragging, setIsDragging] = useState<'start' | 'end' | 'move' | null>(null);
@@ -247,73 +230,15 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
     const [analysisToast, setAnalysisToast] = useState<boolean>(false);
     const waveformWrapperRef = useRef<HTMLDivElement>(null);
 
-    // ── GODMODE STORE: State lives in Zustand, no hydration needed ──
-    // The store IS the state now. When user navigates wizard→player→wizard,
-    // all GodMode/audio state persists automatically in the Zustand store.
-    // On mount, sync store audio state into the settings object for generation.
-    const mountSynced = useRef(false);
-    useEffect(() => {
-        if (mountSynced.current) return;
-        mountSynced.current = true;
-        const gm = useGodModeStore.getState();
-        // Sync audio state from store into settings for generation
-        if (gm.useAudioGuide && gm.audioUrl) {
-            update({
-                useAudioGuide: true, audioFile: gm.audioFile, audioUrl: gm.audioUrl,
-                audioFilePath: gm.audioFilePath || undefined, audioAnalysis: gm.audioAnalysis,
-                audioTrimStart: gm.audioTrimStart, audioTrimEnd: gm.audioTrimEnd,
-            });
-        }
-        // Sync transition state from store
-        if (gm.transitionsEnabled !== undefined) {
-            update({ transitionsEnabled: gm.transitionsEnabled, transitionPreset: gm.transitionPreset });
-        }
-        // If returning from player with lastGeneratedSettings, restore wizard settings
-        const last = gm.lastGeneratedSettings;
-        if (last) {
-            const VIBE_REVERSE: Record<string, string> = {
-                'montage:none': 'clean', 'filmscore:cinematic': 'cinematic',
-                'social:music-video': 'high-energy', 'kinetic:retention-max': 'chaos',
-                'social:viral-hook': 'viral',
-            };
-            const pacingId = TEMPLATES.find(t => t.settings && t.settings.shortestClip === last.shortestClip && t.settings.longestClip === last.longestClip)?.id || 'custom';
-            const styleId = STYLE_TEMPLATES.find(s => s.mix === last.editingStyleMix && s.styles && last.editingStyles && s.styles.length === last.editingStyles.length && s.styles.every((st: string) => last.editingStyles.includes(st as EditingStyleOption)))?.id || 'none';
-            const vibeKey = `${pacingId}:${styleId}`;
-            if (!gm.vibe) gmStore.setVibe(VIBE_REVERSE[vibeKey] || null);
-            if (gm.selectedPresetId) gmStore.setAdvanced(true);
-            update({ ...last, templates: [pacingId] });
-        }
-    }, []);
-
-
-    // â”€â”€ AUTO-LOAD PRELOADED AUDIO FROM MEDIA LIBRARY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    // When audio is uploaded in MediaManager, it's stored in preloadedAudioPath.
-    // On mount (or when preloadedAudioPath changes), auto-load it into the Beat Engine.
-    const preloadConsumedRef = useRef(false);
-    useEffect(() => {
-        if (preloadConsumedRef.current) return;
-        if (!preloadedAudioPath || settings.useAudioGuide) return; // Don't override existing audio
-        preloadConsumedRef.current = true;
-
-        const url = `file://${preloadedAudioPath}`;
-        setAudioUrl(url);
-        update({
-            audioFile: preloadedAudioName || 'Audio',
-            audioUrl: url,
-            audioFilePath: preloadedAudioPath,
-            useAudioGuide: true,
-        });
-
-        // Clear preloaded state so it doesn't re-trigger
-        setPreloadedAudio(null, null);
-    }, [preloadedAudioPath]);
+    // Audio state is SESSION-ONLY — no restoration from previous sessions.
+    // Users must re-select audio each session for a clean workflow.
 
     // Persist settings to localStorage (excluding transient audio keys)
     const TRANSIENT_KEYS = new Set(['audioFile', 'audioUrl', 'audioFilePath', 'useAudioGuide', 'audioTrimStart', 'audioTrimEnd', 'audioAnalysis']);
     const update = (patch: Partial<TrailerSettings>) => setSettings(s => {
         const next = { ...s, ...patch };
         try {
-            // Strip audio/music keys before persisting â€” they are session-only
+            // Strip audio/music keys before persisting — they are session-only
             const persistable = { ...next };
             for (const key of TRANSIENT_KEYS) delete (persistable as any)[key];
             localStorage.setItem('mmm_trailer_settings', JSON.stringify(persistable));
@@ -337,27 +262,16 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
         ? videoCount
         : activePool.filter(f => f.type === 'video' && f.orientation === orientationFilter).length;
 
-    const handleAudioUpload = async () => {
-        // Use IPC file picker (same as MediaManager) to get the real filesystem path.
-        // Native <input type="file"> gives blob URLs because contextIsolation strips File.path.
-        if (!window.ipcRenderer?.selectFiles) {
-            console.error('[TrailerWizard] IPC not available for audio picker');
-            return;
-        }
-        const result = await window.ipcRenderer.selectFiles('audio');
-        if (!result.success || !result.files?.length) return;
-
-        const picked = result.files[0];
-        const filePath = picked.path; // Real filesystem path from Electron main process
-        const url = `file://${filePath}`;
-
+    const handleAudioUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
         if (audioUrl && audioUrl.startsWith('blob:')) URL.revokeObjectURL(audioUrl);
-        setAudioFile(null); // No File object from IPC, but we don't need one
+        // In Electron, File objects have a .path property with the real filesystem path
+        const filePath = (file as any).path || '';
+        const url = filePath ? `file://${filePath}` : URL.createObjectURL(file);
+        setAudioFile(file);
         setAudioUrl(url);
-        // Store raw filesystem path globally for export fallback
-        (window as any).__godModeAudioFilePath = filePath;
-        gmStore.setAudioGuide({ useAudioGuide: true, audioFile: picked.filename, audioUrl: url, audioFilePath: filePath });
-        update({ audioFile: picked.filename, audioUrl: url, audioFilePath: filePath, useAudioGuide: true });
+        update({ audioFile: file.name, audioUrl: url, audioFilePath: filePath || url, useAudioGuide: true });
     };
 
     const handleAudioLoaded = () => {
@@ -374,15 +288,13 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
     };
 
     const handleRandomizeBeat = async () => {
-        if (!audioUrl) return;
+        if (!audioFile) return;
         setIsAnalyzing(true);
         try {
             const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-            // Fetch audio data from the file:// URL (or blob: URL)
-            const response = await fetch(audioUrl);
-            const buf = await response.arrayBuffer();
+            const buf = await audioFile.arrayBuffer();
             const decoded = await ctx.decodeAudioData(buf);
-            const result = await analyzeAudio(decoded, settings.beatSensitivity ?? 0.5);
+            const result = await analyzeAudio(decoded);
             setAudioAnalysis(result);
             update({ audioAnalysis: result });
             
@@ -510,8 +422,8 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
         }
     };
 
-    // Click a specific segment â€” additive: expand trim range to include it, or remove it
-    // â”€â”€ BEATâ†”DURATION SYNC: segment clicks also update Target Duration â”€â”€
+    // Click a specific segment — additive: expand trim range to include it, or remove it
+    // ── BEAT↔DURATION SYNC: segment clicks also update Target Duration ──
     const handleSegmentClick = (seg: { start: number; end: number }) => {
         // Check if segment is already within current trim range
         const isIncluded = audioTrimStart <= seg.start && audioTrimEnd >= seg.end;
@@ -566,8 +478,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
             incrementGodMode(godModeVibe);
         }
 
-        // Persist settings for return trip
-        gmStore.setAutoGenerate(finalSettings);
         onGenerate(finalSettings);
     };
 
@@ -591,11 +501,11 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
         }
     };
 
-    // â”€â”€ VIBE â†’ SETTINGS AUTO-DEDUCTION ENGINE â”€â”€
-    const VIBE_MAP: Record<string, { pacing: string; style: string; hook: 'none' | 'snap-speed' | 'pattern-interrupt' | 'speed-freeze' | 'auto'; retention: boolean; loop: boolean; texture: 'none' | 'grain' | 'vintage' | 'chromatic' | 'motion-blur'; transitionsEnabled: boolean; transitionPreset: string }> = {
+    // ── VIBE → SETTINGS AUTO-DEDUCTION ENGINE ──
+    const VIBE_MAP: Record<string, { pacing: string; style: string; hook: 'none' | 'snap-zoom' | 'pattern-interrupt' | 'speed-freeze' | 'auto'; retention: boolean; loop: boolean; texture: 'none' | 'grain' | 'vintage' | 'chromatic' | 'motion-blur'; transitionsEnabled: boolean; transitionPreset: string }> = {
         'clean': { pacing: 'montage', style: 'none', hook: 'none', retention: false, loop: false, texture: 'none', transitionsEnabled: false, transitionPreset: 'hard-cuts' },
         'cinematic': { pacing: 'filmscore', style: 'cinematic', hook: 'speed-freeze', retention: false, loop: false, texture: 'grain', transitionsEnabled: true, transitionPreset: 'cinematic' },
-        'high-energy': { pacing: 'social', style: 'music-video', hook: 'snap-speed', retention: false, loop: false, texture: 'none', transitionsEnabled: true, transitionPreset: 'whip-pan' },
+        'high-energy': { pacing: 'social', style: 'music-video', hook: 'snap-zoom', retention: false, loop: false, texture: 'none', transitionsEnabled: true, transitionPreset: 'whip-pan' },
         'chaos': { pacing: 'kinetic', style: 'retention-max', hook: 'pattern-interrupt', retention: true, loop: true, texture: 'chromatic', transitionsEnabled: true, transitionPreset: 'viral' },
         'viral': { pacing: 'social', style: 'viral-hook', hook: 'auto', retention: true, loop: true, texture: 'none', transitionsEnabled: true, transitionPreset: 'snap-cut' },
     };
@@ -632,7 +542,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                 audioAnalysis: settings.audioAnalysis,
             } : {}),
         };
-        gmStore.setAutoGenerate(finalSettings);
         onGenerate(finalSettings);
     };
 
@@ -660,7 +569,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                 audioAnalysis: settings.audioAnalysis,
             } : {}),
         };
-        gmStore.setAutoGenerate(finalSettings);
         onGenerate(finalSettings);
     };
 
@@ -680,10 +588,10 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     </div>
                 </div>
 
-                {/* Pool Stats + Orientation Filter (unified) */}
-                <div className="bg-black/40 rounded-xl border border-white/5 p-4 relative overflow-hidden space-y-4">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 blur-[50px] pointer-events-none rounded-full" />
-                    <div>
+                {/* Pool Stats */}
+                <div className="flex gap-4">
+                    <div className="flex-1 bg-black/40 rounded-xl border border-white/5 p-4 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 blur-[50px] pointer-events-none rounded-full" />
                         <span className="text-[10px] font-bold uppercase tracking-widest text-white/40">Media Pool</span>
                         <div className="text-2xl font-black text-white">{videoCount} <span className="text-[10px] font-bold text-white/30 uppercase">Videos</span></div>
                         {audioCount > 0 && <div className="text-xs text-pink-400">{audioCount} audio files</div>}
@@ -693,34 +601,219 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             </div>
                         )}
                     </div>
-                    {videoCount > 0 && (
-                        <div className="space-y-2 pt-3 border-t border-white/5">
-                            <label className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
-                                <Monitor size={12} className="text-teal-400" /> Orientation Filter
-                                <span className="ml-auto text-teal-300 font-mono">{filteredVideoCount} active</span>
-                            </label>
-                            <div className="flex gap-2">
-                                {([
-                                    { id: 'all' as const, icon: Video, label: 'All', count: videoCount },
-                                    { id: 'horizontal' as const, icon: Monitor, label: 'Horizontal', count: hCount },
-                                    { id: 'vertical' as const, icon: Smartphone, label: 'Vertical', count: vCount },
-                                    { id: 'square' as const, icon: Square, label: 'Square', count: sqCount },
-                                ]).map(o => (
-                                    <button key={o.id} onClick={() => { setOrientationFilter(o.id); update({ orientationFilter: o.id }); }}
-                                        className={clsx("flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-bold uppercase border transition-all",
-                                            orientationFilter === o.id
-                                                ? "bg-teal-600/20 border-teal-500/40 text-teal-200"
-                                                : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
-                                        <o.icon size={12} />
-                                        {o.label} <span className="opacity-50">({o.count})</span>
+                </div>
+
+                {/* ═══ ORIENTATION FILTER (Top Level) ═══ */}
+                {videoCount > 0 && (
+                    <div className="space-y-3 border border-white/5 rounded-xl bg-black/20 p-4">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
+                            <Monitor size={12} className="text-teal-400" /> Video Orientation Filter
+                            <span className="ml-auto text-teal-300 font-mono">{filteredVideoCount} clips active</span>
+                        </label>
+                        <div className="flex gap-2">
+                            {([
+                                { id: 'all' as const, icon: Video, label: 'All', count: videoCount },
+                                { id: 'horizontal' as const, icon: Monitor, label: 'Horizontal', count: hCount },
+                                { id: 'vertical' as const, icon: Smartphone, label: 'Vertical', count: vCount },
+                                { id: 'square' as const, icon: Square, label: 'Square', count: sqCount },
+                            ]).map(o => (
+                                <button key={o.id} onClick={() => { setOrientationFilter(o.id); update({ orientationFilter: o.id }); }}
+                                    className={clsx("flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-bold uppercase border transition-all",
+                                        orientationFilter === o.id
+                                            ? "bg-teal-600/20 border-teal-500/40 text-teal-200"
+                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                    <o.icon size={12} />
+                                    {o.label} <span className="opacity-50">({o.count})</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* ═══ BEAT INTELLIGENCE ENGINE ═══ */}
+                <div className="border border-white/5 rounded-xl bg-black/20 p-5 space-y-4">
+                    <div className="flex items-center gap-2">
+                        <Music size={16} className={settings.useAudioGuide ? "text-purple-400" : "text-white/40"} />
+                        <span className="text-sm font-bold text-white">Beat Intelligence Engine</span>
+                        {settings.useAudioGuide && <span className="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full font-bold ml-auto">Active</span>}
+                        {audioAnalysis && <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-bold">{audioAnalysis.bpm} BPM ({audioAnalysis.bpmConfidence}%)</span>}
+                    </div>
+                    <p className="text-[10px] text-white/40">Upload audio for intelligent beat-synced editing with rhythm detection, segment mapping, and drop-aware effects.</p>
+                    <input type="file" ref={audioInputRef} accept="audio/*,video/*" className="hidden" onChange={handleAudioUpload} />
+                    {audioUrl && <audio ref={audioRef} src={audioUrl} onLoadedMetadata={handleAudioLoaded}
+                        onTimeUpdate={(e) => { if ((e.target as HTMLAudioElement).currentTime >= audioTrimEnd) { (e.target as HTMLAudioElement).pause(); setAudioPlaying(false); }}} />}
+
+                    {!settings.useAudioGuide ? (
+                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                            onClick={() => audioInputRef.current?.click()}
+                            className="w-full flex justify-center items-center gap-2 py-3 border border-dashed border-white/20 rounded-lg hover:border-purple-500/50 hover:bg-purple-500/10 text-white/50 hover:text-white transition-colors text-xs font-bold">
+                            <Upload size={14} /> Select Audio or Video File
+                        </motion.button>
+                    ) : (
+                        <div className="space-y-4">
+                            {/* Player Row */}
+                            <div className="flex items-center justify-between bg-white/5 p-3 rounded-lg border border-white/10 relative overflow-hidden">
+                                {analysisToast && <div className="absolute inset-0 bg-green-500/20 flex items-center justify-center text-green-300 text-[10px] font-bold uppercase tracking-widest z-10 animate-pulse">Analysis Refreshed!</div>}
+                                <div className="flex items-center gap-3 overflow-hidden z-0">
+                                    <button onClick={toggleAudio} className="p-2 bg-purple-500/20 rounded-full text-white hover:text-purple-400 transition-colors">
+                                        {audioPlaying ? <Pause size={14} /> : <Play size={14} />}
                                     </button>
-                                ))}
+                                    <button onClick={stopAudio} className="p-2 bg-white/5 rounded-full text-white/50 hover:text-red-400 transition-colors">
+                                        <Square size={14} />
+                                    </button>
+                                    <div className="flex flex-col truncate">
+                                        <span className="text-xs font-bold text-white truncate">{settings.audioFile}</span>
+                                        <span className="text-[10px] text-white/40 font-mono">{audioCurrentTime.toFixed(1)}s / {audioAnalysis?.duration.toFixed(1) || '0.0'}s</span>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2 z-0">
+                                    <button onClick={() => { setAudioTrimStart(0); setAudioTrimEnd(audioAnalysis ? audioAnalysis.duration : 0); update({ audioTrimStart: 0, audioTrimEnd: audioAnalysis ? audioAnalysis.duration : 0}); }}
+                                        className="p-2 bg-blue-500/20 hover:bg-blue-500/40 rounded transition-colors text-blue-300 flex items-center gap-1 text-[10px] font-bold">
+                                        <ArrowLeftRight size={14} /> Full Audio
+                                    </button>
+                                    <button onClick={handleRandomizeBeat} disabled={isAnalyzing}
+                                        className="p-2 bg-purple-500/20 hover:bg-purple-500/40 rounded transition-colors text-purple-300 flex items-center gap-1 text-[10px] font-bold">
+                                        {isAnalyzing ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
+                                        {!audioAnalysis ? 'Analyze' : 'Re-Analyze'}
+                                    </button>
+                                    <button onClick={handleRemoveAudio} className="p-2 bg-red-500/20 hover:bg-red-500/40 rounded text-red-400"><Trash2 size={14} /></button>
+                                </div>
                             </div>
+
+                            {/* Interactive Waveform Canvas */}
+                            {audioAnalysis && (
+                                <div ref={waveformWrapperRef} className="relative group cursor-crosshair select-none"
+                                     onMouseDown={(e) => {
+                                         const rect = waveformWrapperRef.current!.getBoundingClientRect();
+                                         const x = e.clientX - rect.left;
+                                         const time = (x / rect.width) * audioAnalysis.duration;
+                                         const timeTolerance = (10 / rect.width) * audioAnalysis.duration; // 10 pixels tolerance
+                                         if (Math.abs(time - audioTrimStart) < timeTolerance) setIsDragging('start');
+                                         else if (Math.abs(time - audioTrimEnd) < timeTolerance) setIsDragging('end');
+                                         else if (time > audioTrimStart && time < audioTrimEnd) { setIsDragging('move'); setDragStartPos(time - audioTrimStart); }
+                                         else if (time < audioTrimStart) { setIsDragging('start'); setAudioTrimStart(time); update({ audioTrimStart: time }); }
+                                         else { setIsDragging('end'); setAudioTrimEnd(time); update({ audioTrimEnd: time }); }
+                                     }}>
+                                    <canvas ref={waveformRef} width={800} height={80}
+                                        className="w-full h-20 rounded-lg bg-black/40 border border-white/5 pointer-events-none" />
+                                    <div className="absolute inset-0 flex pointer-events-none opacity-40 group-hover:opacity-100 transition-opacity">
+                                        {audioAnalysis.segments.map((seg, i) => {
+                                            const left = (seg.start / audioAnalysis.duration) * 100;
+                                            const width = ((seg.end - seg.start) / audioAnalysis.duration) * 100;
+                                            const colors: Record<string, string> = {
+                                                intro: 'bg-blue-500/20', buildup: 'bg-yellow-500/30', drop: 'bg-red-500/30',
+                                                breakdown: 'bg-cyan-500/20', chorus: 'bg-pink-500/25', verse: 'bg-white/10',
+                                                outro: 'bg-indigo-500/20', bridge: 'bg-emerald-500/20'
+                                            };
+                                            return (
+                                                <div key={i} className={clsx("h-full relative transition-all border-r border-white/10", colors[seg.type] || 'bg-white/5')}
+                                                    style={{ left: `${left}%`, width: `${width}%`, position: 'absolute' }}>
+                                                    <span className="absolute bottom-0.5 left-1 text-[8px] font-black uppercase text-white/40 tracking-wider">{seg.type}</span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    
+                                    {/* Selection Overlay */}
+                                    <div className="absolute top-0 bottom-0 bg-blue-500/30 border-l-2 border-r-2 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.5)] pointer-events-none flex items-center justify-between"
+                                         style={{ left: `${(audioTrimStart / audioAnalysis.duration) * 100}%`, width: `${((audioTrimEnd - audioTrimStart) / audioAnalysis.duration) * 100}%` }}>
+                                         <div className="w-1.5 h-6 bg-white rounded-r-sm -ml-0.5 shadow-md" />
+                                         <div className="w-1.5 h-6 bg-white rounded-l-sm -mr-0.5 shadow-md" />
+                                    </div>
+
+                                    {/* Playhead */}
+                                    <div className="absolute top-0 bottom-0 w-px bg-red-500 shadow-[0_0_8px_rgba(239,68,68,1)] pointer-events-none z-20"
+                                         style={{ left: `${(audioCurrentTime / audioAnalysis.duration) * 100}%` }}>
+                                         <div className="w-2 h-2 bg-red-500 rounded-full -ml-1 -top-1 absolute" />
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Analysis Stats */}
+                            {audioAnalysis && (
+                                <div className="grid grid-cols-4 gap-2">
+                                    {[
+                                        { label: 'BPM', value: `${audioAnalysis.bpm}`, sub: `${audioAnalysis.bpmConfidence}% conf` },
+                                        { label: 'Beats', value: `${audioAnalysis.beats.length}`, sub: `${audioAnalysis.beats.filter(b => b.onGrid).length} on-grid` },
+                                        { label: 'Segments', value: `${audioAnalysis.segments.length}`, sub: audioAnalysis.segments.map(s => s.type).filter((v, i, a) => a.indexOf(v) === i).join(', ') },
+                                        { label: 'Duration', value: `${audioAnalysis.duration.toFixed(1)}s`, sub: `${(audioAnalysis.duration / 60).toFixed(1)} min` },
+                                    ].map(stat => (
+                                        <div key={stat.label} className="bg-black/40 rounded-lg p-2.5 border border-white/5">
+                                            <div className="text-[9px] font-black uppercase text-white/30 tracking-widest">{stat.label}</div>
+                                            <div className="text-sm font-black text-white">{stat.value}</div>
+                                            <div className="text-[9px] text-white/20 truncate">{stat.sub}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* Manual Trim Adjustments */}
+                            {audioAnalysis && (
+                                <div className="flex gap-4">
+                                    <div className="flex-1 space-y-1">
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Start Time (s)</label>
+                                        <input type="number" step="0.1" min="0" max={audioTrimEnd - 0.1} value={audioTrimStart.toFixed(1)}
+                                            onChange={(e) => { const v = parseFloat(e.target.value); setAudioTrimStart(v); update({ audioTrimStart: v }); }}
+                                            className="w-full bg-black/40 border border-white/10 rounded p-1.5 text-xs text-white" />
+                                    </div>
+                                    <div className="flex-1 space-y-1">
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-white/40">End Time (s)</label>
+                                        <input type="number" step="0.1" min={audioTrimStart + 0.1} max={audioAnalysis.duration} value={audioTrimEnd.toFixed(1)}
+                                            onChange={(e) => { const v = parseFloat(e.target.value); setAudioTrimEnd(v); update({ audioTrimEnd: v }); }}
+                                            className="w-full bg-black/40 border border-white/10 rounded p-1.5 text-xs text-white" />
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Segment Chips — additive multi-select */}
+                            {audioAnalysis && audioAnalysis.segments.length > 0 && (
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider">Select Segments</span>
+                                        <div className="flex items-center gap-1">
+                                            {[10, 15, 30, 60].map(val => (
+                                                <button key={val} onClick={() => { autoSelectBestSegment(val); update({ targetDuration: val }); }}
+                                                    className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 hover:bg-purple-500/40 transition-colors text-[9px] font-bold">
+                                                    Best {val}s
+                                                </button>
+                                            ))}
+                                            <button onClick={() => autoSelectBestSegment(settings.targetDuration)}
+                                                className="ml-2 text-[9px] font-bold text-purple-300 hover:text-purple-200 transition-colors uppercase tracking-wider flex items-center gap-1">
+                                                <Sparkles size={10} /> Auto Select Best
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {audioAnalysis.segments.map((seg, i) => {
+                                            const isActive = audioTrimStart <= seg.start && audioTrimEnd >= seg.end;
+                                            const chipColors: Record<string, string> = {
+                                                intro: 'blue', buildup: 'yellow', drop: 'red', breakdown: 'cyan',
+                                                chorus: 'pink', verse: 'white', outro: 'indigo', bridge: 'emerald'
+                                            };
+                                            const c = chipColors[seg.type] || 'white';
+                                            return (
+                                                <button key={i} onClick={() => handleSegmentClick(seg)}
+                                                    className={clsx("px-2 py-1 rounded-md text-[10px] font-bold uppercase transition-all border",
+                                                        isActive ? `bg-${c}-500/20 text-${c}-300 border-${c}-500/30` : "bg-black/30 text-white/20 border-white/5 hover:text-white/40")}>
+                                                    {seg.type} <span className="opacity-50 font-mono">{(seg.end - seg.start).toFixed(1)}s</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                    <div className="text-[9px] text-white/25 font-mono">
+                                        Selected range: {audioTrimStart.toFixed(1)}s – {audioTrimEnd.toFixed(1)}s ({(audioTrimEnd - audioTrimStart).toFixed(1)}s)
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Sensitivity */}
+                            <SliderControl label="Beat Sensitivity" icon={Zap} value={settings.beatSensitivity || 0.5}
+                                min={0} max={1} step={0.1} unit="" onChange={(v) => update({ beatSensitivity: v })} />
                         </div>
                     )}
                 </div>
 
-                {/* ═══ GOD MODE (directly under Media Pool) ═══ */}
+                {/* ═══ GOD MODE (below Beat Intelligence) ═══ */}
                 <div className="border rounded-xl overflow-hidden transition-all" style={{ borderColor: godMode ? 'rgba(234,179,8,0.3)' : 'rgba(255,255,255,0.05)' }}>
                     <button onClick={() => setGodMode(!godMode)}
                         className={clsx("w-full flex items-center justify-between p-4 transition-all",
@@ -788,12 +881,13 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                     {audioAnalysis && <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded-full font-bold">{audioAnalysis.bpm} BPM</span>}
                                 </div>
                                 <p className="text-[9px] text-white/30">Add music before choosing a preset for beat-synced generation.</p>
+                                <input type="file" ref={audioInputRef} accept="audio/*" className="hidden" onChange={handleAudioUpload} />
                                 {audioUrl && <audio ref={audioRef} src={audioUrl} onLoadedMetadata={handleAudioLoaded}
                                     onTimeUpdate={(e) => { if ((e.target as HTMLAudioElement).currentTime >= audioTrimEnd) { (e.target as HTMLAudioElement).pause(); setAudioPlaying(false); }}} />}
 
                                 {!settings.useAudioGuide ? (
                                     <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                                        onClick={handleAudioUpload}
+                                        onClick={() => audioInputRef.current?.click()}
                                         className="w-full flex justify-center items-center gap-2 py-2.5 border border-dashed border-yellow-500/20 rounded-lg hover:border-purple-500/50 hover:bg-purple-500/10 text-white/50 hover:text-white transition-colors text-[10px] font-bold">
                                         <Upload size={12} /> Select Audio File
                                     </motion.button>
@@ -983,192 +1077,9 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                         </div>
                     )}
                 </div>
-                {/* ── BEAT INTELLIGENCE ENGINE ── */}
-                <div className="border border-white/5 rounded-xl bg-black/20 p-5 space-y-4">
-                    <div className="flex items-center gap-2">
-                        <Music size={16} className={settings.useAudioGuide ? "text-purple-400" : "text-white/40"} />
-                        <span className="text-sm font-bold text-white">Beat Intelligence Engine</span>
-                        {settings.useAudioGuide && <span className="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full font-bold ml-auto">Active</span>}
-                        {audioAnalysis && <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-bold">{audioAnalysis.bpm} BPM ({audioAnalysis.bpmConfidence}%)</span>}
-                    </div>
-                    <p className="text-[10px] text-white/40">Upload audio for intelligent beat-synced editing with rhythm detection, segment mapping, and drop-aware effects.</p>
-                    {audioUrl && <audio ref={audioRef} src={audioUrl} onLoadedMetadata={handleAudioLoaded}
-                        onTimeUpdate={(e) => { if ((e.target as HTMLAudioElement).currentTime >= audioTrimEnd) { (e.target as HTMLAudioElement).pause(); setAudioPlaying(false); }}} />}
 
-                    {!settings.useAudioGuide ? (
-                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                            onClick={handleAudioUpload}
-                            className="w-full flex justify-center items-center gap-2 py-3 border border-dashed border-white/20 rounded-lg hover:border-purple-500/50 hover:bg-purple-500/10 text-white/50 hover:text-white transition-colors text-xs font-bold">
-                            <Upload size={14} /> Select Audio or Video File
-                        </motion.button>
-                    ) : (
-                        <div className="space-y-4">
-                            {/* Player Row */}
-                            <div className="flex items-center justify-between bg-white/5 p-3 rounded-lg border border-white/10 relative overflow-hidden">
-                                {analysisToast && <div className="absolute inset-0 bg-green-500/20 flex items-center justify-center text-green-300 text-[10px] font-bold uppercase tracking-widest z-10 animate-pulse">Analysis Refreshed!</div>}
-                                <div className="flex items-center gap-3 overflow-hidden z-0">
-                                    <button onClick={toggleAudio} className="p-2 bg-purple-500/20 rounded-full text-white hover:text-purple-400 transition-colors">
-                                        {audioPlaying ? <Pause size={14} /> : <Play size={14} />}
-                                    </button>
-                                    <button onClick={stopAudio} className="p-2 bg-white/5 rounded-full text-white/50 hover:text-red-400 transition-colors">
-                                        <Square size={14} />
-                                    </button>
-                                    <div className="flex flex-col truncate">
-                                        <span className="text-xs font-bold text-white truncate">{settings.audioFile}</span>
-                                        <span className="text-[10px] text-white/40 font-mono">{audioCurrentTime.toFixed(1)}s / {audioAnalysis?.duration.toFixed(1) || '0.0'}s</span>
-                                    </div>
-                                </div>
-                                <div className="flex gap-2 z-0">
-                                    <button onClick={() => { setAudioTrimStart(0); setAudioTrimEnd(audioAnalysis ? audioAnalysis.duration : 0); update({ audioTrimStart: 0, audioTrimEnd: audioAnalysis ? audioAnalysis.duration : 0}); }}
-                                        className="p-2 bg-blue-500/20 hover:bg-blue-500/40 rounded transition-colors text-blue-300 flex items-center gap-1 text-[10px] font-bold">
-                                        <ArrowLeftRight size={14} /> Full Audio
-                                    </button>
-                                    <button onClick={handleRandomizeBeat} disabled={isAnalyzing}
-                                        className="p-2 bg-purple-500/20 hover:bg-purple-500/40 rounded transition-colors text-purple-300 flex items-center gap-1 text-[10px] font-bold">
-                                        {isAnalyzing ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
-                                        {!audioAnalysis ? 'Analyze' : 'Re-Analyze'}
-                                    </button>
-                                    <button onClick={handleRemoveAudio} className="p-2 bg-red-500/20 hover:bg-red-500/40 rounded text-red-400"><Trash2 size={14} /></button>
-                                </div>
-                            </div>
-
-                            {/* Interactive Waveform Canvas */}
-                            {audioAnalysis && (
-                                <div ref={waveformWrapperRef} className="relative group cursor-crosshair select-none"
-                                     onMouseDown={(e) => {
-                                         const rect = waveformWrapperRef.current!.getBoundingClientRect();
-                                         const x = e.clientX - rect.left;
-                                         const time = (x / rect.width) * audioAnalysis.duration;
-                                         const timeTolerance = (10 / rect.width) * audioAnalysis.duration; // 10 pixels tolerance
-                                         if (Math.abs(time - audioTrimStart) < timeTolerance) setIsDragging('start');
-                                         else if (Math.abs(time - audioTrimEnd) < timeTolerance) setIsDragging('end');
-                                         else if (time > audioTrimStart && time < audioTrimEnd) { setIsDragging('move'); setDragStartPos(time - audioTrimStart); }
-                                         else if (time < audioTrimStart) { setIsDragging('start'); setAudioTrimStart(time); update({ audioTrimStart: time }); }
-                                         else { setIsDragging('end'); setAudioTrimEnd(time); update({ audioTrimEnd: time }); }
-                                     }}>
-                                    <canvas ref={waveformRef} width={800} height={80}
-                                        className="w-full h-20 rounded-lg bg-black/40 border border-white/5 pointer-events-none" />
-                                    <div className="absolute inset-0 flex pointer-events-none opacity-40 group-hover:opacity-100 transition-opacity">
-                                        {audioAnalysis.segments.map((seg, i) => {
-                                            const left = (seg.start / audioAnalysis.duration) * 100;
-                                            const width = ((seg.end - seg.start) / audioAnalysis.duration) * 100;
-                                            const colors: Record<string, string> = {
-                                                intro: 'bg-blue-500/20', buildup: 'bg-yellow-500/30', drop: 'bg-red-500/30',
-                                                breakdown: 'bg-cyan-500/20', chorus: 'bg-pink-500/25', verse: 'bg-white/10',
-                                                outro: 'bg-indigo-500/20', bridge: 'bg-emerald-500/20'
-                                            };
-                                            return (
-                                                <div key={i} className={clsx("h-full relative transition-all border-r border-white/10", colors[seg.type] || 'bg-white/5')}
-                                                    style={{ left: `${left}%`, width: `${width}%`, position: 'absolute' }}>
-                                                    <span className="absolute bottom-0.5 left-1 text-[8px] font-black uppercase text-white/40 tracking-wider">{seg.type}</span>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                    
-                                    {/* Selection Overlay */}
-                                    <div className="absolute top-0 bottom-0 bg-blue-500/30 border-l-2 border-r-2 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.5)] pointer-events-none flex items-center justify-between"
-                                         style={{ left: `${(audioTrimStart / audioAnalysis.duration) * 100}%`, width: `${((audioTrimEnd - audioTrimStart) / audioAnalysis.duration) * 100}%` }}>
-                                         <div className="w-1.5 h-6 bg-white rounded-r-sm -ml-0.5 shadow-md" />
-                                         <div className="w-1.5 h-6 bg-white rounded-l-sm -mr-0.5 shadow-md" />
-                                    </div>
-
-                                    {/* Playhead */}
-                                    <div className="absolute top-0 bottom-0 w-px bg-red-500 shadow-[0_0_8px_rgba(239,68,68,1)] pointer-events-none z-20"
-                                         style={{ left: `${(audioCurrentTime / audioAnalysis.duration) * 100}%` }}>
-                                         <div className="w-2 h-2 bg-red-500 rounded-full -ml-1 -top-1 absolute" />
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Analysis Stats */}
-                            {audioAnalysis && (
-                                <div className="grid grid-cols-4 gap-2">
-                                    {[
-                                        { label: 'BPM', value: `${audioAnalysis.bpm}`, sub: `${audioAnalysis.bpmConfidence}% conf` },
-                                        { label: 'Beats', value: `${audioAnalysis.beats.length}`, sub: `${audioAnalysis.beats.filter(b => b.onGrid).length} on-grid` },
-                                        { label: 'Segments', value: `${audioAnalysis.segments.length}`, sub: audioAnalysis.segments.map(s => s.type).filter((v, i, a) => a.indexOf(v) === i).join(', ') },
-                                        { label: 'Duration', value: `${audioAnalysis.duration.toFixed(1)}s`, sub: `${(audioAnalysis.duration / 60).toFixed(1)} min` },
-                                    ].map(stat => (
-                                        <div key={stat.label} className="bg-black/40 rounded-lg p-2.5 border border-white/5">
-                                            <div className="text-[9px] font-black uppercase text-white/30 tracking-widest">{stat.label}</div>
-                                            <div className="text-sm font-black text-white">{stat.value}</div>
-                                            <div className="text-[9px] text-white/20 truncate">{stat.sub}</div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-
-                            {/* Manual Trim Adjustments */}
-                            {audioAnalysis && (
-                                <div className="flex gap-4">
-                                    <div className="flex-1 space-y-1">
-                                        <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Start Time (s)</label>
-                                        <input type="number" step="0.1" min="0" max={audioTrimEnd - 0.1} value={audioTrimStart.toFixed(1)}
-                                            onChange={(e) => { const v = parseFloat(e.target.value); setAudioTrimStart(v); update({ audioTrimStart: v }); }}
-                                            className="w-full bg-black/40 border border-white/10 rounded p-1.5 text-xs text-white" />
-                                    </div>
-                                    <div className="flex-1 space-y-1">
-                                        <label className="text-[10px] font-black uppercase tracking-widest text-white/40">End Time (s)</label>
-                                        <input type="number" step="0.1" min={audioTrimStart + 0.1} max={audioAnalysis.duration} value={audioTrimEnd.toFixed(1)}
-                                            onChange={(e) => { const v = parseFloat(e.target.value); setAudioTrimEnd(v); update({ audioTrimEnd: v }); }}
-                                            className="w-full bg-black/40 border border-white/10 rounded p-1.5 text-xs text-white" />
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Segment Chips â€” additive multi-select */}
-                            {audioAnalysis && audioAnalysis.segments.length > 0 && (
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider">Select Segments</span>
-                                        <div className="flex items-center gap-1">
-                                            {[10, 15, 30, 60].map(val => (
-                                                <button key={val} onClick={() => { autoSelectBestSegment(val); update({ targetDuration: val }); }}
-                                                    className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 hover:bg-purple-500/40 transition-colors text-[9px] font-bold">
-                                                    Best {val}s
-                                                </button>
-                                            ))}
-                                            <button onClick={() => autoSelectBestSegment(settings.targetDuration)}
-                                                className="ml-2 text-[9px] font-bold text-purple-300 hover:text-purple-200 transition-colors uppercase tracking-wider flex items-center gap-1">
-                                                <Sparkles size={10} /> Auto Select Best
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {audioAnalysis.segments.map((seg, i) => {
-                                            const isActive = audioTrimStart <= seg.start && audioTrimEnd >= seg.end;
-                                            const chipColors: Record<string, string> = {
-                                                intro: 'blue', buildup: 'yellow', drop: 'red', breakdown: 'cyan',
-                                                chorus: 'pink', verse: 'white', outro: 'indigo', bridge: 'emerald'
-                                            };
-                                            const c = chipColors[seg.type] || 'white';
-                                            return (
-                                                <button key={i} onClick={() => handleSegmentClick(seg)}
-                                                    className={clsx("px-2 py-1 rounded-md text-[10px] font-bold uppercase transition-all border",
-                                                        isActive ? `bg-${c}-500/20 text-${c}-300 border-${c}-500/30` : "bg-black/30 text-white/20 border-white/5 hover:text-white/40")}>
-                                                    {seg.type} <span className="opacity-50 font-mono">{(seg.end - seg.start).toFixed(1)}s</span>
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                    <div className="text-[9px] text-white/25 font-mono">
-                                        Selected range: {audioTrimStart.toFixed(1)}s â€“ {audioTrimEnd.toFixed(1)}s ({(audioTrimEnd - audioTrimStart).toFixed(1)}s)
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Sensitivity */}
-                            <SliderControl label="Beat Sensitivity" icon={Zap} value={settings.beatSensitivity || 0.5}
-                                min={0} max={1} step={0.1} unit="" onChange={(v) => update({ beatSensitivity: v })} />
-                        </div>
-                    )}
-                </div>
-
-
-                {/* â•â•â• GOD MODE INJECTION â€” disables manual controls â•â•â• */}
+                {/* ═══ GOD MODE INJECTION — disables manual controls ═══ */}
                 <div className={clsx(godMode && "opacity-30 pointer-events-none select-none")}>
-
 
                 {/* Include Grids Selector */}
                 <div className="space-y-3 border border-white/5 rounded-xl bg-black/20 p-4">
@@ -1194,7 +1105,7 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                 </div>
 
 
-                {/* â”€â”€â”€ 2026 RETENTION & TEXTURE CONTROLS â”€â”€â”€ */}
+                {/* ─── 2026 RETENTION & TEXTURE CONTROLS ─── */}
                 <div className="space-y-4 border border-white/5 rounded-xl bg-black/20 p-4">
                     <label className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
                         <Zap size={12} className="text-orange-400" /> Viral Intelligence
@@ -1207,7 +1118,7 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             {([
                                 { id: 'none' as const, label: 'None' },
                                 { id: 'auto' as const, label: 'Auto' },
-                                { id: 'snap-speed' as const, label: 'Snap Speed' },
+                                { id: 'snap-zoom' as const, label: 'Snap Zoom' },
                                 { id: 'speed-freeze' as const, label: 'Freeze' },
                                 { id: 'pattern-interrupt' as const, label: 'Interrupt' },
                             ]).map(h => (
@@ -1263,10 +1174,10 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     </div>
                 </div>
 
-                {/* â”€â”€â”€ TRANSITIONS CONTROLS (shown here when GodMode is OFF) â”€â”€â”€ */}
+                {/* ─── TRANSITIONS CONTROLS (shown here when GodMode is OFF) ─── */}
                 {godMode ? (
                     <div className="border border-yellow-500/10 rounded-xl bg-black/10 p-3 text-center">
-                        <span className="text-[9px] text-yellow-300/50 font-bold uppercase">âš¡ Transitions moved to God Mode panel above</span>
+                        <span className="text-[9px] text-yellow-300/50 font-bold uppercase">⚡ Transitions moved to God Mode panel above</span>
                     </div>
                 ) : (
                 <div className="space-y-4 border border-white/5 rounded-xl bg-black/20 p-4">
@@ -1282,80 +1193,18 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     </div>
 
                     <div className={clsx("space-y-4 pt-2 transition-all", !settings.transitionsEnabled && "opacity-30 pointer-events-none")}>
-                        {/* Mode Toggle: Preset vs Custom */}
-                        <div className="flex gap-2 mb-1">
-                            <button onClick={() => update({ transitionMode: 'random' })}
-                                className={clsx("flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all border",
-                                    (settings.transitionMode || 'random') !== 'single'
-                                        ? "bg-pink-600/20 border-pink-500 text-pink-200"
-                                        : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10")}>
-                                Preset Groups
-                            </button>
-                            <button onClick={() => update({ transitionMode: 'single' })}
-                                className={clsx("flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all border",
-                                    settings.transitionMode === 'single'
-                                        ? "bg-pink-600/20 border-pink-500 text-pink-200"
-                                        : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10")}>
-                                Pick Individual
-                            </button>
+                        <div className="flex flex-wrap gap-2">
+                            {['cinematic', 'buttery', 'kinetic', 'whip', 'dramatic', 'organic', 'whip-pan', 'snap-cut', 'viral', 'all'].map(preset => (
+                                <button key={preset} onClick={() => update({ transitionPreset: preset })}
+                                    className={clsx("flex-1 min-w-[70px] py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all border",
+                                        settings.transitionPreset === preset
+                                            ? "bg-pink-600/20 border-pink-500 text-pink-200"
+                                            : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10"
+                                    )}>
+                                    {preset}
+                                </button>
+                            ))}
                         </div>
-
-                        {(settings.transitionMode || 'random') !== 'single' ? (
-                            /* Preset Groups */
-                            <div className="flex flex-wrap gap-2">
-                                {['cinematic', 'buttery', 'kinetic', 'whip', 'dramatic', 'organic', 'whip-pan', 'snap-cut', 'viral', 'all'].map(preset => (
-                                    <button key={preset} onClick={() => update({ transitionPreset: preset })}
-                                        className={clsx("flex-1 min-w-[70px] py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all border",
-                                            settings.transitionPreset === preset
-                                                ? "bg-pink-600/20 border-pink-500 text-pink-200"
-                                                : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10"
-                                        )}>
-                                        {preset}
-                                    </button>
-                                ))}
-                            </div>
-                        ) : (
-                            /* Individual Transition Chips */
-                            <div className="space-y-2">
-                                <div className="flex justify-between items-center">
-                                    <span className="text-[9px] text-white/40 font-bold uppercase tracking-wider">Select transitions to use</span>
-                                    <div className="flex gap-1.5">
-                                        <button onClick={() => update({ transitionTypes: ALL_TRANSITION_TYPES })}
-                                            className="text-[8px] text-pink-300 hover:text-pink-200 transition-colors font-bold uppercase">All</button>
-                                        <span className="text-white/20">|</span>
-                                        <button onClick={() => update({ transitionTypes: [] })}
-                                            className="text-[8px] text-white/40 hover:text-white/60 transition-colors font-bold uppercase">None</button>
-                                    </div>
-                                </div>
-                                <div className="flex flex-wrap gap-1.5">
-                                    {TRANSITION_CATALOG.map(t => {
-                                        const selected = (settings.transitionTypes || []).includes(t.id);
-                                        return (
-                                            <button key={t.id}
-                                                onClick={() => {
-                                                    const current = settings.transitionTypes || [];
-                                                    const next = selected
-                                                        ? current.filter(x => x !== t.id)
-                                                        : [...current, t.id];
-                                                    update({ transitionTypes: next as TransitionType[] });
-                                                }}
-                                                title={t.desc}
-                                                className={clsx("px-2.5 py-1.5 rounded-lg text-[9px] font-bold transition-all border",
-                                                    selected
-                                                        ? "bg-pink-600/20 border-pink-500/60 text-pink-200 shadow-[0_0_8px_rgba(236,72,153,0.15)]"
-                                                        : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10 hover:text-white/60")}>
-                                                {t.label}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                                {(settings.transitionTypes || []).length > 0 && (
-                                    <div className="text-[9px] text-pink-300/60 font-bold">
-                                        {(settings.transitionTypes || []).length} of {TRANSITION_CATALOG.length} selected
-                                    </div>
-                                )}
-                            </div>
-                        )}
                         <div className="grid grid-cols-2 gap-4">
                             <SliderControl label="Simultaneous FX" icon={Layers} value={settings.maxSimultaneousTransitions || 1}
                                 min={1} max={5} step={1} unit="" onChange={(v) => update({ maxSimultaneousTransitions: v })} />
@@ -1366,7 +1215,7 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                 </div>
                 )}
 
-                {/* Pacing Templates â€” Smart Preset: Quick Picks + Advanced */}
+                {/* Pacing Templates — Smart Preset: Quick Picks + Advanced */}
                 <div className="space-y-3">
                     <label className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
                         <Zap size={12} className="text-purple-400" /> Quick Picks
@@ -1447,8 +1296,8 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                         <SliderControl label="Target Duration" icon={Clock} value={settings.targetDuration}
                             min={5} max={180} step={5} unit="s" onChange={(v) => {
                                 update({ targetDuration: v });
-                                // â”€â”€ BEATâ†”DURATION SYNC: When duration changes with audio active,
-                                // auto-reposition the audio trim region to match â”€â”€
+                                // ── BEAT↔DURATION SYNC: When duration changes with audio active,
+                                // auto-reposition the audio trim region to match ──
                                 if (settings.useAudioGuide && audioAnalysis) {
                                     autoSelectBestSegment(v);
                                 }
@@ -1546,12 +1395,12 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             { id: 'mixed-all', label: 'Mixed Action', desc: 'Random mix of slow/fast' },
                             { id: 'dramatic', label: 'Dramatic Build', desc: 'Start slow, accelerate' },
                             { id: 'dramatic-reverse', label: 'Reverse Build', desc: 'Start fast, decelerate' },
-                            { id: 'ramped', label: 'Speed Ramp', desc: 'Fastâ†’Slowâ†’Fast wave' },
-                            { id: 'ramped-inverse', label: 'Inverse Ramp', desc: 'Slowâ†’Fastâ†’Slow wave' },
+                            { id: 'ramped', label: 'Speed Ramp', desc: 'Fast→Slow→Fast wave' },
+                            { id: 'ramped-inverse', label: 'Inverse Ramp', desc: 'Slow→Fast→Slow wave' },
                             { id: 'slowmo-fast', label: 'Slow + Bursts', desc: 'Base 0.5x + random 2x' },
                             { id: 'fast-slowmo', label: 'Fast + Drops', desc: 'Base 1.5x + random 0.3x' },
                             { id: 'pulse', label: 'Pulse', desc: 'Alternating slow-fast' },
-                            { id: 'breathe', label: 'Breathe', desc: 'Gentle 0.7xâ€“1.3x wave' },
+                            { id: 'breathe', label: 'Breathe', desc: 'Gentle 0.7x–1.3x wave' },
                         ].map(opt => (
                             <button key={opt.id} onClick={() => update({ slowmoPolicy: opt.id as any })}
                                 className={clsx("p-2.5 rounded-lg border text-left transition-all",
@@ -1565,40 +1414,7 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     </div>
                 </div>
 
-                {/* â”€â”€â”€ CUT RHYTHM PATTERN â”€â”€â”€ */}
-                <div className="space-y-3">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
-                        <Activity size={12} className="text-emerald-400" /> Cut Rhythm
-                    </label>
-                    <div className="grid grid-cols-4 gap-2">
-                        {[
-                            { id: 'flat', label: 'Pure Random', desc: 'No rhythmic structure' },
-                            { id: 'pulse-2-1-2', label: 'Pulse (2-1-2)', desc: 'Long-Short-Long heartbeat' },
-                            { id: 'accelerando', label: 'Accelerando', desc: 'Cuts get shorter over time' },
-                            { id: 'ritardando', label: 'Ritardando', desc: 'Cuts get longer over time' },
-                            { id: 'breathing', label: 'Breathing Room', desc: '4 fast cuts + 1 breather' },
-                            { id: 'heartbeat', label: 'Heartbeat', desc: 'lub-dub-pause pattern' },
-                            { id: 'cascade', label: 'Cascade', desc: 'Long â†’ rapid descent â†’ landing' },
-                            { id: 'call-response', label: 'Call & Response', desc: '4 quick calls + 1 answer' },
-                            { id: 'fibonacci', label: 'Fibonacci', desc: 'Golden ratio durations' },
-                            { id: 'wave', label: 'Wave', desc: 'Smooth sinusoidal ebb-flow' },
-                            { id: 'staccato-legato', label: 'Staccato/Legato', desc: '3 rapid + 2 sustained' },
-                            { id: 'climax-arc', label: 'Climax Arc', desc: 'Slow â†’ fastest at mid â†’ slow' },
-                            { id: 'random-walk', label: 'Random Walk', desc: 'Organic Brownian drift' },
-                        ].map(opt => (
-                            <button key={opt.id} onClick={() => update({ rhythmPattern: opt.id as any })}
-                                className={clsx("p-2.5 rounded-lg border text-left transition-all",
-                                    settings.rhythmPattern === opt.id
-                                        ? "bg-emerald-600/20 border-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.15)]"
-                                        : "bg-white/5 border-white/5 hover:bg-white/10")}>
-                                <div className={clsx("text-[10px] font-black uppercase", settings.rhythmPattern === opt.id ? "text-emerald-200" : "text-white/70")}>{opt.label}</div>
-                                <div className="text-[9px] text-white/30">{opt.desc}</div>
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                {/* â”€â”€â”€ EDITING STYLE INJECTION â”€â”€â”€ */}
+                {/* ─── EDITING STYLE INJECTION ─── */}
                 <div className="space-y-4 border border-white/5 rounded-xl bg-black/20 p-4">
                     <label className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
                         <Sparkles size={12} className="text-indigo-400" /> Editing Style Engine
@@ -1714,8 +1530,8 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                 <div className="flex flex-wrap gap-1.5">
                                     {[
                                         { id: 'rubber-band-standard' as EditingStyleOption, label: 'Rubber Band', color: 'purple' },
-                                        { id: 'rubber-band' as EditingStyleOption, label: 'Zoom Bounce', color: 'cyan' },
-                                        { id: 'rubber-band-speed' as EditingStyleOption, label: 'Zoom + Speed', color: 'amber' },
+                                        { id: 'rubber-band-zoom' as EditingStyleOption, label: 'Zoom Bounce', color: 'cyan' },
+                                        { id: 'rubber-band-zoom-speed' as EditingStyleOption, label: 'Zoom + Speed', color: 'amber' },
                                         { id: 'multi-boomerang' as EditingStyleOption, label: 'Boomerang', color: 'emerald' },
                                         { id: 'triple-shot' as EditingStyleOption, label: 'Triple-Shot', color: 'rose' },
                                     ].map(style => {

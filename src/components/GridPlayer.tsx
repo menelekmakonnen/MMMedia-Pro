@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { GridClip } from '../types';
+import { GridClip, Clip } from '../types';
 import { getGridLayout } from '../lib/gridTemplates';
 import { VideoPlayer } from './VideoPlayer';
 import { useProjectStore } from '../store/projectStore';
@@ -50,27 +50,70 @@ export const GridPlayer: React.FC<GridPlayerProps> = ({ grid, currentFrame, isPl
     return (
         <div className="relative w-full h-full bg-black flex items-center justify-center overflow-hidden">
             {/* Background Layer */}
-            {grid.backgroundMode === 'blur' && grid.cells[0]?.clip && (
-                <div className="absolute inset-0 blur-xl opacity-50 transform scale-110 pointer-events-none">
-                    <VideoPlayer
-                        videoPath={grid.cells[0].clip.path}
-                        currentFrame={currentFrame}
-                        fps={settings.fps}
-                        bgOnly={true}
-                        hideTransport={true}
-                        volume={0}
-                        onFrameChange={() => { }}
-                    />
-                </div>
-            )}
+            {grid.backgroundMode === 'blur' && (() => {
+                const firstCell = grid.cells[0];
+                const bgClip = firstCell?.clips?.[0] || firstCell?.clip;
+                if (!bgClip) return null;
+                return (
+                    <div className="absolute inset-0 blur-xl opacity-50 transform scale-110 pointer-events-none">
+                        <VideoPlayer
+                            videoPath={bgClip.path}
+                            currentFrame={currentFrame}
+                            fps={settings.fps}
+                            bgOnly={true}
+                            hideTransport={true}
+                            volume={0}
+                            onFrameChange={() => { }}
+                        />
+                    </div>
+                );
+            })()}
 
             <div className="w-full h-full flex" style={{ aspectRatio: settings.aspectRatio.replace(':', '/') }}>
                 {grid.cells.slice(0, grid.numCells).map((cell, index) => {
                     const layout = layouts[index];
                     if (!layout) return null;
 
-                    // If a cell has no clip, just render a placeholder
-                    if (!cell.clip) {
+                    // Determine the active clip for this cell
+                    // If the cell has clips[], find which one covers the current frame
+                    // For now: cycle through clips sequentially (each plays for its full duration)
+                    const cellClips = cell.clips && cell.clips.length > 0 ? cell.clips : (cell.clip ? [cell.clip] : []);
+
+                    let activeClip: Clip | null = null;
+                    let clipLocalFrame = currentFrame;
+
+                    if (cellClips.length > 0) {
+                        // Calculate which clip in the cell's mini-timeline is active
+                        let accumulated = 0;
+                        for (const cc of cellClips) {
+                            const dur = (cc.trimEndFrame - cc.trimStartFrame) / (cc.speed || 1);
+                            if (currentFrame < accumulated + dur) {
+                                activeClip = cc;
+                                clipLocalFrame = Math.floor(((currentFrame - accumulated) * (cc.speed || 1)) + (cc.trimStartFrame || 0));
+                                break;
+                            }
+                            accumulated += dur;
+                        }
+                        // If past all clips, loop back to first
+                        if (!activeClip && cellClips.length > 0) {
+                            const totalDur = cellClips.reduce((sum, cc) => sum + (cc.trimEndFrame - cc.trimStartFrame) / (cc.speed || 1), 0);
+                            const loopedFrame = totalDur > 0 ? currentFrame % totalDur : 0;
+                            let acc2 = 0;
+                            for (const cc of cellClips) {
+                                const dur = (cc.trimEndFrame - cc.trimStartFrame) / (cc.speed || 1);
+                                if (loopedFrame < acc2 + dur) {
+                                    activeClip = cc;
+                                    clipLocalFrame = Math.floor(((loopedFrame - acc2) * (cc.speed || 1)) + (cc.trimStartFrame || 0));
+                                    break;
+                                }
+                                acc2 += dur;
+                            }
+                            if (!activeClip) activeClip = cellClips[0];
+                        }
+                    }
+
+                    // If cell is empty, render placeholder
+                    if (!activeClip) {
                         return (
                             <div
                                 key={cell.id}
@@ -90,9 +133,6 @@ export const GridPlayer: React.FC<GridPlayerProps> = ({ grid, currentFrame, isPl
                         );
                     }
 
-                    // For clips, map the global grid frame to the local clip frame
-                    const clipLocalFrame = Math.floor((currentFrame * cell.clip.speed) + (cell.clip.trimStartFrame || 0));
-
                     return (
                         <div
                             key={cell.id}
@@ -108,17 +148,23 @@ export const GridPlayer: React.FC<GridPlayerProps> = ({ grid, currentFrame, isPl
                         >
                             <div className="absolute inset-0 pointer-events-none z-20" /> {/* Click interceptor */}
                             <VideoPlayer
-                                videoPath={cell.clip.type === 'video' ? cell.clip.path : undefined}
+                                videoPath={activeClip.type === 'video' ? activeClip.path : undefined}
                                 currentFrame={clipLocalFrame}
                                 fps={settings.fps}
                                 hideTransport={true}
-                                volume={cell.clip.isMuted ? 0 : (cell.clip.volume / 100)}
-                                playbackSpeed={cell.clip.speed}
-                                zoomLevel={cell.clip.zoomLevel}
-                                zoomOrigin={cell.clip.zoomOrigin}
+                                volume={activeClip.isMuted ? 0 : (activeClip.volume / 100)}
+                                playbackSpeed={activeClip.speed}
+                                zoomLevel={activeClip.zoomLevel}
+                                zoomOrigin={activeClip.zoomOrigin}
                                 centerControls={null}
                                 onFrameChange={() => { }}
                             />
+                            {/* Mini-timeline badge for multi-clip cells */}
+                            {cellClips.length > 1 && (
+                                <div className="absolute bottom-1 right-1 bg-black/60 text-white/80 text-[8px] font-bold px-1.5 py-0.5 rounded z-30">
+                                    {cellClips.indexOf(activeClip!) + 1}/{cellClips.length}
+                                </div>
+                            )}
                         </div>
                     );
                 })}

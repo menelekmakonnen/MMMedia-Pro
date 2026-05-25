@@ -20,6 +20,9 @@ interface UserState {
     defaultTransition: TransitionStrategy;
     mediaManagerView: ViewMode;
 
+    // Media Library sidebar width (persists across sessions)
+    mediaSidebarWidth: number;
+
     // Global Volume (persists across pages & reloads)
     masterVolume: number;
     isMasterMuted: boolean;
@@ -36,6 +39,7 @@ interface UserState {
     setMediaManagerView: (view: ViewMode) => void;
     setMasterVolume: (vol: number) => void;
     setIsMasterMuted: (muted: boolean) => void;
+    setMediaSidebarWidth: (w: number) => void;
 }
 
 export const useUserStore = create<UserState>()(
@@ -51,6 +55,7 @@ export const useUserStore = create<UserState>()(
             timecodeFormat: 'timecode',
             defaultTransition: 'cut',
             mediaManagerView: 'grid',
+            mediaSidebarWidth: 320,
             masterVolume: 1,
             isMasterMuted: false,
             
@@ -65,6 +70,7 @@ export const useUserStore = create<UserState>()(
             setMediaManagerView: (mediaManagerView) => set({ mediaManagerView }),
             setMasterVolume: (masterVolume) => set({ masterVolume: Math.max(0, Math.min(1, masterVolume)) }),
             setIsMasterMuted: (isMasterMuted) => set({ isMasterMuted }),
+            setMediaSidebarWidth: (mediaSidebarWidth) => set({ mediaSidebarWidth: Math.max(200, Math.min(500, mediaSidebarWidth)) }),
         }),
         {
             name: 'mmmedia-user-storage',

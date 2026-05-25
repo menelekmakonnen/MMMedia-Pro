@@ -1,14 +1,37 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useProjectStore } from '../../store/projectStore';
 import { Save, Upload, FileJson, Settings, Film, Activity } from 'lucide-react';
 import { PowerMeter } from './PowerMeter';
+import { useAppHealthStore } from '../../store/appHealthStore';
+import { useClipStore } from '../../store/clipStore';
+import { useMediaStore } from '../../store/mediaStore';
 import clsx from 'clsx';
 import { toast } from '../../components/Toast';
 // import { useClipStore } from '../../store/clipStore'; // Dynamic import used below
 
 export const SettingsTab: React.FC = () => {
     const { settings, updateSettings } = useProjectStore();
+    const { fps, state, errorCount } = useAppHealthStore();
+    const clipCount = useClipStore(s => s.clips.length);
+    const mediaCount = useMediaStore(s => s.files.length);
+    const [memMB, setMemMB] = useState(0);
 
+    // Poll real memory usage every 2s (Chrome/Electron performance.memory)
+    useEffect(() => {
+        const poll = () => {
+            const perf = (performance as any);
+            if (perf.memory) {
+                setMemMB(Math.round(perf.memory.usedJSHeapSize / 1024 / 1024));
+            }
+        };
+        poll();
+        const id = setInterval(poll, 2000);
+        return () => clearInterval(id);
+    }, []);
+
+    const stateLabel = state === 'error' ? 'ERROR' : state === 'slow' ? 'SLOW' : state === 'loading' ? 'LOADING' : 'ONLINE';
+    const stateColor = state === 'error' ? 'red' : state === 'slow' ? 'yellow' : 'green';
+    const fpsColor = fps >= 50 ? 'text-green-400' : fps >= 30 ? 'text-yellow-400' : 'text-red-400';
     return (
         <div className="w-full h-full overflow-y-auto custom-scrollbar">
             <div className="max-w-4xl mx-auto p-8 flex flex-col gap-8">
@@ -218,9 +241,9 @@ export const SettingsTab: React.FC = () => {
                                     <Activity size={16} className="text-primary-300" />
                                     <h2 className="text-sm font-bold text-white">Engine Status</h2>
                                 </div>
-                                <div className="px-2 py-0.5 bg-green-500/10 border border-green-500/20 rounded text-[10px] text-green-400 font-mono font-bold flex items-center gap-1.5">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-                                    ONLINE
+                                <div className={`px-2 py-0.5 bg-${stateColor}-500/10 border border-${stateColor}-500/20 rounded text-[10px] text-${stateColor}-400 font-mono font-bold flex items-center gap-1.5`}>
+                                    <div className={`w-1.5 h-1.5 rounded-full bg-${stateColor}-400 animate-pulse`} />
+                                    {stateLabel}
                                 </div>
                             </div>
 
@@ -230,15 +253,15 @@ export const SettingsTab: React.FC = () => {
                                 <div className="grid grid-cols-3 gap-2 w-full mt-6">
                                     <div className="bg-black/40 p-2 rounded-lg text-center border border-white/5">
                                         <div className="text-[10px] text-white/40 mb-0.5 font-bold">MEM</div>
-                                        <div className="text-sm font-mono font-bold text-white/90">1.2<span className="text-[10px] font-normal text-white/40 ml-0.5">GB</span></div>
+                                        <div className="text-sm font-mono font-bold text-white/90">{memMB > 1024 ? (memMB / 1024).toFixed(1) : memMB}<span className="text-[10px] font-normal text-white/40 ml-0.5">{memMB > 1024 ? 'GB' : 'MB'}</span></div>
                                     </div>
                                     <div className="bg-black/40 p-2 rounded-lg text-center border border-white/5">
                                         <div className="text-[10px] text-white/40 mb-0.5 font-bold">FPS</div>
-                                        <div className="text-sm font-mono font-bold text-white/90">60</div>
+                                        <div className={clsx("text-sm font-mono font-bold", fpsColor)}>{fps}</div>
                                     </div>
                                     <div className="bg-black/40 p-2 rounded-lg text-center border border-white/5">
-                                        <div className="text-[10px] text-white/40 mb-0.5 font-bold">GPU</div>
-                                        <div className="text-sm font-mono font-bold text-green-400">ON</div>
+                                        <div className="text-[10px] text-white/40 mb-0.5 font-bold">LOAD</div>
+                                        <div className="text-sm font-mono font-bold text-white/90">{clipCount + mediaCount}<span className="text-[10px] font-normal text-white/40 ml-0.5">items</span></div>
                                     </div>
                                 </div>
                             </div>

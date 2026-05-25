@@ -1,4 +1,4 @@
-import React, { memo } from 'react';
+import React, { memo, useRef, useState, useEffect } from 'react';
 import { ChevronDown, ChevronUp, Bot, Hand, Lock, Pin, Eye, EyeOff, LayoutGrid } from 'lucide-react';
 import { Clip, useClipStore } from '../../store/clipStore';
 import { ClipControls } from './ClipControls';
@@ -15,8 +15,30 @@ export const ClipItem: React.FC<ClipItemProps> = memo(({ clip, isSelected, onSel
     const { setClipFolded, updateClip, detectBeats } = useClipStore();
     const isFolded = clip.isFolded || false;
 
+    // Lazy visibility tracking — only load heavy resources when visible
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [isVisible, setIsVisible] = useState(false);
+
+    useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                if (entry.isIntersecting) {
+                    setIsVisible(true);
+                    // Once visible, we keep it visible to avoid re-loading
+                    // when the user scrolls back
+                }
+            },
+            { rootMargin: '200px' } // Pre-load 200px before entering viewport
+        );
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, []);
+
     return (
         <div
+            ref={containerRef}
             className={`bg-surface-dark rounded-lg border transition-colors ${isSelected
                 ? 'border-accent shadow-[0_0_0_1px_rgba(139,92,246,0.5)]'
                 : 'border-white/10 hover:border-white/20'
@@ -26,8 +48,8 @@ export const ClipItem: React.FC<ClipItemProps> = memo(({ clip, isSelected, onSel
                 onSelect(clip.id);
             }}
         >
-            {/* Waveform Background (for non-folded video/audio) */}
-            {!isFolded && !clip.disabled && (clip.type === 'video' || clip.type === 'audio') && (
+            {/* Waveform Background — only load when visible, unfolded, and selected */}
+            {isVisible && !isFolded && !clip.disabled && isSelected && (clip.type === 'video' || clip.type === 'audio') && (
                 <div className="absolute inset-0 z-0 opacity-20 pointer-events-none">
                     <TimelineWaveform
                         path={clip.path}
@@ -73,18 +95,17 @@ export const ClipItem: React.FC<ClipItemProps> = memo(({ clip, isSelected, onSel
                         </button>
                     </div>
 
-                    {/* Thumbnail */}
+                    {/* Thumbnail — lazy load video src only when visible */}
                     <div className="h-12 w-20 bg-black/50 rounded overflow-hidden flex-shrink-0 border border-white/10 flex items-center justify-center text-white/30">
                         {clip.type === 'grid' ? (
                             <LayoutGrid size={24} />
-                        ) : (
+                        ) : isVisible ? (
                             <video
                                 src={clip.path}
                                 className="h-full w-full object-cover"
                                 onLoadedMetadata={(e) => {
-                                    e.currentTarget.currentTime = (clip.trimStartFrame ?? 0) / 30; // Assuming 30fps
+                                    e.currentTarget.currentTime = (clip.trimStartFrame ?? 0) / 30;
                                 }}
-                                // Update time if startFrame changes (e.g. via Flux)
                                 ref={(el) => {
                                     if (el) el.currentTime = (clip.trimStartFrame ?? 0) / 30;
                                 }}
@@ -92,6 +113,9 @@ export const ClipItem: React.FC<ClipItemProps> = memo(({ clip, isSelected, onSel
                                 preload="metadata"
                                 onError={(e) => console.error("Thumbnail load error for:", clip.path, e.currentTarget.error)}
                             />
+                        ) : (
+                            // Lightweight placeholder before visibility
+                            <div className="w-full h-full bg-white/5" />
                         )}
                     </div>
 
@@ -110,24 +134,6 @@ export const ClipItem: React.FC<ClipItemProps> = memo(({ clip, isSelected, onSel
                                         <span>•</span>
                                         <span className="text-primary flex items-center gap-1" title="Auto-generated">
                                             <Bot size={12} /> Auto
-                                        </span>
-                                    </>
-                                )}
-
-                                {clip.origin === 'manual' && (
-                                    <>
-                                        <span>•</span>
-                                        <span className="text-green-400 flex items-center gap-1" title="Manually added">
-                                            <Hand size={12} /> Manual
-                                        </span>
-                                    </>
-                                )}
-
-                                {clip.locked && (
-                                    <>
-                                        <span>•</span>
-                                        <span className="text-yellow-500 flex items-center gap-1" title="Locked (Protected)">
-                                            <Lock size={12} /> Locked
                                         </span>
                                     </>
                                 )}
@@ -173,11 +179,11 @@ export const ClipItem: React.FC<ClipItemProps> = memo(({ clip, isSelected, onSel
                 </div>
             </div>
 
-            {/* Clip Controls */}
-            {clip.type !== 'grid' && <ClipControls clipId={clip.id} />}
+            {/* Clip Controls — only render when selected (performance: avoids rendering dozens of button sets) */}
+            {isSelected && clip.type !== 'grid' && <ClipControls clipId={clip.id} />}
 
-            {/* Segment Selector - Hide when folded */}
-            {!isFolded && clip.type !== 'grid' && <SegmentSelector clipId={clip.id} />}
+            {/* Segment Selector — only render when selected and not folded */}
+            {isSelected && !isFolded && clip.type !== 'grid' && <SegmentSelector clipId={clip.id} />}
 
             {!isFolded && clip.type === 'grid' && (
                 <div className="text-xs text-white/50 px-4 pb-2 italic">

@@ -5,6 +5,7 @@ import { useViewStore } from '../../store/viewStore';
 import { useGodModeStore } from '../../store/godModeStore';
 import { useMediaStore } from '../../store/mediaStore';
 import { analyzeAudio, AudioAnalysisResult } from '../../lib/audioAnalysis';
+import { TrailerSettings, DEFAULT_TRAILER_SETTINGS, DEFAULT_STYLE_CONFIG, EditingStyleOption } from '../../lib/trailerGenerator';
 import clsx from 'clsx';
 
 const VIBES = [
@@ -28,17 +29,18 @@ const PRESETS = [
     { id: 'gm-soft-story', name: 'Story Mode', icon: Podcast, desc: 'Vlog-paced narrative', tier: 0 },
     { id: 'gm-quick-recap', name: 'Quick Recap', icon: Zap, desc: 'Snappy 15s summary', tier: 0 },
     { id: 'gm-dynamic-intro', name: 'Dynamic Intro', icon: ArrowLeftRight, desc: 'Builds momentum', tier: 0 },
-    { id: 'gm-gentle-zoom', name: 'Gentle Zoom', icon: Camera, desc: 'Soft Ken Burns zooms', tier: 1 },
-    { id: 'gm-wedding', name: 'Wedding Film', icon: Heart, desc: 'Slow zooms + gentle ramps', tier: 1 },
+    { id: 'gm-gentle-flow', name: 'Gentle Flow', icon: Camera, desc: 'Soft cinematic drifts', tier: 1 },
+    { id: 'gm-wedding', name: 'Wedding Film', icon: Heart, desc: 'Slow ramps + gentle pacing', tier: 1 },
     { id: 'gm-montage-mix', name: 'Montage Mix', icon: Clapperboard, desc: 'Mixed cuts, tasteful', tier: 1 },
-    { id: 'gm-travel-diary', name: 'Travel Diary', icon: Globe, desc: 'Dreamy zooms + warm pacing', tier: 1 },
+    { id: 'gm-travel-diary', name: 'Travel Diary', icon: Globe, desc: 'Dreamy pacing + warm tones', tier: 1 },
     { id: 'gm-golden-hour', name: 'Golden Hour', icon: Sparkles, desc: 'Sunset vibes, slow reveals', tier: 1 },
     { id: 'gm-noir', name: 'Film Noir', icon: Film, desc: 'Dark drama, slow crawl', tier: 1 },
-    { id: 'gm-music-video', name: 'Music Video', icon: Music, desc: 'Beat-locked zooms', tier: 2 },
+    { id: 'gm-music-video', name: 'Music Video', icon: Music, desc: 'Beat-locked energy', tier: 2 },
     { id: 'gm-action-trailer', name: 'Action Trailer', icon: Flame, desc: 'Hard ramps + triple-shot', tier: 2 },
-    { id: 'gm-instagram', name: 'Reels Banger', icon: Video, desc: 'Snappy zoom drops', tier: 2 },
+    { id: 'gm-instagram', name: 'Reels Banger', icon: Video, desc: 'Snappy drops + cuts', tier: 2 },
     { id: 'gm-gym-pump', name: 'Gym Pump', icon: Dumbbell, desc: 'Athletic ramps + punches', tier: 2 },
     { id: 'gm-concert', name: 'Concert Edit', icon: Music, desc: 'Beat-locked + boomerangs', tier: 2 },
+    { id: 'gm-beat-bounce', name: 'Beat Bounce', icon: ArrowLeftRight, desc: 'Viral IG bounce — shot swap on beats', tier: 2 },
     { id: 'gm-tiktok', name: 'TikTok Viral', icon: Zap, desc: 'Full chaos, every effect', tier: 3 },
     { id: 'gm-whiplash', name: 'Whiplash', icon: Flame, desc: 'Extreme speed contrast', tier: 3 },
     { id: 'gm-stutter-storm', name: 'Stutter Storm', icon: Sparkles, desc: 'Rapid micro-boomerangs', tier: 3 },
@@ -47,6 +49,78 @@ const PRESETS = [
 ];
 
 const TRANSITION_PRESETS = ['cinematic', 'buttery', 'kinetic', 'whip-pan', 'snap-cut', 'viral', 'dramatic', 'all'];
+
+// ── PACING TEMPLATES (mirror of TrailerWizard's TEMPLATES) ──
+const PACING_MAP: Record<string, { shortestClip: number; longestClip: number; allowDuplicates: boolean }> = {
+    social: { shortestClip: 0.1, longestClip: 0.5, allowDuplicates: true },
+    kinetic: { shortestClip: 0.08, longestClip: 0.25, allowDuplicates: true },
+    epic: { shortestClip: 0.5, longestClip: 2.5, allowDuplicates: false },
+    gym: { shortestClip: 0.15, longestClip: 0.6, allowDuplicates: true },
+    wedding: { shortestClip: 1.0, longestClip: 4.0, allowDuplicates: false },
+    hyperlapse: { shortestClip: 0.1, longestClip: 0.35, allowDuplicates: true },
+    filmscore: { shortestClip: 2.0, longestClip: 5.0, allowDuplicates: false },
+    montage: { shortestClip: 0.3, longestClip: 1.5, allowDuplicates: true },
+    vlog: { shortestClip: 0.8, longestClip: 2.5, allowDuplicates: false },
+    dynamic: { shortestClip: 0.2, longestClip: 2.0, allowDuplicates: true },
+};
+
+// ── STYLE TEMPLATES (mirror of TrailerWizard's STYLE_TEMPLATES) ──
+const STYLE_MAP: Record<string, { mix: 'none' | 'light' | 'heavy' | 'every'; styles: EditingStyleOption[]; config: typeof DEFAULT_STYLE_CONFIG }> = {
+    'none': { mix: 'none', styles: [], config: DEFAULT_STYLE_CONFIG },
+    'music-video': { mix: 'heavy', styles: ['rubber-band-standard', 'multi-boomerang', 'rubber-band-speed'], config: { ...DEFAULT_STYLE_CONFIG, rampSlowSpeed: 0.2, boomerangSlices: 4, reversalChance: 0.95, burstMode: 'short' } },
+    'action-reel': { mix: 'heavy', styles: ['rubber-band-standard', 'triple-shot', 'rubber-band-speed'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.5, rampSlowSpeed: 0.15, fastPortion: 0.1, slowPortion: 0.4, reversalChance: 1.0, burstMode: 'short' } },
+    'cinematic': { mix: 'light', styles: ['rubber-band-standard'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.8, rampSlowSpeed: 0.4, fastPortion: 0.2, slowPortion: 0.5, reversalChance: 0.7, burstMode: 'long' } },
+    'instagram': { mix: 'every', styles: ['multi-boomerang', 'rubber-band-standard'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.3, boomerangSlices: 4, reversalChance: 0.9, burstMode: 'short' } },
+    'whiplash': { mix: 'every', styles: ['rubber-band-standard', 'rubber-band-speed', 'triple-shot'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 4.0, rampSlowSpeed: 0.1, fastPortion: 0.08, slowPortion: 0.45, reversalChance: 1.0, burstMode: 'short' } },
+    'dreamy': { mix: 'heavy', styles: ['rubber-band-standard'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.5, rampSlowSpeed: 0.15, fastPortion: 0.25, slowPortion: 0.5, reversalChance: 1.0, burstMode: 'long' } },
+    'film-noir': { mix: 'light', styles: ['rubber-band-standard'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.3, rampSlowSpeed: 0.2, fastPortion: 0.3, slowPortion: 0.5, reversalChance: 0.5, burstMode: 'long' } },
+    'pulse-drop': { mix: 'heavy', styles: ['rubber-band-speed', 'rubber-band-standard', 'multi-boomerang'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.1, fastPortion: 0.12, slowPortion: 0.35, reversalChance: 0.85, burstMode: 'short' } },
+    'stutter-cut': { mix: 'every', styles: ['multi-boomerang', 'triple-shot'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 2.5, rampSlowSpeed: 0.3, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' } },
+    'tiktok': { mix: 'every', styles: ['multi-boomerang', 'rubber-band-speed', 'triple-shot', 'rubber-band-standard'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.8, rampSlowSpeed: 0.15, fastPortion: 0.1, slowPortion: 0.3, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' } },
+    'sports-hype': { mix: 'heavy', styles: ['rubber-band-speed', 'triple-shot'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.5, rampSlowSpeed: 0.2, fastPortion: 0.15, slowPortion: 0.35, reversalChance: 0.95, burstMode: 'short' } },
+    'concert-live': { mix: 'every', styles: ['rubber-band-speed', 'multi-boomerang'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.2, rampSlowSpeed: 0.25, fastPortion: 0.12, slowPortion: 0.3, boomerangSlices: 4, reversalChance: 0.9, burstMode: 'short' } },
+    'beat-bounce': { mix: 'every', styles: ['beat-bounce'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.0, rampSlowSpeed: 0.4, fastPortion: 0.05, slowPortion: 0.15, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' } },
+    'horror-tension': { mix: 'heavy', styles: ['rubber-band-standard', 'triple-shot', 'multi-boomerang'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.12, fastPortion: 0.08, slowPortion: 0.5, boomerangSlices: 3, reversalChance: 1.0, burstMode: 'short' } },
+    'viral-hook': { mix: 'every', styles: ['snap-burst', 'pattern-interrupt', 'hyper-cut'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.5, rampSlowSpeed: 0.15, boomerangSlices: 4, reversalChance: 0.9, burstMode: 'short' } },
+    'retention-max': { mix: 'every', styles: ['pattern-interrupt', 'snap-burst', 'multi-boomerang', 'hyper-cut'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.8, rampSlowSpeed: 0.1, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' } },
+};
+
+// ── VIBE → SETTINGS MAP (mirrors TrailerWizard's VIBE_MAP) ──
+const VIBE_MAP: Record<string, { pacing: string; style: string; hook: 'none' | 'snap-speed' | 'pattern-interrupt' | 'speed-freeze' | 'auto'; retention: boolean; loop: boolean; texture: 'none' | 'grain' | 'vintage' | 'chromatic' | 'motion-blur'; transitionsEnabled: boolean; transitionPreset: string; rhythmPattern: string }> = {
+    'clean': { pacing: 'montage', style: 'none', hook: 'none', retention: false, loop: false, texture: 'none', transitionsEnabled: false, transitionPreset: 'hard-cuts', rhythmPattern: 'wave' },
+    'cinematic': { pacing: 'filmscore', style: 'cinematic', hook: 'speed-freeze', retention: false, loop: false, texture: 'grain', transitionsEnabled: true, transitionPreset: 'cinematic', rhythmPattern: 'fibonacci' },
+    'high-energy': { pacing: 'social', style: 'music-video', hook: 'speed-freeze', retention: false, loop: false, texture: 'none', transitionsEnabled: true, transitionPreset: 'whip-pan', rhythmPattern: 'breathing' },
+    'chaos': { pacing: 'kinetic', style: 'retention-max', hook: 'pattern-interrupt', retention: true, loop: true, texture: 'chromatic', transitionsEnabled: true, transitionPreset: 'viral', rhythmPattern: 'staccato-legato' },
+    'viral': { pacing: 'social', style: 'viral-hook', hook: 'auto', retention: true, loop: true, texture: 'none', transitionsEnabled: true, transitionPreset: 'snap-cut', rhythmPattern: 'heartbeat' },
+};
+
+// Preset IDs → pacing/style mapping (mirrors TrailerWizard's GODMODE_PRESETS)
+const PRESET_PACING_STYLE: Record<string, { pacing: string; style: string; duration: number }> = {
+    'gm-clean-cut': { pacing: 'montage', style: 'none', duration: 30 },
+    'gm-slideshow': { pacing: 'filmscore', style: 'none', duration: 60 },
+    'gm-soft-story': { pacing: 'vlog', style: 'none', duration: 45 },
+    'gm-quick-recap': { pacing: 'social', style: 'none', duration: 15 },
+    'gm-dynamic-intro': { pacing: 'dynamic', style: 'none', duration: 20 },
+    'gm-gentle-flow': { pacing: 'filmscore', style: 'cinematic', duration: 60 },
+    'gm-wedding': { pacing: 'wedding', style: 'cinematic', duration: 45 },
+    'gm-montage-mix': { pacing: 'montage', style: 'cinematic', duration: 30 },
+    'gm-travel-diary': { pacing: 'vlog', style: 'dreamy', duration: 30 },
+    'gm-golden-hour': { pacing: 'filmscore', style: 'dreamy', duration: 45 },
+    'gm-noir': { pacing: 'filmscore', style: 'film-noir', duration: 90 },
+    'gm-music-video': { pacing: 'social', style: 'music-video', duration: 30 },
+    'gm-action-trailer': { pacing: 'epic', style: 'action-reel', duration: 60 },
+    'gm-instagram': { pacing: 'social', style: 'instagram', duration: 15 },
+    'gm-hyperlapse': { pacing: 'hyperlapse', style: 'pulse-drop', duration: 20 },
+    'gm-gym-pump': { pacing: 'gym', style: 'sports-hype', duration: 20 },
+    'gm-concert': { pacing: 'kinetic', style: 'concert-live', duration: 30 },
+    'gm-beat-bounce': { pacing: 'social', style: 'beat-bounce', duration: 15 },
+    'gm-sports': { pacing: 'social', style: 'sports-hype', duration: 15 },
+    'gm-tiktok': { pacing: 'kinetic', style: 'tiktok', duration: 10 },
+    'gm-whiplash': { pacing: 'kinetic', style: 'whiplash', duration: 15 },
+    'gm-stutter-storm': { pacing: 'kinetic', style: 'stutter-cut', duration: 10 },
+    'gm-sensory-overload': { pacing: 'hyperlapse', style: 'tiktok', duration: 15 },
+    'gm-glitch-out': { pacing: 'kinetic', style: 'horror-tension', duration: 12 },
+};
 
 export const GodModeTab: React.FC = () => {
     const { setActiveTab } = useViewStore();
@@ -74,7 +148,82 @@ export const GodModeTab: React.FC = () => {
             const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
             const decoded = await ctx.decodeAudioData(buf);
             const result = await analyzeAudio(decoded);
-            gm.setAudioGuide({ useAudioGuide: true, audioAnalysis: result, audioTrimEnd: Math.min(gm.duration, result.duration) });
+
+            // ── INTELLIGENT SEGMENT SELECTION ──────────────────────────
+            // Score each segment by type priority, energy, and beat density
+            // to find the best region of the song for editing.
+            const desiredDuration = gm.duration;
+            let bestStart = 0;
+            let bestEnd = Math.min(desiredDuration, result.duration);
+
+            if (result.segments && result.segments.length > 1 && result.duration > desiredDuration * 1.5) {
+                // Segment type priority scores (higher = more exciting for trailers)
+                const TYPE_SCORE: Record<string, number> = {
+                    'drop': 10, 'chorus': 8, 'buildup': 6, 'bridge': 4,
+                    'verse': 3, 'breakdown': 2, 'intro': 1, 'outro': 0,
+                };
+
+                // Score every possible window position (1-second resolution)
+                let bestScore = -1;
+                const step = 1; // 1-second resolution
+                const maxStart = Math.max(0, result.duration - desiredDuration);
+
+                for (let windowStart = 0; windowStart <= maxStart; windowStart += step) {
+                    const windowEnd = windowStart + desiredDuration;
+                    let score = 0;
+
+                    for (const seg of result.segments) {
+                        // How much of this segment overlaps with our window?
+                        const overlapStart = Math.max(seg.start, windowStart);
+                        const overlapEnd = Math.min(seg.end, windowEnd);
+                        const overlap = Math.max(0, overlapEnd - overlapStart);
+                        if (overlap <= 0) continue;
+
+                        const segDur = seg.end - seg.start;
+                        const overlapRatio = segDur > 0 ? overlap / segDur : 0;
+
+                        // Composite: type priority × energy × overlap
+                        const typeWeight = TYPE_SCORE[seg.type] ?? 3;
+                        const energyWeight = seg.avgEnergy * 2 + seg.peakEnergy;
+                        const beatDensity = segDur > 0 ? seg.beatCount / segDur : 0;
+
+                        score += overlapRatio * (typeWeight * 3 + energyWeight * 5 + beatDensity * 2);
+                    }
+
+                    // Small bonus for NOT starting at 0:00 (avoid intros)
+                    if (windowStart > 5) score += 1;
+                    // Small penalty for ending past 90% of song (often fade-outs)
+                    if (windowEnd > result.duration * 0.9) score -= 2;
+
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestStart = windowStart;
+                        bestEnd = windowEnd;
+                    }
+                }
+
+                // Snap to nearest beat for clean cut-in
+                if (result.beats && result.beats.length > 0) {
+                    const nearestBeat = result.beats.reduce((closest, b) =>
+                        Math.abs(b.time - bestStart) < Math.abs(closest.time - bestStart) ? b : closest
+                    );
+                    if (Math.abs(nearestBeat.time - bestStart) < 1.5) {
+                        bestStart = nearestBeat.time;
+                        bestEnd = bestStart + desiredDuration;
+                    }
+                }
+
+                // Final clamp
+                bestEnd = Math.min(bestEnd, result.duration);
+                bestStart = Math.max(0, bestEnd - desiredDuration);
+            }
+
+            gm.setAudioGuide({
+                useAudioGuide: true,
+                audioAnalysis: result,
+                audioTrimStart: Math.round(bestStart * 100) / 100,
+                audioTrimEnd: Math.round(bestEnd * 100) / 100,
+            });
             await ctx.close();
         } catch (err) { console.warn('Audio analysis failed:', err); }
         finally { setIsAnalyzing(false); }
@@ -92,14 +241,63 @@ export const GodModeTab: React.FC = () => {
         else { audioRef.current.currentTime = gm.audioTrimStart; audioRef.current.play().catch(() => {}); setAudioPlaying(true); }
     };
 
+    // ── Helper: resolve full TrailerSettings from pacing/style keys ──
+    const resolveSettings = (pacingKey: string, styleKey: string, duration: number, overrides?: Partial<TrailerSettings>): TrailerSettings => {
+        const pacing = PACING_MAP[pacingKey] || PACING_MAP['montage'];
+        const style = STYLE_MAP[styleKey] || STYLE_MAP['none'];
+        return {
+            ...DEFAULT_TRAILER_SETTINGS,
+            ...pacing,
+            targetDuration: duration,
+            editingStyleMix: style.mix,
+            editingStyles: style.styles,
+            styleConfig: style.config,
+            transitionsEnabled: gm.transitionsEnabled,
+            transitionPreset: gm.transitionPreset,
+            allowDuplicates: true,
+            useAllClips: true,
+            ...(gm.useAudioGuide && gm.audioUrl ? {
+                useAudioGuide: true,
+                audioFile: gm.audioFile,
+                audioUrl: gm.audioUrl,
+                audioFilePath: gm.audioFilePath || undefined,
+                audioAnalysis: gm.audioAnalysis,
+                audioTrimStart: gm.audioTrimStart,
+                audioTrimEnd: gm.audioTrimEnd,
+            } : {}),
+            ...overrides,
+        };
+    };
+
     const handleGoToTrailer = () => {
-        gm.setEnabled(true);
+        if (!gm.vibe) return;
+        const vibe = VIBE_MAP[gm.vibe];
+        if (!vibe) return;
+        const effectiveDuration = gm.useAudioGuide
+            ? Math.round(gm.audioTrimEnd - gm.audioTrimStart)
+            : gm.duration;
+        const settings = resolveSettings(vibe.pacing, vibe.style, effectiveDuration, {
+            hookStyle: vibe.hook,
+            retentionInterrupts: vibe.retention,
+            loopMode: vibe.loop,
+            visualTexture: vibe.texture,
+            transitionsEnabled: gm.transitionsEnabled ?? vibe.transitionsEnabled,
+            transitionPreset: gm.transitionPreset || vibe.transitionPreset,
+            rhythmPattern: vibe.rhythmPattern as any,
+        });
+        gm.setAutoGenerate(settings);
         setActiveTab('trailer');
     };
 
     const handlePresetGenerate = (presetId: string) => {
-        gm.setEnabled(true);
-        gm.setVibe(presetId);
+        const ref = PRESET_PACING_STYLE[presetId];
+        if (!ref) return;
+        const effectiveDuration = gm.useAudioGuide
+            ? Math.round(gm.audioTrimEnd - gm.audioTrimStart)
+            : ref.duration;
+        const settings = resolveSettings(ref.pacing, ref.style, effectiveDuration);
+        gm.setPresetRef({ presetId });
+        gm.setAutoGenerate(settings);
         setActiveTab('trailer');
     };
 
@@ -182,6 +380,21 @@ export const GodModeTab: React.FC = () => {
                                     <div className="text-xs font-black text-white">{stat.value}</div>
                                 </div>
                             ))}
+                        </div>
+                    )}
+                    {gm.audioAnalysis && gm.audioTrimStart > 0 && (
+                        <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[9px] bg-amber-500/20 text-amber-300 px-2 py-1 rounded-full font-bold border border-amber-500/20">
+                                ⚡ Best Segment
+                            </span>
+                            <span className="text-[10px] font-mono text-white/50">
+                                {Math.floor(gm.audioTrimStart / 60)}:{String(Math.floor(gm.audioTrimStart % 60)).padStart(2, '0')}
+                                {' → '}
+                                {Math.floor(gm.audioTrimEnd / 60)}:{String(Math.floor(gm.audioTrimEnd % 60)).padStart(2, '0')}
+                            </span>
+                            <span className="text-[9px] text-white/25">
+                                ({Math.round(gm.audioTrimEnd - gm.audioTrimStart)}s of {Math.round(gm.audioAnalysis.duration)}s)
+                            </span>
                         </div>
                     )}
                 </div>

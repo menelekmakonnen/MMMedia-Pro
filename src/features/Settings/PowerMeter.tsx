@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Activity } from 'lucide-react';
+import { useAppHealthStore } from '../../store/appHealthStore';
 
 interface PowerMeterProps {
     label?: string;
@@ -12,25 +13,31 @@ export const PowerMeter: React.FC<PowerMeterProps> = ({
     color = "#8b5cf6",
     value: controlledValue
 }) => {
-    const [internalValue, setInternalValue] = useState(0);
+    const { fps, state, errorCount } = useAppHealthStore();
+    const [computedValue, setComputedValue] = useState(50);
 
-    // Use controlled value if provided, otherwise internal state
-    const displayValue = controlledValue !== undefined ? controlledValue : internalValue;
-
+    // Derive a composite "load" score from real metrics
     useEffect(() => {
         if (controlledValue !== undefined) return;
 
-        // Simulate fluctuating power levels
-        const interval = setInterval(() => {
-            setInternalValue(prev => {
-                const change = (Math.random() - 0.5) * 10;
-                const newValue = prev + change;
-                return Math.max(20, Math.min(98, newValue)); // Keep between 20% and 98%
-            });
-        }, 1000);
+        // FPS component: 60fps = healthy (low load), <20fps = high load
+        const fpsLoad = Math.max(0, Math.min(100, ((60 - Math.min(fps, 60)) / 60) * 100));
+        
+        // State component
+        const stateLoad = state === 'error' ? 95 : state === 'slow' ? 70 : state === 'fast' ? 40 : state === 'active' ? 30 : 15;
+        
+        // Error component
+        const errorLoad = Math.min(30, errorCount * 10);
 
-        return () => clearInterval(interval);
-    }, [controlledValue]);
+        // Weighted composite (smooth towards target)
+        const target = Math.min(98, Math.max(5, fpsLoad * 0.4 + stateLoad * 0.4 + errorLoad * 0.2));
+        setComputedValue(prev => prev + (target - prev) * 0.3);
+    }, [fps, state, errorCount, controlledValue]);
+
+    const displayValue = controlledValue !== undefined ? controlledValue : computedValue;
+
+    // Dynamic color based on load
+    const dynamicColor = displayValue > 75 ? '#ef4444' : displayValue > 50 ? '#f59e0b' : displayValue > 25 ? color : '#22c55e';
 
     // SVG parameters
     const size = 120;
@@ -58,7 +65,7 @@ export const PowerMeter: React.FC<PowerMeterProps> = ({
                         cx={size / 2}
                         cy={size / 2}
                         r={radius}
-                        stroke={color}
+                        stroke={dynamicColor}
                         strokeWidth={strokeWidth}
                         fill="transparent"
                         strokeDasharray={circumference}
@@ -70,7 +77,7 @@ export const PowerMeter: React.FC<PowerMeterProps> = ({
 
                 {/* Center Text */}
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
-                    <span className="text-2xl font-bold font-mono">{Math.round(displayValue)}%</span>
+                    <span className="text-2xl font-bold font-mono" style={{ color: dynamicColor }}>{Math.round(displayValue)}%</span>
                     <Activity size={16} className="text-white/40 mt-1 animate-pulse" />
                 </div>
             </div>

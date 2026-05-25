@@ -16,8 +16,27 @@ export const TimelineWaveform: React.FC<TimelineWaveformProps> = memo(({ path, w
     const [audioData, setAudioData] = useState<Float32Array | null>(null);
     const [duration, setDuration] = useState<number>(0);
     const [loading, setLoading] = useState(true);
+    const [isVisible, setIsVisible] = useState(false);
+
+    // Only start loading when the canvas enters the viewport
+    useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                if (entry.isIntersecting) {
+                    setIsVisible(true);
+                    observer.disconnect(); // Only need to trigger once
+                }
+            },
+            { rootMargin: '100px' }
+        );
+        observer.observe(canvas);
+        return () => observer.disconnect();
+    }, []);
 
     useEffect(() => {
+        if (!isVisible) return; // Don't load until visible
         let isMounted = true;
 
         const loadAudio = async () => {
@@ -103,7 +122,7 @@ export const TimelineWaveform: React.FC<TimelineWaveformProps> = memo(({ path, w
         loadAudio();
 
         return () => { isMounted = false; };
-    }, [path]);
+    }, [path, isVisible]);
 
     useEffect(() => {
         const canvas = canvasRef.current;

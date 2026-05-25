@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Wifi, WifiOff } from 'lucide-react';
 import { useMediaStore, MediaFile } from '../store/mediaStore';
+import { useClipStore } from '../store/clipStore';
 import { useViewStore } from '../store/viewStore';
 import { toast } from './Toast';
 import { v4 as uuidv4 } from 'uuid';
@@ -73,7 +74,49 @@ export const BridgeListener: React.FC = () => {
 
             addFiles(mediaFiles);
             setActiveTab('media');
-            toast.success(`Loaded ${mediaFiles.length} files from Darkroom folder`);
+
+            // Preload trailer clips into the timeline if present
+            const trailerClips = (data as any).trailerClips;
+            if (trailerClips && Array.isArray(trailerClips) && trailerClips.length > 0) {
+                const clipStore = useClipStore.getState();
+                const fps = 30;
+                let currentFrame = clipStore.clips.reduce((max, c) => Math.max(max, c.endFrame || 0), 0);
+
+                trailerClips.forEach((tc: any) => {
+                    const startTime = tc.startTime || 0;
+                    const endTime = tc.endTime || tc.duration || 5;
+                    const durationSec = endTime - startTime;
+                    const durationFrames = Math.max(1, Math.round(durationSec * fps));
+                    const sourceDurationFrames = Math.round((tc.duration || durationSec) * fps);
+
+                    clipStore.addClip({
+                        id: uuidv4(),
+                        mediaLibraryId: tc.path,
+                        type: tc.type || 'video',
+                        path: tc.path,
+                        filename: tc.filename || tc.path.split(/[/\\]/).pop() || 'clip',
+                        startFrame: currentFrame,
+                        endFrame: currentFrame + durationFrames,
+                        sourceDurationFrames: sourceDurationFrames || durationFrames,
+                        trimStartFrame: Math.round(startTime * fps),
+                        trimEndFrame: Math.round(endTime * fps),
+                        track: 1,
+                        speed: tc.speed || 1,
+                        volume: 100,
+                        reversed: false,
+                        isMuted: false,
+                        isPinned: false,
+                        origin: 'darkroom-trailer',
+                        locked: false
+                    });
+
+                    currentFrame += durationFrames;
+                });
+
+                toast.success(`Loaded ${mediaFiles.length} files + ${trailerClips.length} trailer clips from Darkroom`);
+            } else {
+                toast.success(`Loaded ${mediaFiles.length} files from Darkroom folder`);
+            }
         });
 
         return () => {

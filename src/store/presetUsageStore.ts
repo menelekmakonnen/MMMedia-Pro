@@ -8,16 +8,21 @@ interface PresetUsageState {
     pinnedTemplates: string[];
     pinnedStyles: string[];
     pinnedGodModes: string[];
+    rhythmUsage: Record<string, number>;
+    pinnedRhythms: string[];
 
     incrementTemplate: (id: string) => void;
     incrementStyle: (id: string) => void;
     incrementGodMode: (id: string) => void;
+    incrementRhythm: (id: string) => void;
     togglePinTemplate: (id: string) => void;
     togglePinStyle: (id: string) => void;
     togglePinGodMode: (id: string) => void;
+    togglePinRhythm: (id: string) => void;
     getTopTemplates: (n: number) => string[];
     getTopStyles: (n: number) => string[];
     getTopGodModes: (n: number) => string[];
+    getTopRhythms: (n: number) => string[];
 }
 
 /**
@@ -35,6 +40,8 @@ export const usePresetUsageStore = create<PresetUsageState>()(
             pinnedTemplates: [],
             pinnedStyles: [],
             pinnedGodModes: [],
+            rhythmUsage: {},
+            pinnedRhythms: [],
 
             incrementTemplate: (id) => set((s) => ({
                 templateUsage: { ...s.templateUsage, [id]: (s.templateUsage[id] || 0) + 1 }
@@ -66,6 +73,16 @@ export const usePresetUsageStore = create<PresetUsageState>()(
                     : [...s.pinnedGodModes, id]
             })),
 
+            incrementRhythm: (id) => set((s) => ({
+                rhythmUsage: { ...s.rhythmUsage, [id]: (s.rhythmUsage[id] || 0) + 1 }
+            })),
+
+            togglePinRhythm: (id) => set((s) => ({
+                pinnedRhythms: s.pinnedRhythms.includes(id)
+                    ? s.pinnedRhythms.filter(p => p !== id)
+                    : [...s.pinnedRhythms, id]
+            })),
+
             getTopTemplates: (n) => {
                 const { templateUsage, pinnedTemplates } = get();
                 return getTopN(templateUsage, pinnedTemplates, n);
@@ -79,6 +96,11 @@ export const usePresetUsageStore = create<PresetUsageState>()(
             getTopGodModes: (n) => {
                 const { godModeUsage, pinnedGodModes } = get();
                 return getTopN(godModeUsage, pinnedGodModes, n);
+            },
+
+            getTopRhythms: (n) => {
+                const { rhythmUsage, pinnedRhythms } = get();
+                return getTopN(rhythmUsage, pinnedRhythms, n);
             },
         }),
         {

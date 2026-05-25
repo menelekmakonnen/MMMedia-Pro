@@ -7,8 +7,10 @@ import { ExportTab } from './features/Export/ExportTab';
 import { SequenceViewTab } from './features/SequenceView/SequenceViewTab';
 import { GridEditorTab } from './features/GridEditor/GridEditorTab';
 import { TrailerRouter } from './features/TrailerGenerator/TrailerRouter';
+import { VideoPlayerTab } from './features/VideoPlayer/VideoPlayerTab';
 import { GlobalSettingsTab } from './features/GlobalSettings/GlobalSettingsTab';
-import { GodModeTab } from './features/GodMode/GodModeTab';
+
+import { EditsTab } from './features/Edits/EditsTab';
 import { SpaceBackground } from './components/SpaceBackground';
 import { useUserStore } from './store/userStore';
 import { Minus, Square, X } from 'lucide-react';
@@ -34,8 +36,7 @@ function App() {
                 return <SettingsTab />;
             case 'media':
                 return <MediaManagerTab />;
-            case 'godmode':
-                return <GodModeTab />;
+
             case 'sequence':
                 return <SequenceViewTab />;
             case 'grideditor':
@@ -44,10 +45,15 @@ function App() {
                 return <TimelineTab />;
             case 'trailer':
                 return <TrailerRouter />;
-            case 'export':
-                return <ExportTab />;
             case 'global-settings':
                 return <GlobalSettingsTab />;
+            case 'edits':
+                return <EditsTab />;
+            case 'videoplayer':
+                return <VideoPlayerTab />;
+            case 'export':
+                // Rendered separately below (always-mounted)
+                return null;
             default:
                 return <SettingsTab />;
         }
@@ -94,8 +100,12 @@ function App() {
             {/* Main Content */}
             <div className={`flex flex-1 overflow-hidden ${sidebarPosition === 'right' ? 'flex-row-reverse' : 'flex-row'}`}>
                 <Sidebar />
-                <main className="flex-1 overflow-hidden">
+                <main className="flex-1 overflow-hidden relative">
                     {renderContent()}
+                    {/* ExportTab is always mounted so render state (progress, log, SpaceFlight) survives navigation */}
+                    <div className={activeTab === 'export' ? 'absolute inset-0' : 'hidden'}>
+                        <ExportTab />
+                    </div>
                 </main>
             </div>
 

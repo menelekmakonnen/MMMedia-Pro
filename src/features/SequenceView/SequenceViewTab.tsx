@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Layers, Video, Mic, Play, Pause, Magnet, SkipBack, SkipForward, Square, Repeat, Volume2, VolumeX, MonitorSmartphone } from 'lucide-react';
+import { Layers, Video, Mic, Play, Pause, Magnet, SkipBack, SkipForward, Square, Repeat, Volume2, VolumeX, MonitorSmartphone, Eye, EyeOff, Lock, Unlock, Link2 } from 'lucide-react';
 import { useClipStore, Clip } from '../../store/clipStore';
 import { useProjectStore } from '../../store/projectStore';
 import { useUserStore } from '../../store/userStore';
@@ -13,11 +13,25 @@ import clsx from 'clsx';
 const DEFAULT_SCALE = 0.5; // Pixels per frame
 
 export const SequenceViewTab: React.FC = () => {
-    const { clips, magnetizeClips, transitionStrategy } = useClipStore();
+    const { clips, magnetizeClips, transitionStrategy, trackMutes, trackVolumes, setTrackMuted, setTrackVolume, updateClip } = useClipStore();
     const { settings } = useProjectStore();
     const { timecodeFormat, masterVolume, isMasterMuted, setMasterVolume, setIsMasterMuted } = useUserStore();
 
     const [scale, setScale] = useState(DEFAULT_SCALE);
+
+    // Track-level controls: lock, visibility, solo
+    const [trackLocked, setTrackLocked] = useState<Record<number, boolean>>({});
+    const [trackHidden, setTrackHidden] = useState<Record<number, boolean>>({});
+    const [trackSolo, setTrackSolo] = useState<Record<number, boolean>>({});
+    const toggleTrackLock = (id: number) => setTrackLocked(p => ({ ...p, [id]: !p[id] }));
+    const toggleTrackHidden = (id: number) => setTrackHidden(p => ({ ...p, [id]: !p[id] }));
+    const toggleTrackSolo = (id: number) => setTrackSolo(p => ({ ...p, [id]: !p[id] }));
+
+    // ── Audio clip drag state ──
+    const [dragClipId, setDragClipId] = useState<string | null>(null);
+    const dragStartXRef = useRef(0);
+    const dragOrigStartFrameRef = useRef(0);
+    const dragOrigEndFrameRef = useRef(0);
     const [currentGlobalFrame, setCurrentGlobalFrame] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
 
@@ -27,7 +41,7 @@ export const SequenceViewTab: React.FC = () => {
     const activeBufferRef = useRef<'A' | 'B'>('A');
     const rafRef = useRef<number>(0);
     const lastClipIdRef = useRef<string | null>(null);
-    const audioTrackRef = useRef<HTMLAudioElement>(null);
+
 
     // Resizable Panels
     const [topHeight, setTopHeight] = useState(settings.sequenceViewSplitHeight ?? 50);
@@ -60,13 +74,31 @@ export const SequenceViewTab: React.FC = () => {
         };
     }, [isResizing, topHeight, settings.sequenceViewSplitHeight, updateSettings]);
 
-    // Group clips by track
+    // ── Audio clip drag handlers ──
+    useEffect(() => {
+        if (!dragClipId) return;
+        const handleDragMove = (e: MouseEvent) => {
+            const dx = e.clientX - dragStartXRef.current;
+            const frameDelta = Math.round(dx / scale);
+            const newStart = Math.max(0, dragOrigStartFrameRef.current + frameDelta);
+            const duration = dragOrigEndFrameRef.current - dragOrigStartFrameRef.current;
+            updateClip(dragClipId, { startFrame: newStart, endFrame: newStart + duration });
+        };
+        const handleDragEnd = () => setDragClipId(null);
+        window.addEventListener('mousemove', handleDragMove);
+        window.addEventListener('mouseup', handleDragEnd);
+        return () => {
+            window.removeEventListener('mousemove', handleDragMove);
+            window.removeEventListener('mouseup', handleDragEnd);
+        };
+    }, [dragClipId, scale, updateClip]);
+
+    // Group clips by track + generate shadow audio blocks for video clips
     const tracks = React.useMemo(() => {
         const grouped: Record<number, Clip[]> = {};
-        // Default tracks
-        grouped[1] = []; // Video (main timeline)
-        grouped[2] = []; // Audio (auto-imported audio)
-        grouped[101] = []; // Audio 2
+        grouped[1] = [];
+        grouped[2] = []; // Audio 1 — linked audio from video clips
+        grouped[101] = []; // Audio 2 — background music
 
         clips.forEach(clip => {
             const trackId = clip.track || 1;
@@ -74,11 +106,28 @@ export const SequenceViewTab: React.FC = () => {
             grouped[trackId].push(clip);
         });
 
-        // Sort keys to render in order
-        return Object.keys(grouped).map(Number).sort((a, b) => a - b).map(id => ({
+        // Generate shadow audio blocks on Audio 1 (track 2) for each video clip on track 1
+        const videoClips = grouped[1]?.filter(c => c.type === 'video') || [];
+        const shadowAudio: Clip[] = videoClips.map(vc => ({
+            ...vc,
+            id: `shadow-audio-${vc.id}`,
+            type: 'audio' as const,
+            track: 2,
+            volume: vc.volume ?? 100,
+            isMuted: vc.isMuted ?? false,
+            origin: 'auto' as const,
+            _shadowOf: vc.id, // link marker
+        } as Clip & { _shadowOf: string }));
+        // Merge shadow audio with any existing track-2 clips
+        grouped[2] = [...(grouped[2] || []), ...shadowAudio];
+
+        const trackOrder = [1, 2, 101, ...Object.keys(grouped).map(Number).filter(id => id !== 1 && id !== 2 && id !== 101).sort((a,b) => a-b)];
+        const uniqueOrder = [...new Set(trackOrder)].filter(id => grouped[id]);
+
+        return uniqueOrder.map(id => ({
             id,
-            label: id === 1 ? 'Video' : id === 2 ? 'Audio' : id > 100 ? `Audio ${id - 100 + 1}` : `Video ${id}`,
-            isAudio: id === 2 || id > 100,
+            label: id === 1 ? 'V1' : id === 2 ? 'A1' : id === 101 ? 'A2' : id < 100 ? `V${id}` : `A${id - 100 + 1}`,
+            isAudio: id === 2 || id >= 100,
             clips: grouped[id].sort((a, b) => a.startFrame - b.startFrame)
         }));
     }, [clips]);
@@ -124,7 +173,10 @@ export const SequenceViewTab: React.FC = () => {
         if (!vid || !clip || clip.type !== 'video') return;
         const src = `file://${clip.path}`;
         if (vid.getAttribute('src') !== src) vid.src = src;
-        vid.volume = isMasterMuted ? 0 : masterVolume;
+        // A1 track controls govern embedded video audio
+        const audio1Muted = trackMutes[2] ?? false;
+        const audio1Vol = (trackVolumes[2] ?? 100) / 100;
+        vid.volume = (isMasterMuted || audio1Muted) ? 0 : masterVolume * audio1Vol;
         // For reversed clips we DON'T use native playback — we step backwards manually
         if (!clip.reversed) {
             vid.playbackRate = Math.max(0.1, Math.min(clip.speed || 1, 16));
@@ -134,7 +186,7 @@ export const SequenceViewTab: React.FC = () => {
         // Seek to start position: reversed clips start at trimEnd, forward clips at trimStart
         const targetSec = clip.reversed ? (clip.trimEndFrame / fps) : (clip.trimStartFrame / fps);
         if (Math.abs(vid.currentTime - targetSec) > 0.05) vid.currentTime = targetSec;
-    }, [fps, masterVolume, isMasterMuted]);
+    }, [fps, masterVolume, isMasterMuted, trackMutes, trackVolumes]);
 
     useEffect(() => {
         if (!activeVisualClip || activeVisualClip.type !== 'video') return;
@@ -197,33 +249,56 @@ export const SequenceViewTab: React.FC = () => {
 
         const activeVid = activeBufferRef.current === 'A' ? videoARef.current : videoBRef.current;
         if (activeVid && activeVisualClip?.type === 'video') {
-            activeVid.volume = isMasterMuted ? 0 : masterVolume;
+            const audio1Muted = trackMutes[2] ?? false;
+            const audio1Vol = (trackVolumes[2] ?? 100) / 100;
+            activeVid.volume = (isMasterMuted || audio1Muted) ? 0 : masterVolume * audio1Vol;
             if (!activeVisualClip.reversed) activeVid.play().catch(() => {});
         }
         rafRef.current = requestAnimationFrame(loop);
         return () => cancelAnimationFrame(rafRef.current);
     }, [isPlaying, activeVisualClip, fps, masterVolume, isMasterMuted]);
 
-    // Audio track sync: find audio clips on track 2 and sync playback
-    const audioTrackClip = React.useMemo(() => {
-        return tracks.flatMap(t => t.clips).find(c => c.type === 'audio' && (c.track === 2 || c.track > 100));
-    }, [tracks]);
+    // Background audio clips: real audio clips on track 101+ (NOT shadow audio on track 2)
+    const bgAudioClips = React.useMemo(() => {
+        return clips.filter(c => c.type === 'audio' && (c.track || 0) >= 101);
+    }, [clips]);
 
+    // Refs for each background audio element
+    const bgAudioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
+
+    // Background music sync — per-frame volume, position, play/pause
+    // Audio elements are rendered in JSX below (DOM-attached, like <video> elements)
     useEffect(() => {
-        const audio = audioTrackRef.current;
-        if (!audio || !audioTrackClip) return;
-        const src = audioTrackClip.path;
-        if (audio.getAttribute('src') !== src) audio.src = src;
-        audio.volume = isMasterMuted ? 0 : masterVolume;
-        const trimStartSec = (audioTrackClip.trimStartFrame || 0) / fps;
-        const expectedSec = trimStartSec + (currentGlobalFrame / fps);
-        if (isPlaying) {
-            if (Math.abs(audio.currentTime - expectedSec) > 0.3) audio.currentTime = expectedSec;
-            if (audio.paused) audio.play().catch(() => {});
-        } else {
-            audio.pause();
-        }
-    }, [isPlaying, currentGlobalFrame, audioTrackClip, masterVolume, isMasterMuted, fps]);
+        bgAudioClips.forEach(clip => {
+            const audio = bgAudioRefs.current[clip.id];
+            if (!audio) return;
+
+            const trackId = clip.track || 101;
+            const trackMuted = trackMutes[trackId] ?? false;
+
+            // Volume — include per-track volume slider (trackVolumes)
+            const trackVol = (trackVolumes[trackId] ?? 100) / 100;
+            const clipVol = (clip.volume !== undefined ? clip.volume : 100) / 100;
+            audio.volume = (isMasterMuted || trackMuted) ? 0 : masterVolume * trackVol * clipVol;
+
+            // Sync position — audio clips may have their own startFrame offset on the timeline
+            const trimStartSec = (clip.trimStartFrame || 0) / fps;
+            const clipStartFrame = clip.startFrame || 0;
+            const clipEndFrame = clip.endFrame || 0;
+
+            if (isPlaying && !trackMuted && currentGlobalFrame >= clipStartFrame && currentGlobalFrame < clipEndFrame) {
+                const elapsedFrames = currentGlobalFrame - clipStartFrame;
+                const expectedSec = trimStartSec + (elapsedFrames / fps);
+                if (Math.abs(audio.currentTime - expectedSec) > 0.3) audio.currentTime = expectedSec;
+                // Only attempt play if audio has loaded enough data
+                if (audio.paused && audio.readyState >= 2) {
+                    audio.play().catch(e => console.warn(`[SequenceView] A2 play failed:`, e));
+                }
+            } else {
+                if (!audio.paused) audio.pause();
+            }
+        });
+    }, [isPlaying, currentGlobalFrame, bgAudioClips, masterVolume, isMasterMuted, fps, trackMutes, trackVolumes]);
 
     const handlePlayPause = () => {
         if (!isPlaying && currentGlobalFrame >= maxFrameId && maxFrameId > 0) setCurrentGlobalFrame(0);
@@ -291,8 +366,7 @@ export const SequenceViewTab: React.FC = () => {
 
     return (
         <div className="flex h-full w-full flex-col bg-transparent text-white overflow-hidden">
-            {/* Hidden audio element for track 2 */}
-            <audio ref={audioTrackRef} className="hidden" />
+
             {/* Top Half: Player Preview */}
             <div
                 className="bg-black/60 backdrop-blur-sm border-b border-white/10 relative p-4 flex flex-col min-h-0"
@@ -329,7 +403,7 @@ export const SequenceViewTab: React.FC = () => {
                                             transformOrigin: activeVisualClip?.zoomOrigin || 'center',
                                             opacity: isActA ? transitionStyle.opacity : 0,
                                         }}
-                                        playsInline muted={isMasterMuted} />
+                                        playsInline muted={isMasterMuted || (trackMutes[2] ?? false)} />
                                     <video ref={videoBRef} src={activeVisualClip ? `file://${activeVisualClip.path}` : ''}
                                         className={clsx(`absolute inset-0 w-full h-full ${seqObjectFit} transition-none`,
                                             !isActA ? "z-20 opacity-100" : "z-0 opacity-0")}
@@ -338,12 +412,22 @@ export const SequenceViewTab: React.FC = () => {
                                             transformOrigin: activeVisualClip?.zoomOrigin || 'center',
                                             opacity: !isActA ? transitionStyle.opacity : 0,
                                         }}
-                                        playsInline muted={isMasterMuted} />
+                                        playsInline muted={isMasterMuted || (trackMutes[2] ?? false)} />
                                 </>
                             ) : (
                                 <div className="text-white/30 text-sm">No clip at playhead</div>
                             )}
                         </div>
+                        {/* ── A2+ Background Audio (DOM-attached, same security context as <video>) ── */}
+                        {bgAudioClips.map(clip => (
+                            <audio
+                                key={clip.id}
+                                ref={el => { bgAudioRefs.current[clip.id] = el; }}
+                                src={clip.path?.startsWith('blob:') ? clip.path : clip.path?.startsWith('file://') ? clip.path : `file://${clip.path}`}
+                                preload="auto"
+                                className="hidden"
+                            />
+                        ))}
                     </div>
                 </div>
 
@@ -499,16 +583,62 @@ export const SequenceViewTab: React.FC = () => {
                     {/* Tracks Container */}
                     <div className="flex-1 flex flex-col min-h-0 overflow-x-auto relative bg-transparent">
                         <div className="min-w-full relative flex-1 flex flex-col">
-                            {tracks.map(track => (
-                                <div key={track.id} className="flex flex-1 min-h-[40px] bg-[#0e0e1b]/60 border-b border-white/5 relative group transition-all">
-                                    {/* Track Header (Sticky) */}
-                                    <div className="w-[200px] bg-[#111122]/80 backdrop-blur-md border-r border-white/5 flex flex-col p-3 gap-2 flex-shrink-0 sticky left-0 z-10 shadow-lg top-0">
+                            {tracks.map(track => {
+                                const isLocked = trackLocked[track.id] ?? false;
+                                const isHiddenTrack = trackHidden[track.id] ?? false;
+                                const isSolo = trackSolo[track.id] ?? false;
+                                const isMuted = trackMutes[track.id] ?? false;
+                                return (
+                                <div key={track.id} className={clsx("flex flex-1 min-h-[48px] border-b border-white/5 relative group transition-all", isHiddenTrack ? 'bg-[#0a0a15]/80 opacity-50' : 'bg-[#0e0e1b]/60')}>
+                                    {/* Track Header — Premiere Pro style */}
+                                    <div className="w-[200px] bg-[#111122]/80 backdrop-blur-md border-r border-white/5 flex flex-col p-2 gap-1 flex-shrink-0 sticky left-0 z-10 shadow-lg top-0">
                                         <div className="flex items-center justify-between">
-                                            <span className="text-xs font-bold text-white/70 flex items-center gap-2">
-                                                {track.isAudio ? <Mic size={12} className="text-pink-400" /> : <Video size={12} className="text-accent" />}
+                                            <span className={clsx("text-[11px] font-bold flex items-center gap-1.5", isMuted ? 'text-white/30 line-through' : 'text-white/70')}>
+                                                {track.isAudio ? <Mic size={11} className={isMuted ? 'text-white/20' : track.id === 2 ? 'text-cyan-400' : 'text-pink-400'} /> : <Video size={11} className="text-accent" />}
                                                 {track.label}
+                                                {track.id === 2 && <Link2 size={9} className="text-cyan-400/50" />}
                                             </span>
                                         </div>
+                                        {/* Control row */}
+                                        <div className="flex items-center gap-1">
+                                            <button onClick={() => toggleTrackHidden(track.id)} className={clsx('p-0.5 rounded transition-colors', isHiddenTrack ? 'text-yellow-400' : 'text-white/30 hover:text-white/60')} title="Toggle Visibility">
+                                                {isHiddenTrack ? <EyeOff size={12} /> : <Eye size={12} />}
+                                            </button>
+                                            <button onClick={() => toggleTrackLock(track.id)} className={clsx('p-0.5 rounded transition-colors', isLocked ? 'text-red-400' : 'text-white/30 hover:text-white/60')} title="Toggle Lock">
+                                                {isLocked ? <Lock size={12} /> : <Unlock size={12} />}
+                                            </button>
+                                            {track.isAudio && (
+                                                <>
+                                                    <button onClick={(e) => { e.stopPropagation(); setTrackMuted(track.id, !isMuted); }}
+                                                        className={clsx('px-1 py-0.5 rounded text-[9px] font-black transition-colors', isMuted ? 'bg-red-500/30 text-red-300' : 'text-white/30 hover:text-white/60 hover:bg-white/10')}
+                                                        title={isMuted ? 'Unmute' : 'Mute'}>M</button>
+                                                    <button onClick={() => toggleTrackSolo(track.id)}
+                                                        className={clsx('px-1 py-0.5 rounded text-[9px] font-black transition-colors', isSolo ? 'bg-yellow-500/30 text-yellow-300' : 'text-white/30 hover:text-white/60 hover:bg-white/10')}
+                                                        title={isSolo ? 'Unsolo' : 'Solo'}>S</button>
+                                                    <button onClick={(e) => { e.stopPropagation(); setTrackMuted(track.id, !isMuted); }}
+                                                        className={clsx('p-0.5 rounded transition-colors', isMuted ? 'text-red-400' : 'text-white/30 hover:text-white/60')}
+                                                        title={isMuted ? 'Unmute' : 'Mute'}>
+                                                        {isMuted ? <VolumeX size={12} /> : <Volume2 size={12} />}
+                                                    </button>
+                                                </>
+                                            )}
+                                        </div>
+                                        {/* Per-Track Volume Slider */}
+                                        {track.isAudio && (
+                                            <div className="flex items-center gap-1 mt-0.5">
+                                                <span className="text-[8px] text-white/25 w-4 text-right">{trackVolumes[track.id] ?? 100}</span>
+                                                <input
+                                                    type="range"
+                                                    min={0}
+                                                    max={100}
+                                                    step={1}
+                                                    value={trackVolumes[track.id] ?? 100}
+                                                    onChange={(e) => setTrackVolume(track.id, parseInt(e.target.value))}
+                                                    className="flex-1 h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-purple-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-purple-400"
+                                                    title={`Track Volume: ${trackVolumes[track.id] ?? 100}%`}
+                                                />
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Track Lane */}
@@ -524,14 +654,18 @@ export const SequenceViewTab: React.FC = () => {
                                             const duration = clip.endFrame - clip.startFrame;
                                             const width = duration * scale;
                                             const left = clip.startFrame * scale;
+                                            const isShadow = (clip as any)._shadowOf;
+                                            const isLinkedAudio = track.id === 2 && isShadow;
 
                                             return (
                                                 <div
                                                     key={clip.id}
                                                     className={clsx(
-                                                        "absolute top-2 bottom-2 rounded border text-xs flex flex-col justify-center px-2 truncate overflow-hidden cursor-pointer hover:brightness-110 shadow-lg transition-colors border-l-4",
-                                                        activeVisualClip?.id === clip.id ? "ring-2 ring-white/50" : "",
+                                                        "absolute top-1 bottom-1 rounded border text-xs flex flex-col justify-center px-2 truncate overflow-hidden hover:brightness-110 shadow-lg transition-colors border-l-4",
+                                                        activeVisualClip?.id === clip.id || activeVisualClip?.id === isShadow ? "ring-2 ring-white/40" : "",
+                                                        isLocked ? "cursor-not-allowed" : (track.isAudio && track.id > 100 ? (dragClipId === clip.id ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-pointer'),
                                                         clip.disabled ? "opacity-30 grayscale border-dashed" : (
+                                                            isLinkedAudio ? 'bg-cyan-900/40 border-l-cyan-500 border-y-cyan-500/20 border-r-cyan-500/20 text-cyan-200' :
                                                             clip.type === 'grid' ? 'bg-primary/40 border-l-primary border-y-primary/30 border-r-primary/30 text-primary-light' :
                                                                 clip.type === 'video' ? 'bg-accent/40 border-l-accent border-y-accent/30 border-r-accent/30 text-accent-light' :
                                                                     clip.type === 'audio' ? 'bg-pink-900/40 border-l-pink-500 border-y-pink-500/30 border-r-pink-500/30 text-pink-200' :
@@ -539,21 +673,35 @@ export const SequenceViewTab: React.FC = () => {
                                                         )
                                                     )}
                                                     style={{ left, width }}
-                                                    title={`${clip.filename} (${duration}f)`}
+                                                    title={`${clip.filename} (${duration}f)${isLinkedAudio ? ' — linked audio' : ''}`}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        // Jump to start of clip
                                                         setCurrentGlobalFrame(clip.startFrame);
                                                     }}
+                                                    onMouseDown={(e) => {
+                                                        if (isLocked) return;
+                                                        if (track.isAudio && track.id > 100 && !isShadow) {
+                                                            e.stopPropagation();
+                                                            e.preventDefault();
+                                                            setDragClipId(clip.id);
+                                                            dragStartXRef.current = e.clientX;
+                                                            dragOrigStartFrameRef.current = clip.startFrame;
+                                                            dragOrigEndFrameRef.current = clip.endFrame;
+                                                        }
+                                                    }}
                                                 >
-                                                    <span className="font-semibold truncate">{clip.filename}</span>
-                                                    <span className="text-[9px] opacity-60">Dur: {duration}f</span>
+                                                    <span className="font-semibold truncate flex items-center gap-1">
+                                                        {isLinkedAudio && <Link2 size={9} className="text-cyan-300/60 flex-shrink-0" />}
+                                                        {clip.filename}
+                                                    </span>
+                                                    <span className="text-[9px] opacity-60">{isLinkedAudio ? 'Linked' : `${duration}f`}</span>
                                                 </div>
                                             );
                                         })}
                                     </div>
                                 </div>
-                            ))}
+                            );
+                            })}
 
                             {/* Full Height Playhead Line */}
                             <div

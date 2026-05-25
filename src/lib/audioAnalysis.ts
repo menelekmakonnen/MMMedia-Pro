@@ -406,7 +406,7 @@ const downsampleWaveform = (audioBuffer: AudioBuffer, targetPoints: number): num
 //  MAIN ANALYSIS FUNCTION
 // ═══════════════════════════════════════════════════════
 
-export const analyzeAudio = async (audioBuffer: AudioBuffer): Promise<AudioAnalysisResult> => {
+export const analyzeAudio = async (audioBuffer: AudioBuffer, beatSensitivity = 0.5): Promise<AudioAnalysisResult> => {
     const sampleRate = audioBuffer.sampleRate;
     const duration = audioBuffer.duration;
 
@@ -418,9 +418,12 @@ export const analyzeAudio = async (audioBuffer: AudioBuffer): Promise<AudioAnaly
     ]);
 
     // 2. Detect onsets per band with adaptive thresholds
-    const lowOnsets = detectOnsets(lowBand, sampleRate, MIN_BEAT_DISTANCE_S, 1.4);
-    const midOnsets = detectOnsets(midBand, sampleRate, MIN_BEAT_DISTANCE_S, 1.6);
-    const highOnsets = detectOnsets(highBand, sampleRate, MIN_BEAT_DISTANCE_S, 2.0);
+    // beatSensitivity: 0 = hard drops only (high threshold), 1 = detect everything (low threshold)
+    // Scale the multiplier inversely: sensitivity 0 → multiplier 2.5×, sensitivity 1 → multiplier 0.8×
+    const sensFactor = 2.5 - (beatSensitivity * 1.7); // Range: 0.8 to 2.5
+    const lowOnsets = detectOnsets(lowBand, sampleRate, MIN_BEAT_DISTANCE_S, 1.4 * sensFactor);
+    const midOnsets = detectOnsets(midBand, sampleRate, MIN_BEAT_DISTANCE_S, 1.6 * sensFactor);
+    const highOnsets = detectOnsets(highBand, sampleRate, MIN_BEAT_DISTANCE_S, 2.0 * sensFactor);
 
     // 3. Merge and classify beats
     const allOnsets = new Map<number, { low: number; mid: number; high: number }>();

@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Clip } from '../../store/clipStore';
-import { Plus, FileVideo, FileAudio, LayoutGrid, Trash2, CheckSquare, Square as SquareIcon } from 'lucide-react';
+import { Plus, FileVideo, FileAudio, LayoutGrid, Trash2, CheckSquare, Square as SquareIcon, RotateCw } from 'lucide-react';
 
 interface MediaItemProps {
     clip: Clip;
@@ -11,10 +11,11 @@ interface MediaItemProps {
     onSelect: (e: React.MouseEvent) => void;
     onAdd: () => void;
     onGridAdd?: () => void;
+    onRotate?: () => void;
     onDelete?: () => void;
 }
 
-export const MediaItem: React.FC<MediaItemProps> = ({ clip, isSelected, isMultiSelected, viewMode, onSelect, onAdd, onGridAdd, onDelete }) => {
+export const MediaItem: React.FC<MediaItemProps> = ({ clip, isSelected, isMultiSelected, viewMode, onSelect, onAdd, onGridAdd, onRotate, onDelete }) => {
     return (
         <motion.div
             onClick={onSelect}
@@ -46,12 +47,19 @@ export const MediaItem: React.FC<MediaItemProps> = ({ clip, isSelected, isMultiS
             {/* Thumbnail */}
             <div className={`
                 relative bg-black/50 rounded flex items-center justify-center overflow-hidden
-                ${viewMode === 'grid' ? 'aspect-video w-full mb-3' : 'w-24 h-16 flex-shrink-0'}
+                ${viewMode === 'grid'
+                    ? (clip.sourceOrientation === 'vertical'
+                        ? 'aspect-[9/16] w-full mb-3'
+                        : clip.sourceOrientation === 'square'
+                            ? 'aspect-square w-full mb-3'
+                            : 'aspect-[16/10] w-full mb-3')
+                    : 'w-24 h-16 flex-shrink-0'}
             `}>
                 {clip.type === 'video' || clip.type === 'image' ? (
                     <video
                         src={clip.path}
                         className="w-full h-full object-cover"
+                        style={clip.rotation ? { transform: `rotate(${clip.rotation}deg)` } : undefined}
                         muted
                         preload="metadata"
                     />
@@ -95,6 +103,20 @@ export const MediaItem: React.FC<MediaItemProps> = ({ clip, isSelected, isMultiS
                         >
                             <Plus size={16} />
                         </motion.button>
+                        {onRotate && clip.type === 'video' && (
+                            <motion.button
+                                whileHover={{ scale: 1.2 }}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onRotate();
+                                }}
+                                className="p-2 bg-blue-600 rounded-full text-white shadow-lg"
+                                title={`Rotate (${clip.rotation || 0}°)`}
+                            >
+                                <RotateCw size={16} />
+                            </motion.button>
+                        )}
                         {onDelete && (
                             <motion.button
                                 whileHover={{ scale: 1.2 }}
@@ -145,6 +167,20 @@ export const MediaItem: React.FC<MediaItemProps> = ({ clip, isSelected, isMultiS
                             title="Create Grid with Item"
                         >
                             <LayoutGrid size={14} />
+                        </motion.button>
+                    )}
+                    {onRotate && clip.type === 'video' && (
+                        <motion.button
+                            whileHover={{ scale: 1.1 }}
+                            whileTap={{ scale: 0.9 }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onRotate();
+                            }}
+                            className="p-1.5 bg-white/5 hover:bg-blue-500/20 rounded-md text-white/40 hover:text-blue-400 transition-colors border border-white/5 hover:border-blue-500/30"
+                            title={`Rotate (${clip.rotation || 0}°)`}
+                        >
+                            <RotateCw size={14} />
                         </motion.button>
                     )}
                     <motion.button

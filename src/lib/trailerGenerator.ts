@@ -4,15 +4,15 @@ import type { SegmentType, AudioAnalysisResult } from './audioAnalysis';
 import { MediaFile } from '../store/mediaStore';
 import { Clip } from '../types';
 import { assignTransitions, TransitionType, TRANSITION_PRESETS } from './transitions';
+import { RHYTHM_PATTERNS, resolveRhythmDuration, RhythmPatternId } from './rhythmPatterns';
 
-export type EditingStyleOption = 'rubber-band-standard' | 'rubber-band-zoom' | 'rubber-band-zoom-speed' | 'multi-boomerang' | 'triple-shot' | 'snap-zoom-burst' | 'pendulum-sway' | 'hyper-cut' | 'bear-chaos' | 'pattern-interrupt';
+export type EditingStyleOption = 'rubber-band-standard' | 'rubber-band' | 'rubber-band-speed' | 'multi-boomerang' | 'triple-shot' | 'snap-burst' | 'pendulum-sway' | 'hyper-cut' | 'bear-chaos' | 'pattern-interrupt' | 'beat-bounce';
 
 export interface EditingStyleConfig {
     rampFastSpeed: number;        // Speed of the fast segment (1.5 - 4.0x)
     rampSlowSpeed: number;        // Speed of the slow/hero segment (0.15 - 0.6x)
     fastPortion: number;          // Fraction of source used for fast ramp (0.05 - 0.3)
     slowPortion: number;          // Fraction of source used for slow/hero (0.2 - 0.5)
-    zoomRange: number;            // Max zoom percentage (110 - 200)
     boomerangSlices: number;      // Number of forward/reverse slices (2 - 4)
     reversalChance: number;       // Probability that a style includes reversal (0.0 - 1.0)
     burstMode: 'short' | 'long'; // Short = tight cuts, Long = breathing room
@@ -23,7 +23,6 @@ export const DEFAULT_STYLE_CONFIG: EditingStyleConfig = {
     rampSlowSpeed: 0.25,
     fastPortion: 0.12,
     slowPortion: 0.38,
-    zoomRange: 145,
     boomerangSlices: 4,
     reversalChance: 0.85,
     burstMode: 'short',
@@ -70,10 +69,12 @@ export interface TrailerSettings {
     maxSimultaneousTransitions?: number;
     simultaneousTransitionDelay?: number;
     // 2026 Viral Retention
-    hookStyle?: 'none' | 'snap-zoom' | 'pattern-interrupt' | 'speed-freeze' | 'auto';
+    hookStyle?: 'none' | 'snap-speed' | 'pattern-interrupt' | 'speed-freeze' | 'auto';
     retentionInterrupts?: boolean;
     loopMode?: boolean;
     visualTexture?: 'none' | 'grain' | 'chromatic' | 'motion-blur' | 'vintage';
+    // Rhythm pattern for clip duration sequencing
+    rhythmPattern?: RhythmPatternId;
 }
 
 export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
@@ -107,6 +108,7 @@ export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
     retentionInterrupts: false,
     loopMode: false,
     visualTexture: 'none',
+    rhythmPattern: 'breathing',
 };
 
 export interface TrailerClip extends Clip {
@@ -193,6 +195,11 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
     let lastDurationFrames = -1;
     let clipIndex = 0;
     const totalExpectedClips = Math.ceil(targetDuration / ((shortestClip + longestClip) / 2));
+
+    // ── RHYTHM PATTERN ENGINE ──────────────────────────────────────────
+    const rhythmId = settings.rhythmPattern || 'breathing';
+    const rhythmPattern = RHYTHM_PATTERNS[rhythmId] || RHYTHM_PATTERNS['flat'];
+    let prevRhythmMult = 0.5;
 
     /*
      * ── SPEED & VOLUME CALCULATION ────────────────────────────────────────
@@ -371,28 +378,17 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             cursor += clampedDur;
         }
 
-        // 1. Fix zoom ranges for vertical videos
-        const zoomFixed = gapFilled.map(c => {
-            if (!c.zoomStart && !c.zoomEnd) return c;
-            const isVertical = c.sourceOrientation === 'vertical';
-            const maxZoom = isVertical ? 140 : 200;
-            const origins = isVertical
-                ? ['center', 'top', 'bottom'] as const
-                : ['center', 'left', 'right'] as const;
-            const randomOrigin = origins[Math.floor(Math.random() * origins.length)];
-            return {
-                ...c,
-                zoomStart: c.zoomStart ? Math.min(c.zoomStart, maxZoom) : c.zoomStart,
-                zoomEnd: c.zoomEnd ? Math.min(c.zoomEnd, maxZoom) : c.zoomEnd,
-                zoomOrigin: randomOrigin,
-            };
-        });
+        // Zoom effects removed — pass through directly
+        const zoomFixed = gapFilled;
         // 2. Assign transitions (respecting settings)
         if (settings.transitionsEnabled === false) {
             return zoomFixed.map(c => ({ ...c, transitionEnter: ['none'], transitionExit: ['none'], transitionDurationFrames: 0 }));
         }
         let allowedTypes: TransitionType[] | undefined = undefined;
-        if (settings.transitionPreset && TRANSITION_PRESETS[settings.transitionPreset]) {
+        if (settings.transitionMode === 'single' && settings.transitionTypes && settings.transitionTypes.length > 0) {
+            // User picked individual transitions — use those directly
+            allowedTypes = settings.transitionTypes;
+        } else if (settings.transitionPreset && TRANSITION_PRESETS[settings.transitionPreset]) {
             allowedTypes = TRANSITION_PRESETS[settings.transitionPreset];
         } else if (settings.transitionTypes && settings.transitionTypes.length > 0) {
             allowedTypes = settings.transitionTypes;
@@ -411,17 +407,20 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         let poolIndex = 0;
 
         // Helper: resolve auto beat pattern per segment type (with variety)
+        // TUNED: Quiet sections (intro, verse, breakdown, bridge) use sparser patterns
+        // to avoid overambitious cuts during moments that should breathe.
         let autoPatternCounter = 0;
         const resolveAutoPattern = (segType: SegmentType): 'every' | 'half' | 'quarter' | 'drops' | 'risers-drops' => {
             autoPatternCounter++;
             switch (segType) {
-                case 'drop': case 'chorus': return 'every';
-                case 'buildup': return autoPatternCounter % 3 === 0 ? 'every' : 'half'; // occasionally hit every beat in buildups
-                case 'breakdown': return 'half';
-                case 'verse': return autoPatternCounter % 4 === 0 ? 'half' : 'quarter'; // occasional double-density verse
-                case 'bridge': return 'quarter';
-                case 'intro': return 'quarter';
-                case 'outro': return autoPatternCounter % 3 === 0 ? 'half' : 'quarter';
+                case 'drop': return autoPatternCounter % 3 === 0 ? 'half' : 'every'; // Mostly every beat, occasional breathing room
+                case 'chorus': return autoPatternCounter % 2 === 0 ? 'every' : 'half'; // Alternate: keep energy but not frantic
+                case 'buildup': return 'half'; // Steady build, not cutting on every beat
+                case 'breakdown': return 'quarter'; // Slow and spacious — barely cut
+                case 'verse': return 'quarter'; // Let scenes hold — cinematic pacing
+                case 'bridge': return 'quarter'; // Bridge is quiet — long holds
+                case 'intro': return 'quarter'; // Intro should breathe, set the scene
+                case 'outro': return 'quarter'; // Outro winds down gracefully
                 default: return 'half';
             }
         };
@@ -439,11 +438,11 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 case 'buildup':
                     return autoStrategyCounter % 2 === 0 ? 'riser-buildup' : 'transition-on-beat';
                 case 'breakdown':
-                    return autoStrategyCounter % 3 === 0 ? 'groove-ride' : 'transition-on-beat';
+                    return 'groove-ride'; // Always groove-ride for breakdowns — gentle
                 case 'verse': case 'bridge':
-                    return autoStrategyCounter % 3 === 0 ? 'transition-on-beat' : 'groove-ride';
+                    return 'groove-ride'; // Let the footage ride the groove naturally
                 case 'intro':
-                    return 'effect-on-drop';
+                    return 'groove-ride'; // Intro should feel smooth
                 case 'outro':
                     return autoStrategyCounter % 2 === 0 ? 'groove-ride' : 'transition-on-beat';
                 default: return 'cut-on-beat';
@@ -478,6 +477,21 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             return seg?.type || 'verse';
         };
 
+        // ── COOLDOWN: Minimum time between cuts per segment type ──
+        // Prevents overambitious cutting in quiet sections.
+        const getMinGapForSegment = (segType: SegmentType): number => {
+            switch (segType) {
+                case 'drop': case 'chorus': return 0.25; // Fast cuts are fine on drops
+                case 'buildup': return 0.5;
+                case 'breakdown': case 'bridge': return 2.0; // 2 seconds minimum between cuts
+                case 'verse': return 1.5; // Let scenes breathe
+                case 'intro': return 2.0; // Intro needs breathing room
+                case 'outro': return 1.5;
+                default: return 1.0;
+            }
+        };
+        let lastCutTime = -10; // Track last cut time for cooldown
+
         // Helper: adjust clip params based on segment type and strategy
         const getSegmentClipParams = (segType: SegmentType, beatGapS: number, syncStrategy: string) => {
             let clipMin = minFrames;
@@ -501,17 +515,26 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                     break;
                 case 'breakdown':
                 case 'bridge':
-                    // Slower, longer clips
+                    // Slower, much longer clips — let the scene breathe
+                    clipMin = Math.floor(minFrames * 2.0);
+                    clipMax = Math.floor(maxFrames * 3.0);
+                    speedMult = 0.6;
+                    break;
+                case 'intro':
+                    // Intro should feel cinematic and slow
+                    clipMin = Math.floor(minFrames * 2.0);
+                    clipMax = Math.floor(maxFrames * 2.5);
+                    speedMult = 0.7;
+                    break;
+                case 'outro':
                     clipMin = Math.floor(minFrames * 1.5);
                     clipMax = Math.floor(maxFrames * 2.0);
                     speedMult = 0.7;
                     break;
-                case 'intro':
-                case 'outro':
-                    clipMax = Math.floor(maxFrames * 1.5);
-                    speedMult = 0.8;
-                    break;
                 default: // verse
+                    // Verse: slightly longer than before to avoid frantic feeling
+                    clipMin = Math.floor(minFrames * 1.2);
+                    clipMax = Math.floor(maxFrames * 1.5);
                     break;
             }
 
@@ -541,6 +564,11 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
 
             // Skip if segment not selected
             if (selectedSegs.length > 0 && !selectedSegs.includes(segType)) continue;
+
+            // ── COOLDOWN ENFORCEMENT ──
+            // Skip this beat if we're still within the minimum gap for this segment type
+            const minGap = getMinGapForSegment(segType);
+            if (activeBeats[b] - lastCutTime < minGap) continue;
 
             // In auto mode, resolve per-beat pattern and strategy
             let syncStrategy: string;
@@ -581,61 +609,37 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 if (applyEffect) (clip as any)._beatEffect = true;
                 (clip as any)._segType = segType; // Tag for segment-aware editing intelligence
 
-                // ── BEAT SPICE: segment-aware zoom, speed micro-variation, reversals ──
+                // ── BEAT SPICE: segment-aware speed micro-variation, reversals ──
                 const rand = Math.random();
                 switch (segType) {
                     case 'drop':
                     case 'chorus':
-                        // Zoom punches on drops — push in or snap out
-                        if (rand < 0.6) {
-                            (clip as any).zoomStart = rand < 0.3 ? 100 : 145;
-                            (clip as any).zoomEnd = rand < 0.3 ? 150 : 100;
-                        }
                         // Occasional reversal for snap-back energy
                         if (rand > 0.75) clip.reversed = true;
                         // Speed micro-variation: slight random boost on drops
                         clip.speed = speed * (0.9 + Math.random() * 0.4);
                         break;
                     case 'buildup':
-                        // Progressive zoom in during buildups
-                        (clip as any).zoomStart = 100 + (b % 5) * 8;
-                        (clip as any).zoomEnd = 108 + (b % 5) * 8;
                         // Gradually accelerate
                         clip.speed = speed * (1.0 + (b % 8) * 0.05);
                         break;
                     case 'breakdown':
                     case 'bridge':
-                        // Slow dreamy drifts — gentle zoom out
-                        if (rand < 0.5) {
-                            (clip as any).zoomStart = 120;
-                            (clip as any).zoomEnd = 100;
-                        }
                         clip.speed = speed * 0.85;
                         break;
                     case 'verse':
-                        // Subtle Ken Burns style movement
-                        if (rand < 0.4) {
-                            const zBase = 100 + Math.floor(Math.random() * 15);
-                            (clip as any).zoomStart = zBase;
-                            (clip as any).zoomEnd = zBase + (Math.random() > 0.5 ? 10 : -10);
-                        }
                         break;
                     case 'intro':
-                        // Cinematic slow zoom in
-                        (clip as any).zoomStart = 95;
-                        (clip as any).zoomEnd = 110;
                         clip.speed = speed * 0.8;
                         break;
                     case 'outro':
-                        // Zoom out to close
-                        (clip as any).zoomStart = 115;
-                        (clip as any).zoomEnd = 100;
                         clip.speed = speed * 0.7;
                         break;
                 }
 
                 sequence.push(clip);
                 clipIndex++;
+                lastCutTime = activeBeats[b]; // Update cooldown tracker
                 accumulatedFrames += beatGapFrames;
                 continue;
             }
@@ -643,7 +647,11 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             // Effect-on-drop / riser-buildup: fill gap with multiple clips
             while (gapFilled < beatGapFrames && gapFailures < 20) {
                 const remaining = beatGapFrames - gapFilled;
-                let clipDuration = Math.floor(Math.random() * (clipMax - clipMin + 1)) + clipMin;
+                const { durationFrames: rhythmDur, multiplier: rhythmMult } = resolveRhythmDuration(
+                    rhythmPattern, clipIndex, totalExpectedClips, clipMin, clipMax, prevRhythmMult
+                );
+                prevRhythmMult = rhythmMult;
+                let clipDuration = Math.min(rhythmDur, remaining);
                 if (clipDuration > remaining) clipDuration = remaining;
                 if (clipDuration < 2) { gapFilled = beatGapFrames; break; }
 
@@ -666,6 +674,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 gapFilled += clipDuration;
                 gapFailures = 0;
             }
+            lastCutTime = activeBeats[b]; // Update cooldown tracker
             accumulatedFrames += beatGapFrames;
         }
         // ── FINAL DURATION TRIM: if beat-sync overshot, truncate the sequence ──
@@ -734,8 +743,11 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             let dynamicMaxFrames = Math.floor(remainingFrames / remainingFiles);
             if (dynamicMaxFrames < minFrames) dynamicMaxFrames = minFrames;
 
-            let cutDurationFrames = Math.floor(Math.random() * (maxFrames - minFrames + 1)) + minFrames;
-            if (cutDurationFrames > dynamicMaxFrames) cutDurationFrames = dynamicMaxFrames;
+            const { durationFrames: rhythmDur, multiplier: rhythmMult } = resolveRhythmDuration(
+                rhythmPattern, clipIndex, totalExpectedClips, minFrames, maxFrames, prevRhythmMult
+            );
+            prevRhythmMult = rhythmMult;
+            let cutDurationFrames = Math.min(rhythmDur, dynamicMaxFrames);
 
             const { speed, volume, isMuted } = getSpeedAndVolume();
             const sourceReq = Math.max(1, Math.ceil(cutDurationFrames * speed));
@@ -768,7 +780,11 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             continue;
         }
 
-        let cutDurationFrames = Math.floor(Math.random() * (maxFrames - minFrames + 1)) + minFrames;
+        const { durationFrames: rhythmDur, multiplier: rhythmMult } = resolveRhythmDuration(
+            rhythmPattern, clipIndex, totalExpectedClips, minFrames, maxFrames, prevRhythmMult
+        );
+        prevRhythmMult = rhythmMult;
+        let cutDurationFrames = rhythmDur;
 
         if (maxFrames > minFrames && cutDurationFrames === lastDurationFrames) {
             cutDurationFrames = (cutDurationFrames === maxFrames) ? minFrames : cutDurationFrames + 1;
@@ -872,40 +888,45 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                     
                     if (segType === 'drop' || segType === 'chorus') {
                         if (s === 'multi-boomerang') styleScores[s] = 5;
-                        if (s === 'rubber-band-zoom-speed') styleScores[s] = 4;
+                        if (s === 'rubber-band-speed') styleScores[s] = 4;
                         if (s === 'triple-shot') styleScores[s] = 3;
-                        if (s === 'snap-zoom-burst') styleScores[s] = 5;
+                        if (s === 'snap-burst') styleScores[s] = 5;
                         if (s === 'hyper-cut') styleScores[s] = 4;
                         if (s === 'bear-chaos') styleScores[s] = 3;
                         if (s === 'pattern-interrupt') styleScores[s] = 2;
-                        if (s === 'rubber-band-zoom') styleScores[s] = 2;
+                        if (s === 'rubber-band') styleScores[s] = 2;
                         if (s === 'rubber-band-standard') styleScores[s] = 1;
                         if (s === 'pendulum-sway') styleScores[s] = 0.5;
+                        if (s === 'beat-bounce') styleScores[s] = 6; // Perfect for drops — the viral bounce effect
                     } else if (segType === 'buildup') {
                         if (s === 'rubber-band-standard') styleScores[s] = 5;
-                        if (s === 'rubber-band-zoom-speed') styleScores[s] = 3;
+                        if (s === 'rubber-band-speed') styleScores[s] = 3;
                         if (s === 'pattern-interrupt') styleScores[s] = 4;
-                        if (s === 'snap-zoom-burst') styleScores[s] = 2;
+                        if (s === 'snap-burst') styleScores[s] = 2;
                         if (s === 'hyper-cut') styleScores[s] = 3;
-                        if (s === 'rubber-band-zoom') styleScores[s] = 2;
+                        if (s === 'rubber-band') styleScores[s] = 2;
                         if (s === 'multi-boomerang') styleScores[s] = 1;
+                        if (s === 'beat-bounce') styleScores[s] = 3;
                     } else if (segType === 'breakdown' || segType === 'bridge') {
                         if (s === 'pendulum-sway') styleScores[s] = 5;
-                        if (s === 'rubber-band-zoom') styleScores[s] = 4;
+                        if (s === 'rubber-band') styleScores[s] = 4;
                         if (s === 'rubber-band-standard') styleScores[s] = 3;
                         if (s === 'multi-boomerang') styleScores[s] = 0.5;
-                        if (s === 'snap-zoom-burst') styleScores[s] = 0.5;
+                        if (s === 'snap-burst') styleScores[s] = 0.5;
+                        if (s === 'beat-bounce') styleScores[s] = 0.5; // Too aggressive for breakdowns
                     } else if (segType === 'verse') {
                         if (s === 'pendulum-sway') styleScores[s] = 4;
                         if (s === 'rubber-band-standard') styleScores[s] = 3;
-                        if (s === 'rubber-band-zoom') styleScores[s] = 3;
+                        if (s === 'rubber-band') styleScores[s] = 3;
                         if (s === 'triple-shot') styleScores[s] = 2;
                         if (s === 'hyper-cut') styleScores[s] = 2;
+                        if (s === 'beat-bounce') styleScores[s] = 2;
                     } else if (segType === 'intro' || segType === 'outro') {
-                        if (s === 'snap-zoom-burst') styleScores[s] = 5;
+                        if (s === 'snap-burst') styleScores[s] = 5;
                         if (s === 'pendulum-sway') styleScores[s] = 4;
-                        if (s === 'rubber-band-zoom') styleScores[s] = 3;
+                        if (s === 'rubber-band') styleScores[s] = 3;
                         if (s === 'rubber-band-standard') styleScores[s] = 2;
+                        if (s === 'beat-bounce') styleScores[s] = 1;
                     }
                 }
                 
@@ -953,49 +974,40 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 }
                 i++;
 
-            } else if (chosenStyle === 'rubber-band-zoom' && availSource > 8) {
-                // Zoom push-in forward, zoom pull-out reversed — with proper source trims
+            } else if (chosenStyle === 'rubber-band' && availSource > 8) {
+                // Push-in forward, pull-out reversed — with proper source trims
                 const halfSrc = Math.floor(availSource / 2);
                 const halfDur = Math.max(3, Math.floor(tlDur / 2 * burstMultiplier));
-                const zMax = cfg.zoomRange;
                 styledSequence.push({ ...base, id: uuidv4(),
                     trimStartFrame: srcStart, trimEndFrame: srcStart + halfSrc,
-                    startFrame: curFrame, endFrame: curFrame + halfDur,
-                    reversed: false, zoomStart: 100, zoomEnd: zMax } as any);
+                    startFrame: curFrame, endFrame: curFrame + halfDur } as any);
                 curFrame += halfDur;
                 // Always reverse the same source segment for rubber-band effect
                 styledSequence.push({ ...base, id: uuidv4(),
                     trimStartFrame: srcStart, trimEndFrame: srcStart + halfSrc,
-                    startFrame: curFrame, endFrame: curFrame + halfDur,
-                    reversed: true, zoomStart: zMax, zoomEnd: 100 } as any);
+                    startFrame: curFrame, endFrame: curFrame + halfDur, reversed: true } as any);
                 curFrame += halfDur;
                 i++;
 
-            } else if (chosenStyle === 'rubber-band-zoom-speed' && availSource > 15) {
-                // Combined zoom + speed ramp
+            } else if (chosenStyle === 'rubber-band-speed' && availSource > 15) {
+                // Combined speed ramp
                 const fastLen = Math.max(3, Math.floor(availSource * cfg.fastPortion));
                 const slowLen = Math.max(5, Math.floor(availSource * cfg.slowPortion));
                 const fastDur = Math.max(1, Math.floor((fastLen / cfg.rampFastSpeed) * burstMultiplier));
                 const slowDur = Math.max(2, Math.floor((slowLen / cfg.rampSlowSpeed) * burstMultiplier));
-                const zMid = Math.floor(100 + (cfg.zoomRange - 100) * 0.4);
-                const zMax = cfg.zoomRange;
 
                 styledSequence.push({ ...base, id: uuidv4(), trimStartFrame: srcStart, trimEndFrame: srcStart + fastLen,
-                    startFrame: curFrame, endFrame: curFrame + fastDur, speed: cfg.rampFastSpeed, reversed: false,
-                    zoomStart: 100, zoomEnd: zMid } as any);
+                    startFrame: curFrame, endFrame: curFrame + fastDur, speed: cfg.rampFastSpeed, reversed: false } as any);
                 curFrame += fastDur;
                 styledSequence.push({ ...base, id: uuidv4(), trimStartFrame: srcStart + fastLen, trimEndFrame: srcStart + fastLen + slowLen,
-                    startFrame: curFrame, endFrame: curFrame + slowDur, speed: cfg.rampSlowSpeed, reversed: false,
-                    zoomStart: zMid, zoomEnd: zMax } as any);
+                    startFrame: curFrame, endFrame: curFrame + slowDur, speed: cfg.rampSlowSpeed, reversed: false } as any);
                 curFrame += slowDur;
                 if (useReversal) {
                     styledSequence.push({ ...base, id: uuidv4(), trimStartFrame: srcStart + fastLen, trimEndFrame: srcStart + fastLen + slowLen,
-                        startFrame: curFrame, endFrame: curFrame + slowDur, speed: cfg.rampSlowSpeed, reversed: true,
-                        zoomStart: zMax, zoomEnd: zMid } as any);
+                        startFrame: curFrame, endFrame: curFrame + slowDur, speed: cfg.rampSlowSpeed, reversed: true } as any);
                     curFrame += slowDur;
                     styledSequence.push({ ...base, id: uuidv4(), trimStartFrame: srcStart, trimEndFrame: srcStart + fastLen,
-                        startFrame: curFrame, endFrame: curFrame + fastDur, speed: cfg.rampFastSpeed, reversed: true,
-                        zoomStart: zMid, zoomEnd: 100 } as any);
+                        startFrame: curFrame, endFrame: curFrame + fastDur, speed: cfg.rampFastSpeed, reversed: true } as any);
                     curFrame += fastDur;
                 }
                 i++;
@@ -1048,23 +1060,23 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
 
             // ── 2026 VIRAL STYLES ─────────────────────────────────────────
 
-            } else if (chosenStyle === 'snap-zoom-burst') {
-                // 300% snap-zoom punch: zoom in 3 frames, hold 3 frames, snap back 3 frames
+            } else if (chosenStyle === 'snap-burst') {
+                // 300% snap-speed punch: zoom in 3 frames, hold 3 frames, snap back 3 frames
                 const zoomInDur = Math.max(2, Math.min(3, Math.floor(tlDur * 0.2)));
                 const holdDur = Math.max(2, Math.min(4, Math.floor(tlDur * 0.3)));
                 const zoomOutDur = Math.max(2, Math.min(3, Math.floor(tlDur * 0.2)));
                 const remainDur = Math.max(1, tlDur - zoomInDur - holdDur - zoomOutDur);
                 // Phase 1: Snap zoom IN (100→300%)
                 styledSequence.push({ ...base, id: uuidv4(), trimStartFrame: srcStart, trimEndFrame: srcStart + Math.floor(availSource * 0.3),
-                    startFrame: curFrame, endFrame: curFrame + zoomInDur, speed: 2.5, zoomStart: 100, zoomEnd: 280 } as any);
+                    startFrame: curFrame, endFrame: curFrame + zoomInDur, speed: 2.5 } as any);
                 curFrame += zoomInDur;
                 // Phase 2: Hold at peak zoom
                 styledSequence.push({ ...base, id: uuidv4(), trimStartFrame: srcStart + Math.floor(availSource * 0.3), trimEndFrame: srcStart + Math.floor(availSource * 0.5),
-                    startFrame: curFrame, endFrame: curFrame + holdDur, speed: 0.3, zoomStart: 280, zoomEnd: 260 } as any);
+                    startFrame: curFrame, endFrame: curFrame + holdDur, speed: 0.3 } as any);
                 curFrame += holdDur;
                 // Phase 3: Snap back out
                 styledSequence.push({ ...base, id: uuidv4(), trimStartFrame: srcStart + Math.floor(availSource * 0.5), trimEndFrame: srcStart + Math.floor(availSource * 0.7),
-                    startFrame: curFrame, endFrame: curFrame + zoomOutDur, speed: 2.5, zoomStart: 260, zoomEnd: 100 } as any);
+                    startFrame: curFrame, endFrame: curFrame + zoomOutDur, speed: 2.5 } as any);
                 curFrame += zoomOutDur;
                 // Phase 4: Normal remainder
                 if (remainDur > 1) {
@@ -1085,8 +1097,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                     const isOut = s % 2 === 1;
                     styledSequence.push({ ...base, id: uuidv4(),
                         trimStartFrame: srcStart + s * srcSlice, trimEndFrame: srcStart + (s + 1) * srcSlice,
-                        startFrame: curFrame, endFrame: curFrame + swingDur, speed: 0.85,
-                        zoomStart: isOut ? zTarget : 100, zoomEnd: isOut ? 100 : zTarget } as any);
+                        startFrame: curFrame, endFrame: curFrame + swingDur, speed: 0.85 } as any);
                     curFrame += swingDur;
                 }
                 i++;
@@ -1102,8 +1113,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                     styledSequence.push({ ...base, id: uuidv4(),
                         trimStartFrame: mStart, trimEndFrame: mEnd,
                         startFrame: curFrame, endFrame: curFrame + microDur,
-                        speed: 1.2 + Math.random() * 0.8, reversed: Math.random() > 0.7,
-                        zoomStart: 100 + Math.floor(Math.random() * 30), zoomEnd: 100 + Math.floor(Math.random() * 20) } as any);
+                        speed: 1.2 + Math.random() * 0.8, reversed: Math.random() > 0.7 } as any);
                     curFrame += microDur;
                 }
                 i++;
@@ -1119,8 +1129,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                     styledSequence.push({ ...base, id: uuidv4(),
                         trimStartFrame: srcStart + p * srcSlice, trimEndFrame: srcStart + (p + 1) * srcSlice,
                         startFrame: curFrame, endFrame: curFrame + phaseDur,
-                        speed: speedVar, reversed: Math.random() > 0.8,
-                        zoomStart: zoomBase, zoomEnd: zoomBase + (Math.random() > 0.5 ? 10 : -10) } as any);
+                        speed: speedVar, reversed: Math.random() > 0.8 } as any);
                     curFrame += phaseDur;
                 }
                 i++;
@@ -1132,14 +1141,58 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 // Shock frame
                 styledSequence.push({ ...base, id: uuidv4(),
                     trimStartFrame: srcStart, trimEndFrame: srcStart + Math.min(5, availSource),
-                    startFrame: curFrame, endFrame: curFrame + shockDur, speed: 0.1,
-                    zoomStart: 100, zoomEnd: 220, effectIds: [...(base.effectIds || []), 'fx_bw_contrast'] } as any);
+                    startFrame: curFrame, endFrame: curFrame + shockDur, speed: 0.1 } as any);
                 curFrame += shockDur;
                 // Normal playback
                 styledSequence.push({ ...base, id: uuidv4(),
                     trimStartFrame: srcStart, trimEndFrame: srcEnd,
                     startFrame: curFrame, endFrame: curFrame + normalDur, speed: 1.2 });
                 curFrame += normalDur;
+                i++;
+
+            } else if (chosenStyle === 'beat-bounce' && availSource > 4) {
+                // ── VIRAL INSTAGRAM BEAT-BOUNCE EFFECT ─────────────────────
+                // Isolate a short "hero slice" from the source, slow it to 0.4x,
+                // then tile forward→reverse→forward→reverse to fill the clip's
+                // timeline duration. Direction switches every eighth-note.
+                //
+                // Best with: static camera + moving subject, OR static subject
+                // filmed at 60fps+ and conformed to 24fps.
+                const bounceSpeed = cfg.rampSlowSpeed > 0 ? cfg.rampSlowSpeed : 0.4;
+
+                // Hero slice: grab a short, visually interesting segment from source.
+                // ~4-8 source frames is ideal — just enough motion for the bounce.
+                const heroLen = Math.max(4, Math.min(8, Math.floor(availSource * 0.15)));
+                // Pick the hero from slightly past the start to avoid black frames
+                const heroOffset = Math.min(Math.floor(availSource * 0.1), availSource - heroLen);
+                const heroStart = srcStart + Math.max(0, heroOffset);
+                const heroEnd = heroStart + heroLen;
+
+                // Each bounce sub-clip's timeline duration (one eighth-note worth).
+                // At bounceSpeed, the hero slice yields this many output frames:
+                const bounceDur = Math.max(2, Math.floor(heroLen / bounceSpeed));
+
+                // Tile forward→reverse pairs to fill the full timeline duration
+                let filled = 0;
+                let fwd = true;
+                while (filled < tlDur) {
+                    const remaining = tlDur - filled;
+                    // Last tile may be shorter to fit exactly
+                    const tileDur = Math.min(bounceDur, remaining);
+                    if (tileDur < 2) break;
+
+                    styledSequence.push({
+                        ...base, id: uuidv4(),
+                        trimStartFrame: heroStart,
+                        trimEndFrame: heroEnd,
+                        startFrame: curFrame, endFrame: curFrame + tileDur,
+                        speed: bounceSpeed,
+                        reversed: !fwd,
+                    });
+                    curFrame += tileDur;
+                    filled += tileDur;
+                    fwd = !fwd; // Alternate direction every tile
+                }
                 i++;
 
             } else {
@@ -1170,18 +1223,15 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         const srcEnd2 = firstClip.trimEndFrame || firstClip.sourceDurationFrames || 300;
         const availSrc = srcEnd2 - src;
 
-        if (hookStyle === 'snap-zoom' || hookStyle === 'auto') {
-            // Replace first clip with snap-zoom hook: fast zoom in → slow hero → fast out
+        if (hookStyle === 'snap-speed' || hookStyle === 'auto') {
+            // Replace first clip with snap-speed hook: fast zoom in → slow hero → fast out
             const zInDur = 4; const holdDur = Math.min(30, hookFrames - 8); const zOutDur = 4;
             sequence[0] = { ...firstClip, id: uuidv4(), startFrame: 0, endFrame: zInDur, speed: 3.0,
-                trimStartFrame: src, trimEndFrame: src + Math.min(15, availSrc),
-                zoomStart: 100, zoomEnd: 250 } as any;
+                trimStartFrame: src, trimEndFrame: src + Math.min(15, availSrc) } as any;
             sequence.splice(1, 0, { ...firstClip, id: uuidv4(), startFrame: zInDur, endFrame: zInDur + holdDur,
-                speed: 0.3, trimStartFrame: src + 15, trimEndFrame: src + Math.min(50, availSrc),
-                zoomStart: 250, zoomEnd: 200 } as any);
+                speed: 0.3, trimStartFrame: src + 15, trimEndFrame: src + Math.min(50, availSrc) } as any);
             sequence.splice(2, 0, { ...firstClip, id: uuidv4(), startFrame: zInDur + holdDur, endFrame: zInDur + holdDur + zOutDur,
-                speed: 3.0, trimStartFrame: src + 50, trimEndFrame: src + Math.min(70, availSrc),
-                zoomStart: 200, zoomEnd: 100 } as any);
+                speed: 3.0, trimStartFrame: src + 50, trimEndFrame: src + Math.min(70, availSrc) } as any);
         } else if (hookStyle === 'speed-freeze') {
             // Freeze at 0.1x for 1 second, then burst at 3x
             const freezeDur = 30; const burstDur = Math.min(20, hookFrames - freezeDur);
@@ -1193,8 +1243,6 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             // 3 rapid cuts from different sources in first 3 seconds
             for (let h = 0; h < Math.min(3, sequence.length); h++) {
                 const hClip = sequence[h];
-                (hClip as any).zoomStart = 100 + (h === 1 ? 150 : 0);
-                (hClip as any).zoomEnd = h === 1 ? 100 : 130;
                 hClip.speed = h === 1 ? 0.2 : 2.5;
             }
         }
@@ -1224,7 +1272,6 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                     ...clip, id: uuidv4(),
                     startFrame: 0, endFrame: intDur, speed: 0.15,
                     trimStartFrame: clip.trimStartFrame, trimEndFrame: clip.trimStartFrame + 5,
-                    zoomStart: 100, zoomEnd: 220, reversed: true
                 } as any);
                 lastInterrupt = acc;
             }

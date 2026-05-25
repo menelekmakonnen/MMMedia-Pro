@@ -68,8 +68,89 @@ export const ALL_TRANSITION_TYPES: TransitionType[] = TRANSITION_CATALOG.map(t =
 export const DEFAULT_TRANSITION_FRAMES = 8;
 
 /**
- * Assigns random enter/exit transition types to a sequence of clips.
- * Filters by allowedTypes if provided.
+ * ═══════════════════════════════════════════════════════
+ *  INTELLIGENT TRANSITION ASSIGNMENT ENGINE
+ * ═══════════════════════════════════════════════════════
+ *
+ * Instead of randomly picking one transition per clip, this engine uses
+ * structured strategies inspired by professional editing:
+ *
+ * 1. REPEAT-THEN-SWITCH: Same transition for N clips, then a different
+ *    one on the "accent" beat — like repeating a wipe-left 3× then
+ *    hitting a zoom-in on the 4th for impact.
+ *
+ * 2. FAMILY ALTERNATION: Cycle through variants within a transition
+ *    family (e.g., wipe-left → wipe-right → wipe-up → wipe-down).
+ *
+ * 3. ENERGY-REACTIVE: Calm segments get soft fades/dissolves, high-
+ *    energy segments get kinetic motion (pushes, slides, spins).
+ *
+ * 4. MOTIF DEVELOPMENT: Establish one primary transition as the "motif"
+ *    then introduce variations — like a musical theme.
+ */
+
+// Transition families — variants of the same visual idea
+const TRANSITION_FAMILIES: Record<string, TransitionType[]> = {
+    'slide': ['slide-left', 'slide-right', 'slide-up', 'slide-down'],
+    'push': ['push-left', 'push-right'],
+    'wipe': ['wipe-left', 'wipe-right', 'wipe-up', 'wipe-down'],
+    'zoom': ['zoom-in', 'zoom-out'],
+    'fade': ['crossfade'],
+    'motion': ['spin-in'],
+    'effect': ['glitch-cut'],
+};
+
+// Energy-based transition pools
+const CALM_TRANSITIONS: TransitionType[] = ['crossfade', 'wipe-left', 'wipe-right', 'zoom-out'];
+const MID_TRANSITIONS: TransitionType[] = ['slide-left', 'slide-right', 'wipe-up', 'wipe-down', 'zoom-in'];
+const HIGH_ENERGY_TRANSITIONS: TransitionType[] = ['push-left', 'push-right', 'slide-up', 'slide-down', 'spin-in', 'glitch-cut'];
+
+// Segment type → energy tier
+const SEGMENT_ENERGY: Record<string, 'calm' | 'mid' | 'high'> = {
+    'intro': 'calm', 'outro': 'calm', 'breakdown': 'calm',
+    'verse': 'mid', 'bridge': 'mid', 'buildup': 'mid',
+    'chorus': 'high', 'drop': 'high',
+};
+
+type TransitionStrategy = 'repeat-then-switch' | 'family-alternation' | 'energy-reactive' | 'motif-development';
+
+/**
+ * Pick the best strategy based on the pool and clip count
+ */
+const pickStrategy = (pool: TransitionType[], clipCount: number): TransitionStrategy => {
+    // If we have very few clips, motif development
+    if (clipCount <= 6) return 'motif-development';
+
+    // Check if pool spans multiple families
+    const familiesInPool = new Set<string>();
+    for (const t of pool) {
+        for (const [family, members] of Object.entries(TRANSITION_FAMILIES)) {
+            if (members.includes(t)) familiesInPool.add(family);
+        }
+    }
+
+    // If pool has one family, use family alternation
+    if (familiesInPool.size === 1) return 'family-alternation';
+    // If pool has many families, use repeat-then-switch for rhythmic variety
+    if (familiesInPool.size >= 3) return 'repeat-then-switch';
+    // Default
+    return 'motif-development';
+};
+
+/**
+ * Get the family that a transition belongs to
+ */
+const getFamily = (t: TransitionType): string => {
+    for (const [family, members] of Object.entries(TRANSITION_FAMILIES)) {
+        if (members.includes(t)) return family;
+    }
+    return 'unknown';
+};
+
+/**
+ * Assigns intelligent, pattern-based transitions to a sequence of clips.
+ * Uses segment metadata, beat effect tags, and clip duration to make
+ * contextual decisions about which transition to use and when.
  */
 export const assignTransitions = (
     clips: Clip[],
@@ -83,41 +164,237 @@ export const assignTransitions = (
         ? allowedTypes.filter(t => t !== 'none')
         : ALL_TRANSITION_TYPES;
 
-    const pickMultiple = (count: number): TransitionType[] => {
-        if (pool.length === 0) return ['none'];
-        const countToPick = Math.min(count, pool.length);
-        const picked = new Set<TransitionType>();
-        let attempts = 0;
-        while(picked.size < countToPick && attempts < 20) {
-            picked.add(pool[Math.floor(Math.random() * pool.length)]);
-            attempts++;
+    // If pool is empty or only 'none', no transitions
+    if (pool.length === 0) {
+        return clips.map(c => ({
+            ...c,
+            transitionEnter: ['none'] as any,
+            transitionExit: ['none'] as any,
+            transitionDurationFrames: 0,
+        }));
+    }
+
+    const strategy = pickStrategy(pool, clips.length);
+
+    // ── Pre-compute: detect which clips have beat/segment metadata ──
+    const hasSegmentData = clips.some(c => (c as any)._segType);
+
+    // ── STRATEGY: REPEAT-THEN-SWITCH ─────────────────────────────────
+    // Use the same transition for a run of 2-4 clips, then switch to a
+    // contrasting one on the "accent" position. Like: AAA B AAA B.
+    const repeatThenSwitch = (): TransitionType[] => {
+        const result: TransitionType[] = [];
+        let currentTransition = pool[Math.floor(Math.random() * pool.length)];
+        let runLength = 2 + Math.floor(Math.random() * 3); // 2-4 repeats
+        let runCounter = 0;
+
+        for (let i = 0; i < clips.length; i++) {
+            if (i === 0) {
+                result.push('none' as TransitionType);
+                continue;
+            }
+
+            const clip = clips[i] as any;
+            const isBeatAccent = clip._beatEffect === true;
+            const segType = clip._segType || '';
+            const isHighEnergy = segType === 'drop' || segType === 'chorus';
+
+            // On accent beats or high-energy segments, force a switch
+            if (isBeatAccent || isHighEnergy || runCounter >= runLength) {
+                // Pick a contrasting transition (different family)
+                const currentFamily = getFamily(currentTransition);
+                const contrasts = pool.filter(t => getFamily(t) !== currentFamily);
+                currentTransition = contrasts.length > 0
+                    ? contrasts[Math.floor(Math.random() * contrasts.length)]
+                    : pool[Math.floor(Math.random() * pool.length)];
+                runLength = 2 + Math.floor(Math.random() * 3);
+                runCounter = 0;
+            }
+
+            result.push(currentTransition);
+            runCounter++;
         }
-        if (picked.size === 0) return ['none'];
-        return Array.from(picked);
+        return result;
     };
 
+    // ── STRATEGY: FAMILY ALTERNATION ─────────────────────────────────
+    // Cycle through variants within the same family.
+    // e.g., wipe-left → wipe-right → wipe-up → wipe-down → wipe-left...
+    const familyAlternation = (): TransitionType[] => {
+        const result: TransitionType[] = [];
+        // Group pool by family, find the biggest family
+        const familyMembers: Record<string, TransitionType[]> = {};
+        for (const t of pool) {
+            const f = getFamily(t);
+            if (!familyMembers[f]) familyMembers[f] = [];
+            familyMembers[f].push(t);
+        }
+        const families = Object.entries(familyMembers).sort((a, b) => b[1].length - a[1].length);
+        const primaryFamily = families[0]?.[1] || pool;
+        const accentFamily = families[1]?.[1] || families[0]?.[1] || pool;
+
+        let familyIdx = 0;
+
+        for (let i = 0; i < clips.length; i++) {
+            if (i === 0) { result.push('none' as TransitionType); continue; }
+
+            const clip = clips[i] as any;
+            const isBeatAccent = clip._beatEffect === true;
+            const segType = clip._segType || '';
+            const isAccentPosition = isBeatAccent || segType === 'drop' || segType === 'chorus';
+
+            if (isAccentPosition && accentFamily !== primaryFamily) {
+                // Use accent family for impact moments
+                result.push(accentFamily[i % accentFamily.length]);
+            } else {
+                // Cycle through primary family
+                result.push(primaryFamily[familyIdx % primaryFamily.length]);
+                familyIdx++;
+            }
+        }
+        return result;
+    };
+
+    // ── STRATEGY: ENERGY-REACTIVE ────────────────────────────────────
+    // Pick transitions based on the energy tier of the current segment.
+    // Calm segments → fades/dissolves, high-energy → kinetic motion.
+    const energyReactive = (): TransitionType[] => {
+        const result: TransitionType[] = [];
+        let lastTransition: TransitionType | null = null;
+        let repeatCount = 0;
+
+        for (let i = 0; i < clips.length; i++) {
+            if (i === 0) { result.push('none' as TransitionType); continue; }
+
+            const clip = clips[i] as any;
+            const segType = clip._segType || '';
+            const energy = SEGMENT_ENERGY[segType] || 'mid';
+
+            // Select pool based on energy
+            let tierPool: TransitionType[];
+            if (energy === 'calm') tierPool = CALM_TRANSITIONS.filter(t => pool.includes(t));
+            else if (energy === 'high') tierPool = HIGH_ENERGY_TRANSITIONS.filter(t => pool.includes(t));
+            else tierPool = MID_TRANSITIONS.filter(t => pool.includes(t));
+
+            // Fallback if tier pool is empty after filtering
+            if (tierPool.length === 0) tierPool = pool;
+
+            // Allow 2-3 repeats of the same transition for rhythm, then switch
+            let chosen: TransitionType;
+            if (lastTransition && tierPool.includes(lastTransition) && repeatCount < 2) {
+                chosen = lastTransition;
+                repeatCount++;
+            } else {
+                // Pick something new
+                const different = tierPool.filter(t => t !== lastTransition);
+                chosen = different.length > 0
+                    ? different[Math.floor(Math.random() * different.length)]
+                    : tierPool[Math.floor(Math.random() * tierPool.length)];
+                repeatCount = 0;
+            }
+
+            lastTransition = chosen;
+            result.push(chosen);
+        }
+        return result;
+    };
+
+    // ── STRATEGY: MOTIF DEVELOPMENT ──────────────────────────────────
+    // Establish one primary transition as the "motif", then introduce
+    // variations at key moments — like a musical theme with embellishments.
+    const motifDevelopment = (): TransitionType[] => {
+        const result: TransitionType[] = [];
+
+        // Pick a primary motif and a contrast
+        const motif = pool[Math.floor(Math.random() * pool.length)];
+        const motifFamily = getFamily(motif);
+        const contrasts = pool.filter(t => getFamily(t) !== motifFamily);
+        const contrast = contrasts.length > 0
+            ? contrasts[Math.floor(Math.random() * contrasts.length)]
+            : pool.filter(t => t !== motif)[0] || motif;
+
+        // Same-family variations
+        const motifVariants = pool.filter(t => getFamily(t) === motifFamily);
+
+        for (let i = 0; i < clips.length; i++) {
+            if (i === 0) { result.push('none' as TransitionType); continue; }
+
+            const clip = clips[i] as any;
+            const isBeatAccent = clip._beatEffect === true;
+            const segType = clip._segType || '';
+            const clipDur = clip.endFrame - clip.startFrame;
+
+            // Short clips (< 15 frames) → hard cuts feel better
+            if (clipDur < 15) {
+                result.push('none' as TransitionType);
+                continue;
+            }
+
+            // Drop/chorus accent moments → use contrast transition
+            if (isBeatAccent || segType === 'drop') {
+                result.push(contrast);
+                continue;
+            }
+
+            // Every 4th-5th clip → use a motif variant for development
+            if (i % 4 === 0 && motifVariants.length > 1) {
+                const variant = motifVariants[(Math.floor(i / 4)) % motifVariants.length];
+                result.push(variant);
+                continue;
+            }
+
+            // Default: use the primary motif
+            result.push(motif);
+        }
+        return result;
+    };
+
+    // ── Execute chosen strategy ──
+    let transitionSequence: TransitionType[];
+
+    if (hasSegmentData && pool.length >= 3) {
+        // With segment data, energy-reactive is best for music-driven edits
+        transitionSequence = energyReactive();
+    } else {
+        switch (strategy) {
+            case 'repeat-then-switch': transitionSequence = repeatThenSwitch(); break;
+            case 'family-alternation': transitionSequence = familyAlternation(); break;
+            case 'energy-reactive': transitionSequence = energyReactive(); break;
+            case 'motif-development': transitionSequence = motifDevelopment(); break;
+            default: transitionSequence = motifDevelopment(); break;
+        }
+    }
+
+    // ── Apply to clips ──
     return clips.map((clip, i) => {
-        const enterDirs: TransitionType[] = i === 0 ? ['none'] : pickMultiple(maxSimultaneousTransitions);
-        const exitDirs: TransitionType[] = i === clips.length - 1 ? ['none'] : pickMultiple(maxSimultaneousTransitions);
+        const enterType = transitionSequence[i] || 'none';
+        // Exit matches the NEXT clip's enter for visual continuity
+        const exitType = (i < clips.length - 1) ? (transitionSequence[i + 1] || 'none') : 'none';
 
         const clipDuration = clip.endFrame - clip.startFrame;
         const maxAllowedFrames = maxSimultaneousTransitions === 1
             ? Math.floor(clipDuration / 2)
             : clipDuration;
-
         let actualFrames = Math.min(transitionFrames, maxAllowedFrames);
-        
-        let finalEnter: TransitionType | TransitionType[] = enterDirs;
-        let finalExit: TransitionType | TransitionType[] = exitDirs;
+
+        // Scale transition duration based on clip length:
+        // Very short clips get shorter transitions, long clips can have longer ones
+        if (clipDuration < 20) actualFrames = Math.min(actualFrames, 4);
+        else if (clipDuration < 40) actualFrames = Math.min(actualFrames, 6);
+        // For drop/accent moments, slightly longer transitions for impact
+        const segType = (clip as any)._segType || '';
+        if (segType === 'drop' || segType === 'chorus') {
+            actualFrames = Math.min(Math.ceil(actualFrames * 1.3), maxAllowedFrames);
+        }
+
         if (actualFrames < 2) {
-            finalEnter = 'none';
-            finalExit = 'none';
+            return { ...clip, transitionEnter: ['none'] as any, transitionExit: ['none'] as any, transitionDurationFrames: 0 };
         }
 
         return {
             ...clip,
-            transitionEnter: finalEnter,
-            transitionExit: finalExit,
+            transitionEnter: [enterType],
+            transitionExit: [exitType],
             transitionDurationFrames: actualFrames,
         };
     });

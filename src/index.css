@@ -9,7 +9,7 @@
 
   color-scheme: dark;
   color: rgba(255, 255, 255, 0.87);
-  background-color: var(--color-bg, #080512);
+  background-color: var(--color-bg, #1a1a2e);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -17,44 +17,44 @@
   -moz-osx-font-smoothing: grayscale;
 
   /* ═══════════════════════════════════════════════
-     Default Theme — Deep Space Purple
+     Default Theme — Premiere Pro Inspired
      ═══════════════════════════════════════════════ */
-  --color-bg: #080512;
-  --color-primary: #9D00FF;
-  --color-secondary: #57009c;
-  --color-accent: #FF007F;
+  --color-bg: #1a1a2e;
+  --color-primary: #4A9EE0;
+  --color-secondary: #2D6DA3;
+  --color-accent: #E5A439;
 
   /* Extended palette — derived from primary */
-  --color-primary-50: #f5f0ff;
-  --color-primary-100: #ede5ff;
-  --color-primary-200: #d4bfff;
-  --color-primary-300: #b794f6;
-  --color-primary-400: #9D00FF;
-  --color-primary-500: #8B00E6;
-  --color-primary-600: #6D00B3;
-  --color-primary-700: #4C0080;
-  --color-primary-800: #2D004D;
-  --color-primary-900: #1A002E;
+  --color-primary-50: #eef6fd;
+  --color-primary-100: #d8ecfb;
+  --color-primary-200: #aed6f6;
+  --color-primary-300: #7ebdef;
+  --color-primary-400: #4A9EE0;
+  --color-primary-500: #3A8ED0;
+  --color-primary-600: #2D6DA3;
+  --color-primary-700: #1F4D73;
+  --color-primary-800: #132F46;
+  --color-primary-900: #0A1A28;
 
   /* Surface tones — for cards, panels, borders */
-  --color-surface: #0c0a1a;
-  --color-surface-hover: #12102a;
-  --color-surface-active: #1a1538;
-  --color-border: rgba(157, 0, 255, 0.12);
-  --color-border-hover: rgba(157, 0, 255, 0.25);
+  --color-surface: #16162b;
+  --color-surface-hover: #1e1e3a;
+  --color-surface-active: #262648;
+  --color-border: rgba(74, 158, 224, 0.10);
+  --color-border-hover: rgba(74, 158, 224, 0.22);
 
   /* Logo layer colors — cascade M tints */
-  --color-logo-back: #3730A3;
-  --color-logo-mid: #7C3AED;
-  --color-logo-front: #D946EF;
-  --color-logo-glow: #7C3AED;
+  --color-logo-back: #1F4D73;
+  --color-logo-mid: #4A9EE0;
+  --color-logo-front: #7BBEF0;
+  --color-logo-glow: #4A9EE0;
 }
 
 /* ═══════════════════════════════════════════════
    Theme: Neon (Red/Crimson)
    ═══════════════════════════════════════════════ */
 .theme-neon {
-  --color-bg: #0a0508;
+  --color-bg: #1a1018;
   --color-primary: #FF0055;
   --color-secondary: #990033;
   --color-accent: #FF6B9D;
@@ -70,9 +70,9 @@
   --color-primary-800: #4D0018;
   --color-primary-900: #2E000E;
 
-  --color-surface: #120a0e;
-  --color-surface-hover: #1f1018;
-  --color-surface-active: #2d1522;
+  --color-surface: #1f1520;
+  --color-surface-hover: #2a1c2d;
+  --color-surface-active: #3a2838;
   --color-border: rgba(255, 0, 85, 0.12);
   --color-border-hover: rgba(255, 0, 85, 0.25);
 
@@ -86,7 +86,7 @@
    Theme: Ocean (Blue/Cyan)
    ═══════════════════════════════════════════════ */
 .theme-ocean {
-  --color-bg: #020813;
+  --color-bg: #0a1520;
   --color-primary: #00A3FF;
   --color-secondary: #005A99;
   --color-accent: #00FFCC;
@@ -102,9 +102,9 @@
   --color-primary-800: #00314D;
   --color-primary-900: #001D2E;
 
-  --color-surface: #040d1a;
-  --color-surface-hover: #081828;
-  --color-surface-active: #0c2238;
+  --color-surface: #0d1a28;
+  --color-surface-hover: #132538;
+  --color-surface-active: #1a3048;
   --color-border: rgba(0, 163, 255, 0.12);
   --color-border-hover: rgba(0, 163, 255, 0.25);
 
@@ -118,7 +118,7 @@
    Theme: Hacker (Green/Matrix)
    ═══════════════════════════════════════════════ */
 .theme-hacker {
-  --color-bg: #000500;
+  --color-bg: #0a120a;
   --color-primary: #00FF00;
   --color-secondary: #008800;
   --color-accent: #CCFF00;
@@ -134,9 +134,9 @@
   --color-primary-800: #004D00;
   --color-primary-900: #002E00;
 
-  --color-surface: #040a04;
-  --color-surface-hover: #0a160a;
-  --color-surface-active: #102010;
+  --color-surface: #0d180d;
+  --color-surface-hover: #14241a;
+  --color-surface-active: #1a3020;
   --color-border: rgba(0, 255, 0, 0.1);
   --color-border-hover: rgba(0, 255, 0, 0.2);
 
@@ -148,8 +148,8 @@
 
 /* Custom Scrollbar — theme-aware */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -158,7 +158,7 @@
 
 ::-webkit-scrollbar-thumb {
   background: var(--color-border);
-  border-radius: 4px;
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {

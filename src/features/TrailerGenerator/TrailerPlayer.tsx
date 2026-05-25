@@ -3,6 +3,8 @@ import { useMediaStore } from '../../store/mediaStore';
 import { useClipStore } from '../../store/clipStore';
 import { useViewStore } from '../../store/viewStore';
 import { useUserStore } from '../../store/userStore';
+import { useSavedEditsStore } from '../../store/savedEditsStore';
+import { useGodModeStore } from '../../store/godModeStore';
 import { generateTrailerSequence, TrailerSettings, TrailerClip, extractBeatTimestamps } from '../../lib/trailerGenerator';
 import { getClipTransitionStyle } from '../../lib/transitions';
 import { DEFAULT_FPS } from '../../lib/time';
@@ -13,11 +15,12 @@ import { Clip } from '../../types';
 
 interface PlayerProps {
     settings: TrailerSettings;
+    preGeneratedClips?: any[];
     onDiscard: () => void;
     onSettings: () => void;
 }
 
-export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, onDiscard, onSettings }) => {
+export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips, onDiscard, onSettings }) => {
     const { files, selectedFileIds } = useMediaStore();
     const { setClips } = useClipStore();
     const { setActiveTab } = useViewStore();
@@ -42,6 +45,9 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, onDiscard, onSe
     const rafRef = useRef<number>(0);
     const flipLockRef = useRef(false);
     const lastRafTimeRef = useRef(0);
+    const stallStartRef = useRef<number>(0);
+    const lastCurrentTimeRef = useRef<number>(-1);
+    const clipChangeTimeRef = useRef<number>(performance.now()); // Grace period: when the current clip changed
 
     // Stable refs for RAF loop
     const draftRef = useRef(draftSequence);
@@ -50,13 +56,42 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, onDiscard, onSe
     const isGeneratingRef = useRef(isGenerating);
 
     useEffect(() => { draftRef.current = draftSequence; }, [draftSequence]);
-    useEffect(() => { indexRef.current = currentClipIndex; }, [currentClipIndex]);
+    useEffect(() => {
+        indexRef.current = currentClipIndex;
+        // Reset stall detection whenever the clip changes — give the new video
+        // element time to load, seek, and begin playback before checking for stalls.
+        stallStartRef.current = 0;
+        lastCurrentTimeRef.current = -1;
+        clipChangeTimeRef.current = performance.now();
+    }, [currentClipIndex]);
     useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
     useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
 
 
     const buildSequence = async () => {
         setIsGenerating(true); setIsPlaying(false);
+
+        // If we received pre-generated clips from the router, use those directly
+        // so the preview matches exactly what gets exported.
+        if (preGeneratedClips && preGeneratedClips.length > 0 && !hasBuiltOnce.current) {
+            hasBuiltOnce.current = true;
+            const videoClips = preGeneratedClips.filter((c: any) => c.type !== 'audio');
+            let accumulated = 0;
+            const embellished = videoClips.map((c: any) => {
+                const dur = (c.endFrame - c.startFrame) / DEFAULT_FPS;
+                const ret = { ...c, globalStart: accumulated, globalEnd: accumulated + dur, localDuration: dur };
+                accumulated += dur;
+                return ret;
+            });
+            (embellished as any).totalDuration = accumulated;
+            setDraftSequence(embellished);
+            setCurrentClipIndex(0);
+            setGlobalProgress(0);
+            setIsGenerating(false);
+            if (embellished.length > 0) setIsPlaying(true);
+            return;
+        }
+
         let beats = null;
         if (settings.useAudioGuide && settings.audioUrl) {
             beats = await extractBeatTimestamps(settings.audioUrl, settings.audioTrimStart || 0, settings.audioTrimEnd || settings.targetDuration, settings.audioAnalysis);
@@ -66,14 +101,11 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, onDiscard, onSe
             const seq = generateTrailerSequence(pool, { ...settings, beatTimestamps: beats });
             let accumulated = 0;
             const embellished = seq.map(c => {
-                // Use OUTPUT frames (endFrame - startFrame) which already account for speed
-                // NOT source frames (trimEndFrame - trimStartFrame) which ignore speed
                 const dur = (c.endFrame - c.startFrame) / DEFAULT_FPS;
                 const ret = { ...c, globalStart: accumulated, globalEnd: accumulated + dur, localDuration: dur };
                 accumulated += dur;
                 return ret;
             });
-            // Attach total duration as a custom property
             (embellished as any).totalDuration = accumulated;
             setDraftSequence(embellished);
             setCurrentClipIndex(0);
@@ -82,6 +114,7 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, onDiscard, onSe
             if (embellished.length > 0) setIsPlaying(true);
         }, 100);
     };
+    const hasBuiltOnce = useRef(false);
 
     useEffect(() => { buildSequence(); }, [settings]);
 
@@ -159,6 +192,35 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, onDiscard, onSe
                 const trimStart = clip.trimStartFrame / DEFAULT_FPS;
                 const trimEnd = clip.trimEndFrame / DEFAULT_FPS;
 
+                // ── STALL DETECTION ──
+                // If video currentTime hasn't changed in 5s, the source is likely
+                // corrupt or unplayable. Skip to next clip to prevent black screen.
+                //
+                // GRACE PERIOD: Skip stall detection for the first 3 seconds after
+                // a clip change. The video element needs time to: set src → load
+                // metadata → seek to trimStart → begin playback. Without this grace
+                // period, every clip gets falsely flagged as "stalled" and skipped.
+                const STALL_GRACE_MS = 3000;
+                const STALL_TIMEOUT_MS = 5000;
+                const timeSinceClipChange = now - clipChangeTimeRef.current;
+
+                if (timeSinceClipChange > STALL_GRACE_MS) {
+                    const ct = activeVid.currentTime;
+                    if (ct === lastCurrentTimeRef.current) {
+                        if (stallStartRef.current === 0) stallStartRef.current = now;
+                        else if (now - stallStartRef.current > STALL_TIMEOUT_MS) {
+                            console.warn(`[TrailerPlayer] Clip ${idx} stalled for ${STALL_TIMEOUT_MS/1000}s — skipping`);
+                            stallStartRef.current = 0;
+                            lastCurrentTimeRef.current = -1;
+                            handleClipEnd();
+                            return;
+                        }
+                    } else {
+                        stallStartRef.current = 0;
+                        lastCurrentTimeRef.current = ct;
+                    }
+                }
+
                 if (clip.reversed) {
                     const dt = (now - lastRafTimeRef.current) / 1000;
                     lastRafTimeRef.current = now;
@@ -197,7 +259,7 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, onDiscard, onSe
 
         if (activeVid && clip) {
             activeVid.volume = (clip.isMuted || isMasterMuted) ? 0 : vol;
-            activeVid.playbackRate = clip.speed || 1;
+            activeVid.playbackRate = Math.max(0.0625, Math.min(16, clip.speed || 1));
             const startSec = clip.reversed
                 ? clip.trimEndFrame / DEFAULT_FPS
                 : clip.trimStartFrame / DEFAULT_FPS;
@@ -224,7 +286,7 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, onDiscard, onSe
         }
     }, [currentClipIndex, isPlaying, isGenerating, draftSequence, masterVolume, isMasterMuted]);
 
-    // Audio sync: just play/pause based on player state. Avoid aggressive re-syncing to prevent stuttering.
+    // Audio sync: play/pause based on player state, always start from audioTrimStart.
     useEffect(() => {
         const audio = audioPlayerRef.current;
         if (!audio || !settings.useAudioGuide) return;
@@ -233,10 +295,14 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, onDiscard, onSe
         audio.volume = vol;
         if (isPlaying && !isGenerating) {
             if (audio.paused) {
-                // Only sync if drastically off when resuming playback
+                // When starting playback, sync audio to the correct position.
+                // If at the beginning (progress ~0), reset to audioTrimStart.
                 const totalDur = (draftSequence as any).totalDuration || 1;
                 const expectedTime = (settings.audioTrimStart || 0) + (globalProgress * totalDur);
-                if (Math.abs(audio.currentTime - expectedTime) > 0.5) {
+                if (globalProgress < 0.01) {
+                    // Starting from the beginning — always reset to trim start
+                    audio.currentTime = settings.audioTrimStart || 0;
+                } else if (Math.abs(audio.currentTime - expectedTime) > 0.5) {
                     audio.currentTime = expectedTime;
                 }
                 audio.play().catch(() => {});
@@ -245,6 +311,29 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, onDiscard, onSe
             if (!audio.paused) audio.pause();
         }
     }, [isPlaying, isGenerating, settings, masterVolume, isMasterMuted]);
+
+    // Cleanup: stop all playback when component unmounts (user navigates away)
+    useEffect(() => {
+        return () => {
+            cancelAnimationFrame(rafRef.current!);
+            videoARef.current?.pause();
+            videoBRef.current?.pause();
+            audioPlayerRef.current?.pause();
+        };
+    }, []);
+
+    // Keyboard shortcut: Space to toggle play/pause
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+            if (e.key === ' ') {
+                e.preventDefault();
+                setIsPlaying(p => !p);
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
 
     /*
      * ── SAVE TO TIMELINE (Keep Edit) ──────────────────────────────────────
@@ -266,15 +355,10 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, onDiscard, onSe
      */
     const handleSave = () => {
         const cleanSeq: Clip[] = draftSequence.map(c => ({
-            id: uuidv4(), mediaLibraryId: c.mediaLibraryId, type: c.type, path: c.path,
-            filename: c.filename, startFrame: c.startFrame, endFrame: c.endFrame,
-            sourceDurationFrames: c.sourceDurationFrames, trimStartFrame: c.trimStartFrame,
-            trimEndFrame: c.trimEndFrame, track: 1, speed: c.speed, volume: c.volume,
-            reversed: c.reversed, isMuted: c.isMuted, isPinned: c.isPinned, origin: 'auto', locked: c.locked,
-            transitionEnter: c.transitionEnter, transitionExit: c.transitionExit,
-            transitionDurationFrames: c.transitionDurationFrames,
-            sourceOrientation: c.sourceOrientation,
-            zoomStart: c.zoomStart, zoomEnd: c.zoomEnd, zoomOrigin: c.zoomOrigin, zoomLevel: c.zoomLevel,
+            ...c,                    // Preserve ALL properties (effectIds, visualTexture, zoom*, rotation, etc.)
+            id: uuidv4(),            // Fresh ID for timeline instance
+            track: 1,                // All video clips go to track 1
+            origin: 'auto' as const, // Mark as auto-generated
         }));
 
         // Add audio track if audio guide was used
@@ -294,6 +378,28 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, onDiscard, onSe
             } else if (resolvedAudioPath.startsWith('file://')) {
                 resolvedAudioPath = resolvedAudioPath.slice(7);
             }
+            // If still a blob URL, try multiple fallbacks for the real filesystem path
+            if (resolvedAudioPath.startsWith('blob:')) {
+                // 1. Check godModeStore directly (Zustand state survives navigation)
+                const gmStorePath = useGodModeStore.getState().audioFilePath;
+                if (gmStorePath && !gmStorePath.startsWith('blob:')) {
+                    console.warn('[TrailerPlayer] audioUrl was blob — using godModeStore.audioFilePath:', gmStorePath);
+                    resolvedAudioPath = gmStorePath;
+                }
+                // 2. Check window global (set by TrailerWizard.handleAudioUpload)
+                else {
+                    const gmWindowPath = (window as any).__godModeAudioFilePath;
+                    if (gmWindowPath && !gmWindowPath.startsWith('blob:')) {
+                        console.warn('[TrailerPlayer] audioUrl was blob — using window.__godModeAudioFilePath:', gmWindowPath);
+                        resolvedAudioPath = gmWindowPath;
+                    } else {
+                        console.error('[TrailerPlayer] ⚠ Audio path is a blob URL with no filesystem fallback — audio WILL be missing from export');
+                    }
+                }
+            }
+            // Strip file:// prefix from fallback paths too
+            if (resolvedAudioPath.startsWith('file:///')) resolvedAudioPath = resolvedAudioPath.slice(8);
+            else if (resolvedAudioPath.startsWith('file://')) resolvedAudioPath = resolvedAudioPath.slice(7);
             // Decode URL-encoded characters (e.g., %20 → space)
             try { resolvedAudioPath = decodeURIComponent(resolvedAudioPath); } catch {}
 
@@ -307,7 +413,7 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, onDiscard, onSe
                 sourceDurationFrames: totalFrames,
                 trimStartFrame: Math.floor((settings.audioTrimStart || 0) * DEFAULT_FPS),
                 trimEndFrame: Math.floor((settings.audioTrimEnd || settings.targetDuration) * DEFAULT_FPS),
-                track: 2,
+                track: 101,  // Audio 2 track — background music, NOT linked clip audio (track 2)
                 speed: 1,
                 volume: 100,
                 reversed: false,
@@ -332,6 +438,25 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, onDiscard, onSe
         }
 
         setClips(allClips);
+
+        // Save a snapshot to the Saved Edits store
+        const gm = useGodModeStore.getState();
+        const videoClips = allClips.filter(c => c.type !== 'audio');
+        const dur = videoClips.length > 0
+            ? Math.round(videoClips[videoClips.length - 1].endFrame / DEFAULT_FPS)
+            : settings.targetDuration;
+        // Extract thumbnail from first video clip
+        const firstVideoClip = videoClips.find(c => c.type === 'video' && c.path);
+        useSavedEditsStore.getState().addEdit({
+            name: `${gm.vibe ? gm.vibe.charAt(0).toUpperCase() + gm.vibe.slice(1) + ' ' : ''}Trailer — ${new Date().toLocaleTimeString()}`,
+            clips: allClips,
+            clipCount: videoClips.length,
+            thumbnailPath: firstVideoClip?.path || undefined,
+            duration: dur,
+            godModeVibe: gm.vibe || undefined,
+            godModePresetId: gm.selectedPresetId || undefined,
+        });
+
         setActiveTab('sequence');
     };
 
@@ -399,6 +524,7 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, onDiscard, onSe
                                 opacity: isActA ? transitionStyle.opacity : 0,
                                 clipPath: isActA && transitionStyle.clipPath ? transitionStyle.clipPath : undefined,
                             }}
+                            onError={() => { console.warn('[TrailerPlayer] Video A failed to load — skipping clip'); handleClipEnd(); }}
                             playsInline muted={clipA?.isMuted || isMasterMuted} />
                         <video ref={videoBRef} src={urlB}
                             className={clsx(`absolute inset-0 w-full h-full ${objectFit} pointer-events-none transition-none`, !isActA ? "z-20 opacity-100" : "z-0 opacity-0")}
@@ -408,14 +534,28 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, onDiscard, onSe
                                 opacity: !isActA ? transitionStyle.opacity : 0,
                                 clipPath: !isActA && transitionStyle.clipPath ? transitionStyle.clipPath : undefined,
                             }}
+                            onError={() => { console.warn('[TrailerPlayer] Video B failed to load — skipping clip'); handleClipEnd(); }}
                             playsInline muted={clipB?.isMuted || isMasterMuted} />
+
+                        {/* Centered Play/Pause overlay — always accessible */}
+                        <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">
+                            <div className={clsx(
+                                "w-16 h-16 rounded-full flex items-center justify-center backdrop-blur-xl pointer-events-auto cursor-pointer transition-all duration-300",
+                                isPlaying ? "opacity-0 hover:opacity-80 scale-90" : "opacity-100 scale-100"
+                            )}
+                                style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255,255,255,0.15)' }}
+                                onClick={(e) => { e.stopPropagation(); setIsPlaying(!isPlaying); }}
+                            >
+                                {isPlaying ? <Pause size={28} className="text-white/90" /> : <Play size={28} className="text-white/90 ml-1" />}
+                            </div>
+                        </div>
                     </>
                 )}
             </div>
 
             {/* Controls */}
             {!isGenerating && (
-                <div className={clsx("absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 to-transparent p-6 pt-12 z-50 flex flex-col gap-4 transition-transform", isPlaying ? "translate-y-full group-hover:translate-y-0" : "translate-y-0")} onClick={e => e.stopPropagation()}>
+                <div className={clsx("absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 to-transparent p-6 pt-12 z-50 flex flex-col gap-4 transition-transform duration-200", isPlaying ? "translate-y-full group-hover:translate-y-0" : "translate-y-0")} onClick={e => e.stopPropagation()}>
                     <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden cursor-pointer"
                         onClick={(e) => {
                             const rect = e.currentTarget.getBoundingClientRect();

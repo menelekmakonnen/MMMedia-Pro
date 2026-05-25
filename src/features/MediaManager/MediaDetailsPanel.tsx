@@ -1,19 +1,22 @@
 import React from 'react';
 import { Clip, useClipStore } from '../../store/clipStore';
-import { Plus, FileVideo, FileAudio, Image as ImageIcon, X } from 'lucide-react';
+import { Plus, FileVideo, FileAudio, Image as ImageIcon, X, RotateCw } from 'lucide-react';
 
 interface MediaDetailsPanelProps {
     clip: Clip | null;
     onClose: () => void;
+    onAdd?: () => void;
+    onRotate?: () => void;
 }
 
-export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, onClose }) => {
+export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, onClose, onAdd, onRotate }) => {
     const { addClip } = useClipStore();
 
     if (!clip) return (
-        <div className="h-full flex flex-col items-center justify-center text-white/20 p-8 text-center bg-[#080810] border-l border-white/5">
-            <h3 className="text-lg font-medium mb-2">No Selection</h3>
-            <p className="text-sm">Select a media file to view details</p>
+        <div className="h-full flex flex-col items-center justify-center text-white/20 p-8 text-center bg-[#080810]">
+            <FileVideo size={40} className="text-white/10 mb-4" />
+            <h3 className="text-sm font-bold text-white/30 mb-1">No Selection</h3>
+            <p className="text-[11px] text-white/20">Click a media file to view details and controls.</p>
         </div>
     );
 
@@ -28,8 +31,10 @@ export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, onCl
         }
     };
 
+    const rotation = clip.rotation || 0;
+
     return (
-        <div className="h-full flex flex-col bg-[#080810] border-l border-white/5 w-80 flex-shrink-0 animate-in slide-in-from-right duration-200">
+        <div className="h-full flex flex-col bg-[#080810] flex-shrink-0 animate-in slide-in-from-right duration-200">
             {/* Header */}
             <div className="p-4 border-b border-white/5 flex items-center justify-between">
                 <h3 className="font-medium text-white/90">Details</h3>
@@ -48,6 +53,7 @@ export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, onCl
                         <video
                             src={`file://${clip.path}`}
                             className="w-full h-full object-contain"
+                            style={rotation ? { transform: `rotate(${rotation}deg)` } : undefined}
                             controls={clip.type === 'video'}
                             onLoadedMetadata={(e) => {
                                 const duration = e.currentTarget.duration;
@@ -65,8 +71,11 @@ export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, onCl
                 <h2 className="text-lg font-semibold text-white/90 break-words mb-1">
                     {clip.filename}
                 </h2>
-                <div className="text-xs text-white/40 uppercase tracking-wider font-medium">
-                    {clip.type}
+                <div className="text-xs text-white/40 uppercase tracking-wider font-medium flex items-center gap-2">
+                    <span>{clip.type}</span>
+                    {rotation > 0 && (
+                        <span className="text-blue-400/60 font-mono text-[10px]">{rotation}°</span>
+                    )}
                 </div>
             </div>
 
@@ -91,8 +100,8 @@ export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, onCl
                             <div className="text-sm text-white/80 font-mono">-</div>
                         </div>
                         <div>
-                            <div className="text-xs text-white/40 mb-1">Frame Rate</div>
-                            <div className="text-sm text-white/80 font-mono">30 FPS</div>
+                            <div className="text-xs text-white/40 mb-1">Rotation</div>
+                            <div className="text-sm text-white/80 font-mono">{rotation}°</div>
                         </div>
                     </div>
 
@@ -107,37 +116,30 @@ export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, onCl
 
             {/* Actions Footer */}
             <div className="p-4 border-t border-white/5 bg-white/5 space-y-2">
-                {/* 
-                     Note: The main 'addClip' adds to the store. 
-                     Here we might want to 'add to timeline' specifically if we had a distinction,
-                     but for now, adding to the store effectively puts it in the timeline list.
-                     Wait, the prompt implies "Add to Timeline" means distinct from "In Library".
-                     Currently, all clips are in the timeline if they are in the store. 
-                     We might need a concept of 'Library' vs 'Timeline' later.
-                     For now, I'll simulate 'Add to Timeline' by just logging or playing a success animation,
-                     since the user architecture currently has 1:1 library:timeline mapping in the store.
-                     
-                     Actually, looking at previous work, `ClipStore` holds ALL clips. 
-                     The TimelineTab displays `clips`. 
-                     So "adding to timeline" is already done when importing.
-                     
-                     I will assume for this phase that "Add to Timeline" simply selects/focuses it in the timeline 
-                     or serves as a placeholder for when we separate Library vs Timeline.
-                     
-                     Let's use the button to Select it in the timeline (if we can switch tabs? No, we are in Media Manager).
-                     
-                     I'll make the button functional by re-adding it (duplicating) or just visual for now.
-                     Let's make it DUPLICATE the clip - that makes sense!
-                 */}
-                <button
-                    onClick={() => {
-                        addClip({ ...clip, id: crypto.randomUUID(), origin: 'manual' });
-                    }}
-                    className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-white p-3 rounded-lg font-medium transition-colors"
-                >
-                    <Plus size={18} />
-                    Add to Timeline
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        onClick={() => {
+                            if (onAdd) {
+                                onAdd();
+                            } else {
+                                addClip({ ...clip, id: crypto.randomUUID(), origin: 'manual' });
+                            }
+                        }}
+                        className="flex-1 flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-white p-3 rounded-lg font-medium transition-colors"
+                    >
+                        <Plus size={18} />
+                        Add to Edit
+                    </button>
+                    {onRotate && clip.type === 'video' && (
+                        <button
+                            onClick={onRotate}
+                            className="flex items-center justify-center gap-2 bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 p-3 rounded-lg font-medium transition-colors border border-blue-500/20 hover:border-blue-500/40"
+                            title={`Rotate (currently ${rotation}°)`}
+                        >
+                            <RotateCw size={18} />
+                        </button>
+                    )}
+                </div>
             </div>
         </div >
     );

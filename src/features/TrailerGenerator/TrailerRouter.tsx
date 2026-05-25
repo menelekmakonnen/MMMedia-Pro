@@ -1,15 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { TrailerWizard } from './TrailerWizard';
 import { TrailerPlayer } from './TrailerPlayer';
 import { TrailerSettings, generateTrailerSequence, extractBeatTimestamps } from '../../lib/trailerGenerator';
 import { useClipStore } from '../../store/clipStore';
 import { useMediaStore } from '../../store/mediaStore';
+import { useGodModeStore } from '../../store/godModeStore';
 
 export const TrailerRouter: React.FC = () => {
     const [activeView, setActiveView] = useState<'wizard' | 'player'>('wizard');
     const [settings, setSettings] = useState<TrailerSettings | null>(null);
     const { setClips } = useClipStore();
     const { files } = useMediaStore();
+    const autoGenerateConsumed = useRef(false);
+
+    // ── AUTO-GENERATE: if GodMode tab pre-built settings, skip wizard ──
+    const { autoGenerate, lastGeneratedSettings, clearAutoGenerate } = useGodModeStore();
+
+    useEffect(() => {
+        if (autoGenerate && lastGeneratedSettings && !autoGenerateConsumed.current) {
+            autoGenerateConsumed.current = true;
+            clearAutoGenerate();
+            handleGenerate(lastGeneratedSettings);
+        }
+    }, [autoGenerate, lastGeneratedSettings]);
 
     const handleGenerate = async (newSettings: TrailerSettings) => {
         setSettings(newSettings);

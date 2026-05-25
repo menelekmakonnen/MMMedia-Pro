@@ -1,4 +1,4 @@
-import { ipcRenderer, contextBridge } from 'electron'
+import { ipcRenderer, contextBridge, webUtils } from 'electron'
 
 console.log('[Preload] Script starting to load...');
 
@@ -23,6 +23,7 @@ try {
 
         // File operations
         selectFiles: (type?: string) => ipcRenderer.invoke('select-files', type),
+        loadFolder: (folderPath: string) => ipcRenderer.invoke('load-folder', folderPath),
         readFileBuffer: (path: string) => ipcRenderer.invoke('read-file-buffer', path),
 
         // Persistence & Manifest API
@@ -35,11 +36,20 @@ try {
         // Export API
         showExportDialog: (options: any) => ipcRenderer.invoke('show-export-dialog', options),
         exportProject: (args: { filePath: string, clips: any[], settings: any, isIntermediate?: boolean }) => ipcRenderer.invoke('export-project', args),
+        randomRender: (args: { filePath: string, clips: any[], settings: any }) => ipcRenderer.invoke('random-render', args),
+        cancelExport: () => ipcRenderer.invoke('cancel-export'),
+        pauseExport: () => ipcRenderer.invoke('pause-export'),
+        resumeExport: () => ipcRenderer.invoke('resume-export'),
         openInAME: (filePath: string) => ipcRenderer.invoke('open-in-ame', filePath),
         onExportProgress: (callback: (progress: number) => void) => {
             const listener = (_event: any, progress: number) => callback(progress);
             ipcRenderer.on('export-progress', listener);
             return () => ipcRenderer.removeListener('export-progress', listener);
+        },
+        onExportLog: (callback: (msg: string) => void) => {
+            const listener = (_event: any, msg: string) => callback(msg);
+            ipcRenderer.on('export-log', listener);
+            return () => ipcRenderer.removeListener('export-log', listener);
         },
 
         // Bridge Events
@@ -72,6 +82,16 @@ try {
             const listener = (_event: any, data: any) => callback(data);
             ipcRenderer.on('bridge-receive-folder', listener);
             return () => ipcRenderer.removeListener('bridge-receive-folder', listener);
+        },
+
+        // Shell operations
+        showItemInFolder: (fullPath: string) => ipcRenderer.invoke('show-item-in-folder', fullPath),
+        openPath: (fullPath: string) => ipcRenderer.invoke('open-path', fullPath),
+
+        // File path resolution (Electron 29+ — replaces deprecated File.path)
+        getPathForFile: (file: File) => {
+            try { return webUtils.getPathForFile(file); }
+            catch { return ''; }
         },
     })
 

@@ -24,6 +24,9 @@ interface ClipStore {
     globalMute: boolean;
     globalPlaybackSpeed: number;
     transitionStrategy: 'cut' | 'cross-dissolve' | 'fade-to-black';
+    // Per-track mute state: track 2 = Audio 1 (clip-linked), track 101+ = Audio 2 (added audio)
+    trackMutes: Record<number, boolean>;
+    trackVolumes: Record<number, number>;
 
     setClips: (clips: Clip[]) => void;
     addClip: (clip: Clip) => void;
@@ -71,15 +74,29 @@ interface ClipStore {
     shuffleAllGrids: () => void;
     distributeMediaToGrid: (gridId: string, files: MediaFile[]) => void;
 
+    // Grid Cell Mini-Timeline Actions
+    addClipToGridCell: (gridId: string, cellId: string, clip: Clip) => void;
+    removeClipFromGridCell: (gridId: string, cellId: string, clipId: string) => void;
+    shuffleGridCellClips: (gridId: string, cellId: string) => void;
+    fluxGridCellClips: (gridId: string, cellId: string) => void;
+    globalFluxGrid: (gridId: string) => void;
+    globalChaosGrid: (gridId: string) => void;
+
     // Phase 7: Advanced
     setTransitionStrategy: (strategy: 'cut' | 'cross-dissolve' | 'fade-to-black') => void;
     setClipDuration: (id: string, durationInSeconds: number) => void;
     nukeLibrary: () => void;
 
+    // Track mute controls
+    setTrackMuted: (trackId: number, muted: boolean) => void;
+    isTrackMuted: (trackId: number) => boolean;
+    setTrackVolume: (trackId: number, volume: number) => void;
+    getTrackVolume: (trackId: number) => number;
+
     // Phase 18: Sequence Actions
     magnetizeClips: () => void;
     reorderClips: (fromIndex: number, toIndex: number) => void;
-    applyEditingStyle: (clipId: string, styleName: 'rubber-band-standard' | 'rubber-band-zoom' | 'rubber-band-zoom-speed' | 'rubber-band-extreme' | 'multi-boomerang' | 'triple-shot') => void;
+    applyEditingStyle: (clipId: string, styleName: 'rubber-band-standard' | 'rubber-band' | 'rubber-band-speed' | 'rubber-band-extreme' | 'multi-boomerang' | 'triple-shot') => void;
 
     // Automation
     regenerateTimeline: (sourceFiles: MediaFile[], seed: string) => void;
@@ -93,6 +110,8 @@ export const useClipStore = create<ClipStore>((set, get) => ({
     globalMute: false,
     globalPlaybackSpeed: 1.0,
     transitionStrategy: useUserStore.getState().defaultTransition,
+    trackMutes: {},
+    trackVolumes: {},
 
     setClips: (clips) => set({ clips }),
     addClip: (clip) => set((state) => ({ clips: [...state.clips, clip] })),
@@ -596,6 +615,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
             cells: Array.from({ length: numCells }).map((_, i) => ({
                 id: uuidv4(),
                 clip: i === 0 && initialClip ? initialClip : null,
+                clips: i === 0 && initialClip ? [initialClip] : [],
                 x: 0,
                 y: 0,
                 width: 1,
@@ -680,7 +700,27 @@ export const useClipStore = create<ClipStore>((set, get) => ({
                         isPinned: false,
                         origin: 'manual',
                         locked: false
-                    }
+                    },
+                    clips: [{
+                        id: uuidv4(),
+                        mediaLibraryId: file.id,
+                        type: file.type,
+                        path: file.path,
+                        filename: file.filename,
+                        startFrame: 0,
+                        endFrame: gridDurationFrames,
+                        sourceDurationFrames: file.durationFrames,
+                        trimStartFrame: startTrim,
+                        trimEndFrame: endTrim,
+                        track: 1,
+                        speed: 1.0,
+                        volume: 100,
+                        reversed: false,
+                        isMuted: false,
+                        isPinned: false,
+                        origin: 'manual',
+                        locked: false
+                    }]
                 };
                 currentFileIndex++;
             }
@@ -723,9 +763,120 @@ export const useClipStore = create<ClipStore>((set, get) => ({
         });
     },
 
+    // ── Grid Cell Mini-Timeline Actions ──
+    addClipToGridCell: (gridId, cellId, clip) =>
+        set((state) => ({
+            clips: state.clips.map((c) => {
+                if (c.id === gridId && c.type === 'grid') {
+                    const grid = c as GridClip;
+                    return {
+                        ...grid,
+                        cells: grid.cells.map(cell =>
+                            cell.id === cellId
+                                ? { ...cell, clips: [...cell.clips, clip], clip: cell.clip || clip }
+                                : cell
+                        )
+                    };
+                }
+                return c;
+            })
+        })),
+
+    removeClipFromGridCell: (gridId, cellId, clipId) =>
+        set((state) => ({
+            clips: state.clips.map((c) => {
+                if (c.id === gridId && c.type === 'grid') {
+                    const grid = c as GridClip;
+                    return {
+                        ...grid,
+                        cells: grid.cells.map(cell => {
+                            if (cell.id !== cellId) return cell;
+                            const newClips = cell.clips.filter(cl => cl.id !== clipId);
+                            return { ...cell, clips: newClips, clip: newClips[0] || null };
+                        })
+                    };
+                }
+                return c;
+            })
+        })),
+
+    shuffleGridCellClips: (gridId, cellId) => set((state) => {
+        const grid = state.clips.find(c => c.id === gridId && c.type === 'grid') as GridClip;
+        if (!grid) return state;
+        const seed = useProjectStore.getState().settings.seed || generateSeed();
+        const rng = new SeededRandom(seed + cellId);
+        return {
+            clips: state.clips.map((c) => {
+                if (c.id !== gridId) return c;
+                const g = c as GridClip;
+                return {
+                    ...g,
+                    cells: g.cells.map(cell => {
+                        if (cell.id !== cellId || cell.clips.length < 2) return cell;
+                        const shuffled = rng.shuffle([...cell.clips]);
+                        return { ...cell, clips: shuffled, clip: shuffled[0] || null };
+                    })
+                };
+            })
+        };
+    }),
+
+    fluxGridCellClips: (gridId, cellId) => set((state) => {
+        const grid = state.clips.find(c => c.id === gridId && c.type === 'grid') as GridClip;
+        if (!grid) return state;
+        const seed = useProjectStore.getState().settings.seed || generateSeed();
+        const rng = new SeededRandom(seed + cellId + Date.now());
+        return {
+            clips: state.clips.map((c) => {
+                if (c.id !== gridId) return c;
+                const g = c as GridClip;
+                return {
+                    ...g,
+                    cells: g.cells.map(cell => {
+                        if (cell.id !== cellId) return cell;
+                        const fluxed = cell.clips.map(clip => {
+                            const src = clip.sourceDurationFrames || 150;
+                            const newTrimStart = Math.floor(rng.next() * src * 0.6);
+                            const maxLen = src - newTrimStart;
+                            const newLen = Math.max(30, Math.floor(rng.next() * maxLen));
+                            return {
+                                ...clip,
+                                trimStartFrame: newTrimStart,
+                                trimEndFrame: newTrimStart + newLen,
+                                speed: parseFloat((0.5 + rng.next() * 2.0).toFixed(2)),
+                            };
+                        });
+                        return { ...cell, clips: fluxed, clip: fluxed[0] || null };
+                    })
+                };
+            })
+        };
+    }),
+
+    globalFluxGrid: (gridId) => {
+        const grid = get().clips.find(c => c.id === gridId && c.type === 'grid') as GridClip;
+        if (!grid) return;
+        grid.cells.forEach(cell => {
+            if (cell.clips.length > 0) {
+                get().fluxGridCellClips(gridId, cell.id);
+            }
+        });
+    },
+
+    globalChaosGrid: (gridId) => {
+        get().shuffleGridItems(gridId);
+        get().globalFluxGrid(gridId);
+    },
+
     setTransitionStrategy: (transitionStrategy) => set({ transitionStrategy }),
 
     nukeLibrary: () => set({ clips: [], selectedClipIds: [], selectedSegment: null }),
+
+    // Track mute controls
+    setTrackMuted: (trackId, muted) => set((state) => ({
+        trackMutes: { ...state.trackMutes, [trackId]: muted }
+    })),
+    isTrackMuted: (trackId) => get().trackMutes[trackId] ?? false,
 
     setClipDuration: (id, durationInSeconds) => {
         set((state) => {
@@ -872,7 +1023,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
             });
             currentStartFrame += s1Dur;
 
-        } else if (styleName === 'rubber-band-zoom') {
+        } else if (styleName === 'rubber-band') {
             const availSrc = originalClip.trimEndFrame - originalClip.trimStartFrame;
             const halfSrc = Math.floor(availSrc / 2);
             const sDur = Math.floor((originalClip.endFrame - originalClip.startFrame) / 2);
@@ -882,7 +1033,6 @@ export const useClipStore = create<ClipStore>((set, get) => ({
                 ...baseClip, id: uuidv4(),
                 trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + halfSrc,
                 startFrame: currentStartFrame, endFrame: currentStartFrame + sDur, 
-                reversed: false, zoomStart: 100, zoomEnd: 150
             });
             currentStartFrame += sDur;
 
@@ -891,7 +1041,6 @@ export const useClipStore = create<ClipStore>((set, get) => ({
                 ...baseClip, id: uuidv4(),
                 trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + halfSrc,
                 startFrame: currentStartFrame, endFrame: currentStartFrame + sDur, 
-                reversed: true, zoomStart: 150, zoomEnd: 100
             });
             currentStartFrame += sDur;
 
@@ -905,7 +1054,6 @@ export const useClipStore = create<ClipStore>((set, get) => ({
                 ...baseClip, id: uuidv4(),
                 trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + s1SourceLen,
                 startFrame: currentStartFrame, endFrame: currentStartFrame + s1Dur, speed: s1Speed, reversed: false,
-                zoomStart: 100, zoomEnd: 110
             });
             currentStartFrame += s1Dur;
 
@@ -916,7 +1064,6 @@ export const useClipStore = create<ClipStore>((set, get) => ({
                 ...baseClip, id: uuidv4(),
                 trimStartFrame: originalClip.trimStartFrame + s1SourceLen, trimEndFrame: originalClip.trimStartFrame + s1SourceLen + s2SourceLen,
                 startFrame: currentStartFrame, endFrame: currentStartFrame + s2Dur, speed: s2Speed, reversed: false,
-                zoomStart: 110, zoomEnd: 160
             });
             currentStartFrame += s2Dur;
 
@@ -924,7 +1071,6 @@ export const useClipStore = create<ClipStore>((set, get) => ({
                 ...baseClip, id: uuidv4(),
                 trimStartFrame: originalClip.trimStartFrame + s1SourceLen, trimEndFrame: originalClip.trimStartFrame + s1SourceLen + s2SourceLen,
                 startFrame: currentStartFrame, endFrame: currentStartFrame + s2Dur, speed: s2Speed, reversed: true,
-                zoomStart: 160, zoomEnd: 110
             });
             currentStartFrame += s2Dur;
 
@@ -932,7 +1078,6 @@ export const useClipStore = create<ClipStore>((set, get) => ({
                 ...baseClip, id: uuidv4(),
                 trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + s1SourceLen,
                 startFrame: currentStartFrame, endFrame: currentStartFrame + s1Dur, speed: s1Speed, reversed: true,
-                zoomStart: 110, zoomEnd: 100
             });
             currentStartFrame += s1Dur;
 
@@ -972,7 +1117,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
             });
             currentStartFrame += sDur;
 
-        } else if (styleName === 'rubber-band-zoom-speed') {
+        } else if (styleName === 'rubber-band-speed') {
             const availSourceFrames = originalClip.trimEndFrame - originalClip.trimStartFrame;
             const s1SourceLen = Math.floor(availSourceFrames * 0.15);
             const s1Speed = 2.0;
@@ -981,7 +1126,6 @@ export const useClipStore = create<ClipStore>((set, get) => ({
                 ...baseClip, id: uuidv4(),
                 trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + s1SourceLen,
                 startFrame: currentStartFrame, endFrame: currentStartFrame + s1Dur, speed: s1Speed, reversed: false,
-                zoomStart: 100, zoomEnd: 110
             });
             currentStartFrame += s1Dur;
 
@@ -992,7 +1136,6 @@ export const useClipStore = create<ClipStore>((set, get) => ({
                 ...baseClip, id: uuidv4(),
                 trimStartFrame: originalClip.trimStartFrame + s1SourceLen, trimEndFrame: originalClip.trimStartFrame + s1SourceLen + s2SourceLen,
                 startFrame: currentStartFrame, endFrame: currentStartFrame + s2Dur, speed: s2Speed, reversed: false,
-                zoomStart: 110, zoomEnd: 160
             });
             currentStartFrame += s2Dur;
 
@@ -1000,7 +1143,6 @@ export const useClipStore = create<ClipStore>((set, get) => ({
                 ...baseClip, id: uuidv4(),
                 trimStartFrame: originalClip.trimStartFrame + s1SourceLen, trimEndFrame: originalClip.trimStartFrame + s1SourceLen + s2SourceLen,
                 startFrame: currentStartFrame, endFrame: currentStartFrame + s2Dur, speed: s2Speed, reversed: true,
-                zoomStart: 160, zoomEnd: 110
             });
             currentStartFrame += s2Dur;
 
@@ -1008,7 +1150,6 @@ export const useClipStore = create<ClipStore>((set, get) => ({
                 ...baseClip, id: uuidv4(),
                 trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + s1SourceLen,
                 startFrame: currentStartFrame, endFrame: currentStartFrame + s1Dur, speed: s1Speed, reversed: true,
-                zoomStart: 110, zoomEnd: 100
             });
             currentStartFrame += s1Dur;
 
@@ -1146,4 +1287,14 @@ export const useClipStore = create<ClipStore>((set, get) => ({
             console.error('[ClipStore] Audio analysis failed:', error);
         }
     },
+
+    // Track controls
+    setTrackMuted: (trackId, muted) => set((s) => ({
+        trackMutes: { ...s.trackMutes, [trackId]: muted },
+    })),
+    isTrackMuted: (trackId) => get().trackMutes[trackId] ?? false,
+    setTrackVolume: (trackId, volume) => set((s) => ({
+        trackVolumes: { ...s.trackVolumes, [trackId]: Math.max(0, Math.min(100, volume)) },
+    })),
+    getTrackVolume: (trackId) => get().trackVolumes[trackId] ?? 100,
 }));
