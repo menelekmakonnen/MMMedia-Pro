@@ -24,73 +24,30 @@ const TEMPLATES = [
 ];
 
 const STYLE_TEMPLATES = [
-    { id: 'music-video', name: 'Music Video', desc: 'Boomerangs, speed punches, drops', icon: Music,
-      mix: 'heavy' as const, styles: ['rubber-band', 'multi-boomerang', 'rubber-band-speed'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampSlowSpeed: 0.2, boomerangSlices: 4, reversalChance: 0.95, burstMode: 'short' as const } },
-    { id: 'action-reel', name: 'Action Reel', desc: 'Hard ramps + triple-shot intercuts', icon: Flame,
-      mix: 'heavy' as const, styles: ['rubber-band-standard', 'triple-shot', 'rubber-band-speed'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.5, rampSlowSpeed: 0.15, fastPortion: 0.1, slowPortion: 0.4, reversalChance: 1.0, burstMode: 'short' as const } },
-    { id: 'cinematic', name: 'Cinematic', desc: 'Elegant slow ramps + gentle drift', icon: Film,
-      mix: 'light' as const, styles: ['rubber-band-standard', 'rubber-band'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.8, rampSlowSpeed: 0.4, fastPortion: 0.2, slowPortion: 0.5, reversalChance: 0.7, burstMode: 'long' as const } },
-    { id: 'instagram', name: 'IG Reels', desc: 'Snappy boomerangs + speed drops', icon: Video,
-      mix: 'every' as const, styles: ['multi-boomerang', 'rubber-band'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.3, boomerangSlices: 4, reversalChance: 0.9, burstMode: 'short' as const } },
-    { id: 'whiplash', name: 'Whiplash', desc: 'Extreme speed contrast on every clip', icon: Zap,
+    { id: 'snap-viral', name: 'Snap Viral', desc: 'Retention-first: snap bursts + pattern interrupts', icon: Zap,
+      mix: 'every' as const, styles: ['snap-burst', 'pattern-interrupt', 'hyper-cut'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.5, rampSlowSpeed: 0.15, fastPortion: 0.1, slowPortion: 0.3, boomerangSlices: 4, reversalChance: 0.9, burstMode: 'short' as const } },
+    { id: 'beat-locked', name: 'Beat Locked', desc: 'Pure beat-synced bounces + speed drops', icon: Music,
+      mix: 'heavy' as const, styles: ['beat-bounce', 'rubber-band-speed', 'snap-burst'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.25, fastPortion: 0.12, slowPortion: 0.35, boomerangSlices: 4, reversalChance: 0.85, burstMode: 'short' as const } },
+    { id: 'whiplash-pro', name: 'Whiplash', desc: 'Extreme speed contrast: fast↔ultra-slow', icon: Flame,
       mix: 'every' as const, styles: ['rubber-band-standard', 'rubber-band-speed', 'triple-shot'] as EditingStyleOption[],
       config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 4.0, rampSlowSpeed: 0.1, fastPortion: 0.08, slowPortion: 0.45, reversalChance: 1.0, burstMode: 'short' as const } },
-    { id: 'dreamy', name: 'Dreamy', desc: 'Slow drifts with reversed flows', icon: Sparkles,
-      mix: 'heavy' as const, styles: ['rubber-band', 'rubber-band-standard'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.5, rampSlowSpeed: 0.15, fastPortion: 0.25, slowPortion: 0.5, reversalChance: 1.0, burstMode: 'long' as const } },
-    { id: 'film-noir', name: 'Film Noir', desc: 'Slow reveals, dramatic pacing', icon: Camera,
-      mix: 'light' as const, styles: ['rubber-band', 'rubber-band-standard'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.3, rampSlowSpeed: 0.2, fastPortion: 0.3, slowPortion: 0.5, reversalChance: 0.5, burstMode: 'long' as const } },
-    { id: 'pulse-drop', name: 'Pulse Drop', desc: 'Beat-sync speed drops + punches', icon: Heart,
-      mix: 'heavy' as const, styles: ['rubber-band-speed', 'rubber-band-standard', 'multi-boomerang'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.1, fastPortion: 0.12, slowPortion: 0.35, reversalChance: 0.85, burstMode: 'short' as const } },
-    { id: 'stutter-cut', name: 'Stutter Cut', desc: 'Rapid micro-boomerangs + hard cuts', icon: Scissors,
-      mix: 'every' as const, styles: ['multi-boomerang', 'triple-shot'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 2.5, rampSlowSpeed: 0.3, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' as const } },
-    { id: 'tiktok', name: 'TikTok Chaos', desc: 'Everything at once, maximum energy', icon: Zap,
-      mix: 'every' as const, styles: ['multi-boomerang', 'rubber-band-speed', 'triple-shot', 'rubber-band'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.8, rampSlowSpeed: 0.15, fastPortion: 0.1, slowPortion: 0.3, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' as const } },
-    { id: 'sports-hype', name: 'Sports Hype', desc: 'Speed ramps + triple-shot energy', icon: Dumbbell,
-      mix: 'heavy' as const, styles: ['rubber-band-speed', 'triple-shot'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.5, rampSlowSpeed: 0.2, fastPortion: 0.15, slowPortion: 0.35, reversalChance: 0.95, burstMode: 'short' as const } },
-    { id: 'retro-vhs', name: 'Retro VHS', desc: 'Loose boomerangs + slow ramps', icon: Film,
-      mix: 'light' as const, styles: ['multi-boomerang', 'rubber-band'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.6, rampSlowSpeed: 0.4, fastPortion: 0.2, slowPortion: 0.4, boomerangSlices: 3, reversalChance: 0.6, burstMode: 'long' as const } },
-    { id: 'asmr-flow', name: 'ASMR Flow', desc: 'Ultra-slow drifts, minimal cuts', icon: Sparkles,
-      mix: 'light' as const, styles: ['rubber-band'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.3, rampSlowSpeed: 0.15, fastPortion: 0.05, slowPortion: 0.6, reversalChance: 0.3, burstMode: 'long' as const } },
-    { id: 'concert-live', name: 'Concert Live', desc: 'Beat-locked punches + boomerangs', icon: Music,
-      mix: 'every' as const, styles: ['rubber-band-speed', 'multi-boomerang'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.2, rampSlowSpeed: 0.25, fastPortion: 0.12, slowPortion: 0.3, boomerangSlices: 4, reversalChance: 0.9, burstMode: 'short' as const } },
-    { id: 'beat-bounce', name: 'Beat Bounce', desc: 'Viral IG bounce — forward/reverse on beats', icon: ArrowLeftRight,
-      mix: 'every' as const, styles: ['beat-bounce'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.0, rampSlowSpeed: 0.4, fastPortion: 0.05, slowPortion: 0.15, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' as const } },
-    { id: 'travel-montage', name: 'Travel Montage', desc: 'Gentle ramps + dreamy drifts', icon: Globe,
-      mix: 'heavy' as const, styles: ['rubber-band-standard', 'rubber-band'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.6, rampSlowSpeed: 0.3, fastPortion: 0.1, slowPortion: 0.45, reversalChance: 0.65, burstMode: 'long' as const } },
-    { id: 'horror-tension', name: 'Horror Tension', desc: 'Hard reversals + glitch-like stutter', icon: Zap,
-      mix: 'heavy' as const, styles: ['rubber-band-standard', 'triple-shot', 'multi-boomerang'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.12, fastPortion: 0.08, slowPortion: 0.5, boomerangSlices: 3, reversalChance: 1.0, burstMode: 'short' as const } },
-    // â”€â”€ 2026 VIRAL STYLES â”€â”€
-    { id: 'viral-hook', name: 'Viral Hook', desc: 'Snap-speeds + pattern interrupts + hyper-cuts', icon: Zap,
-      mix: 'every' as const, styles: ['snap-burst', 'pattern-interrupt', 'hyper-cut'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.5, rampSlowSpeed: 0.15, boomerangSlices: 4, reversalChance: 0.9, burstMode: 'short' as const } },
-    { id: 'bear-style', name: 'The Bear', desc: 'Immersive chaos â€” tight crops + speed variation', icon: Flame,
-      mix: 'heavy' as const, styles: ['bear-chaos', 'hyper-cut', 'triple-shot'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.2, reversalChance: 0.8, burstMode: 'short' as const } },
-    { id: 'pendulum-flow', name: 'Pendulum Flow', desc: 'Floating hover + gentle sway', icon: Sparkles,
-      mix: 'heavy' as const, styles: ['pendulum-sway', 'rubber-band'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.5, rampSlowSpeed: 0.3, reversalChance: 0.6, burstMode: 'long' as const } },
-    { id: 'retention-max', name: 'Max Retention', desc: 'Pattern interrupts + speed bursts + boomerangs', icon: Zap,
-      mix: 'every' as const, styles: ['pattern-interrupt', 'snap-burst', 'multi-boomerang', 'hyper-cut'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.8, rampSlowSpeed: 0.1, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' as const } },
-    { id: 'clean-viral', name: 'Clean Viral', desc: 'Minimal chaos â€” pendulum + light snap zooms', icon: Camera,
-      mix: 'light' as const, styles: ['pendulum-sway', 'snap-burst'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 2.0, rampSlowSpeed: 0.3, reversalChance: 0.4, burstMode: 'long' as const } },
+    { id: 'cinematic-ramp', name: 'Cinematic Ramp', desc: 'Elegant hero slow-mo + gentle speed ramps', icon: Film,
+      mix: 'light' as const, styles: ['rubber-band-standard', 'rubber-band'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.8, rampSlowSpeed: 0.35, fastPortion: 0.15, slowPortion: 0.5, reversalChance: 0.5, burstMode: 'long' as const } },
+    { id: 'chaos-engine', name: 'Chaos Engine', desc: 'Every style at once, maximum density', icon: Sparkles,
+      mix: 'every' as const, styles: ['snap-burst', 'hyper-cut', 'multi-boomerang', 'pattern-interrupt', 'triple-shot', 'bear-chaos'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.8, rampSlowSpeed: 0.12, fastPortion: 0.1, slowPortion: 0.25, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' as const } },
+    { id: 'pendulum-drift', name: 'Pendulum Drift', desc: 'Floating sway + gentle boomerangs', icon: ArrowLeftRight,
+      mix: 'heavy' as const, styles: ['pendulum-sway', 'rubber-band', 'multi-boomerang'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.5, rampSlowSpeed: 0.3, fastPortion: 0.1, slowPortion: 0.45, reversalChance: 0.6, burstMode: 'long' as const } },
+    { id: 'stutter-punch', name: 'Stutter Punch', desc: 'Rapid micro-boomerangs + triple-shot intercuts', icon: Scissors,
+      mix: 'every' as const, styles: ['multi-boomerang', 'triple-shot', 'hyper-cut'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.2, rampSlowSpeed: 0.25, fastPortion: 0.12, slowPortion: 0.3, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' as const } },
+    { id: 'bear-mode', name: 'Bear Mode', desc: 'Immersive chaos — tight crops + speed variation', icon: Camera,
+      mix: 'heavy' as const, styles: ['bear-chaos', 'hyper-cut', 'rubber-band-speed'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.2, fastPortion: 0.15, slowPortion: 0.35, reversalChance: 0.8, burstMode: 'short' as const } },
     { id: 'none', name: 'None', desc: 'No style injection', icon: Settings2, mix: 'none' as const, styles: [] as EditingStyleOption[], config: DEFAULT_STYLE_CONFIG },
     { id: 'custom-style', name: 'Custom', desc: 'Manual config', icon: SlidersHorizontal, mix: null, styles: null, config: null },
 ];
@@ -103,7 +60,6 @@ const GODMODE_TIERS = [
 ] as const;
 
 const GODMODE_PRESETS = [
-    // â”€â”€ Simple / Minimal â”€â”€
     { id: 'gm-clean-cut', name: 'Clean Cut', icon: Scissors, desc: 'Precise hard cuts, no effects',
       pacing: 'montage', style: 'none', duration: 30, tier: 0 },
     { id: 'gm-slideshow', name: 'Elegant Hold', icon: Monitor, desc: 'Long cinematic holds, zero noise',
@@ -114,47 +70,44 @@ const GODMODE_PRESETS = [
       pacing: 'social', style: 'none', duration: 15, tier: 0 },
     { id: 'gm-dynamic-intro', name: 'Dynamic Intro', icon: ArrowLeftRight, desc: 'Builds momentum, no effects',
       pacing: 'dynamic', style: 'none', duration: 20, tier: 0 },
-    // â”€â”€ Moderate â”€â”€
     { id: 'gm-gentle-flow', name: 'Gentle Flow', icon: Camera, desc: 'Soft cinematic drifts, slow pace',
-      pacing: 'filmscore', style: 'cinematic', duration: 60, tier: 1 },
+      pacing: 'filmscore', style: 'cinematic-ramp', duration: 60, tier: 1 },
     { id: 'gm-wedding', name: 'Wedding Film', icon: Heart, desc: 'Slow ramps + gentle pacing',
-      pacing: 'wedding', style: 'cinematic', duration: 45, tier: 1 },
+      pacing: 'wedding', style: 'cinematic-ramp', duration: 45, tier: 1 },
     { id: 'gm-montage-mix', name: 'Montage Mix', icon: Clapperboard, desc: 'Mixed cuts, tasteful rubber-band',
-      pacing: 'montage', style: 'cinematic', duration: 30, tier: 1 },
+      pacing: 'montage', style: 'cinematic-ramp', duration: 30, tier: 1 },
     { id: 'gm-travel-diary', name: 'Travel Diary', icon: Globe, desc: 'Dreamy pacing + warm tones',
-      pacing: 'vlog', style: 'dreamy', duration: 30, tier: 1 },
+      pacing: 'vlog', style: 'pendulum-drift', duration: 30, tier: 1 },
     { id: 'gm-golden-hour', name: 'Golden Hour', icon: Sparkles, desc: 'Sunset vibes, slow reveals',
-      pacing: 'filmscore', style: 'dreamy', duration: 45, tier: 1 },
+      pacing: 'filmscore', style: 'pendulum-drift', duration: 45, tier: 1 },
     { id: 'gm-noir', name: 'Film Noir', icon: Film, desc: 'Dark drama, slow crawl zooms',
-      pacing: 'filmscore', style: 'film-noir', duration: 90, tier: 1 },
-    // â”€â”€ High Energy â”€â”€
+      pacing: 'filmscore', style: 'cinematic-ramp', duration: 90, tier: 1 },
     { id: 'gm-music-video', name: 'Music Video', icon: Music, desc: 'Beat-locked energy + boomerangs',
-      pacing: 'social', style: 'music-video', duration: 30, tier: 2 },
+      pacing: 'social', style: 'beat-locked', duration: 30, tier: 2 },
     { id: 'gm-action-trailer', name: 'Action Trailer', icon: Flame, desc: 'Hard ramps + triple-shot energy',
-      pacing: 'epic', style: 'action-reel', duration: 60, tier: 2 },
+      pacing: 'epic', style: 'stutter-punch', duration: 60, tier: 2 },
     { id: 'gm-instagram', name: 'Reels Banger', icon: Video, desc: 'Snappy speed drops + boomerangs',
-      pacing: 'social', style: 'instagram', duration: 15, tier: 2 },
+      pacing: 'social', style: 'beat-locked', duration: 15, tier: 2 },
     { id: 'gm-hyperlapse', name: 'Hyperlapse Rush', icon: Camera, desc: 'Relentless flow + pulse drops',
-      pacing: 'hyperlapse', style: 'pulse-drop', duration: 20, tier: 2 },
+      pacing: 'hyperlapse', style: 'stutter-punch', duration: 20, tier: 2 },
     { id: 'gm-gym-pump', name: 'Gym Pump', icon: Dumbbell, desc: 'Athletic ramps + beat punches',
-      pacing: 'gym', style: 'sports-hype', duration: 20, tier: 2 },
+      pacing: 'gym', style: 'stutter-punch', duration: 20, tier: 2 },
     { id: 'gm-concert', name: 'Concert Edit', icon: Music, desc: 'Beat-locked zoom + boomerangs',
-      pacing: 'kinetic', style: 'concert-live', duration: 30, tier: 2 },
+      pacing: 'kinetic', style: 'beat-locked', duration: 30, tier: 2 },
     { id: 'gm-sports', name: 'Sports Hype', icon: Dumbbell, desc: 'Speed ramps + triple-shot intercuts',
-      pacing: 'social', style: 'sports-hype', duration: 15, tier: 2 },
+      pacing: 'social', style: 'stutter-punch', duration: 15, tier: 2 },
     { id: 'gm-beat-bounce', name: 'Beat Bounce', icon: ArrowLeftRight, desc: 'Viral IG bounce — shot swap on beats',
-      pacing: 'social', style: 'beat-bounce', duration: 15, tier: 2 },
-    // â”€â”€ Maximum Chaos â”€â”€
+      pacing: 'social', style: 'beat-locked', duration: 15, tier: 2 },
     { id: 'gm-tiktok', name: 'TikTok Viral', icon: Zap, desc: 'Full chaos, every effect stacked',
-      pacing: 'kinetic', style: 'tiktok', duration: 10, tier: 3 },
+      pacing: 'kinetic', style: 'chaos-engine', duration: 10, tier: 3 },
     { id: 'gm-whiplash', name: 'Whiplash', icon: Flame, desc: 'Extreme speed contrast, zero mercy',
-      pacing: 'kinetic', style: 'whiplash', duration: 15, tier: 3 },
+      pacing: 'kinetic', style: 'whiplash-pro', duration: 15, tier: 3 },
     { id: 'gm-stutter-storm', name: 'Stutter Storm', icon: Sparkles, desc: 'Rapid micro-boomerangs everywhere',
-      pacing: 'kinetic', style: 'stutter-cut', duration: 10, tier: 3 },
+      pacing: 'kinetic', style: 'stutter-punch', duration: 10, tier: 3 },
     { id: 'gm-sensory-overload', name: 'Sensory Overload', icon: Zap, desc: 'All effects + hyperlapse pacing',
-      pacing: 'hyperlapse', style: 'tiktok', duration: 15, tier: 3 },
+      pacing: 'hyperlapse', style: 'chaos-engine', duration: 15, tier: 3 },
     { id: 'gm-glitch-out', name: 'Glitch Out', icon: Flame, desc: 'Stutter + whiplash + reverse chaos',
-      pacing: 'kinetic', style: 'horror-tension', duration: 12, tier: 3 },
+      pacing: 'kinetic', style: 'whiplash-pro', duration: 12, tier: 3 },
 ];
 
 interface SliderProps {
@@ -186,19 +139,15 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
     const { files, orientationFilter, setOrientationFilter, selectedFileIds, preloadedAudioPath, preloadedAudioName, setPreloadedAudio } = useMediaStore();
     const { incrementTemplate, incrementStyle, incrementGodMode, togglePinTemplate, togglePinStyle, togglePinGodMode, pinnedTemplates, pinnedStyles, pinnedGodModes, getTopTemplates, getTopStyles, getTopGodModes, templateUsage, styleUsage, godModeUsage } = usePresetUsageStore();
 
-    // Smart-Preset: compute top-5 visible presets (pinned first, then by usage)
     const topTemplateIds = useMemo(() => getTopTemplates(5), [templateUsage, pinnedTemplates]);
     const topStyleIds = useMemo(() => getTopStyles(5), [styleUsage, pinnedStyles]);
     const topGodModeIds = useMemo(() => getTopGodModes(5), [godModeUsage, pinnedGodModes]);
 
-    // Restore persisted settings from localStorage on mount
-    // NOTE: Audio/music keys are excluded from persistence â€” they are session-only.
     const [settings, setSettings] = useState<TrailerSettings>(() => {
         try {
             const saved = localStorage.getItem('mmm_trailer_settings');
             if (saved) {
                 const parsed = JSON.parse(saved);
-                // Strip transient audio keys so they don't leak from a previous session
                 delete parsed.audioFile;
                 delete parsed.audioUrl;
                 delete parsed.audioFilePath;
@@ -216,7 +165,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
     const [audioPlaying, setAudioPlaying] = useState(false);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-    // ── GODMODE + AUDIO STATE: Read from Zustand store (survives navigation) ──
     const gmStore = useGodModeStore();
     const godMode = gmStore.enabled;
     const setGodMode = (v: boolean) => gmStore.setEnabled(v);
@@ -240,23 +188,17 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
     const waveformRef = useRef<HTMLCanvasElement>(null);
     const bestSegmentCycleRef = useRef<Record<number, number>>({});
 
-    // Audio interaction state
     const [isDragging, setIsDragging] = useState<'start' | 'end' | 'move' | null>(null);
     const [dragStartPos, setDragStartPos] = useState<number>(0);
     const [audioCurrentTime, setAudioCurrentTime] = useState<number>(0);
     const [analysisToast, setAnalysisToast] = useState<boolean>(false);
     const waveformWrapperRef = useRef<HTMLDivElement>(null);
 
-    // ── GODMODE STORE: State lives in Zustand, no hydration needed ──
-    // The store IS the state now. When user navigates wizard→player→wizard,
-    // all GodMode/audio state persists automatically in the Zustand store.
-    // On mount, sync store audio state into the settings object for generation.
     const mountSynced = useRef(false);
     useEffect(() => {
         if (mountSynced.current) return;
         mountSynced.current = true;
         const gm = useGodModeStore.getState();
-        // Sync audio state from store into settings for generation
         if (gm.useAudioGuide && gm.audioUrl) {
             update({
                 useAudioGuide: true, audioFile: gm.audioFile, audioUrl: gm.audioUrl,
@@ -264,11 +206,9 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                 audioTrimStart: gm.audioTrimStart, audioTrimEnd: gm.audioTrimEnd,
             });
         }
-        // Sync transition state from store
         if (gm.transitionsEnabled !== undefined) {
             update({ transitionsEnabled: gm.transitionsEnabled, transitionPreset: gm.transitionPreset });
         }
-        // If returning from player with lastGeneratedSettings, restore wizard settings
         const last = gm.lastGeneratedSettings;
         if (last) {
             const VIBE_REVERSE: Record<string, string> = {
@@ -286,13 +226,10 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
     }, []);
 
 
-    // â”€â”€ AUTO-LOAD PRELOADED AUDIO FROM MEDIA LIBRARY â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    // When audio is uploaded in MediaManager, it's stored in preloadedAudioPath.
-    // On mount (or when preloadedAudioPath changes), auto-load it into the Beat Engine.
     const preloadConsumedRef = useRef(false);
     useEffect(() => {
         if (preloadConsumedRef.current) return;
-        if (!preloadedAudioPath || settings.useAudioGuide) return; // Don't override existing audio
+        if (!preloadedAudioPath || settings.useAudioGuide) return;
         preloadConsumedRef.current = true;
 
         const url = `file://${preloadedAudioPath}`;
@@ -304,16 +241,13 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
             useAudioGuide: true,
         });
 
-        // Clear preloaded state so it doesn't re-trigger
         setPreloadedAudio(null, null);
     }, [preloadedAudioPath]);
 
-    // Persist settings to localStorage (excluding transient audio keys)
     const TRANSIENT_KEYS = new Set(['audioFile', 'audioUrl', 'audioFilePath', 'useAudioGuide', 'audioTrimStart', 'audioTrimEnd', 'audioAnalysis']);
     const update = (patch: Partial<TrailerSettings>) => setSettings(s => {
         const next = { ...s, ...patch };
         try {
-            // Strip audio/music keys before persisting â€” they are session-only
             const persistable = { ...next };
             for (const key of TRANSIENT_KEYS) delete (persistable as any)[key];
             localStorage.setItem('mmm_trailer_settings', JSON.stringify(persistable));
@@ -321,7 +255,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
         return next;
     });
 
-    // Media selection: if files are selected in the library, only count those
     const activePool = selectedFileIds.length > 0
         ? files.filter(f => selectedFileIds.includes(f.id))
         : files;
@@ -332,14 +265,11 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
     const sqCount = activePool.filter(f => f.orientation === 'square').length;
     const hasMediaSelection = selectedFileIds.length > 0;
 
-    // Filtered pool count (respects orientation filter)
     const filteredVideoCount = orientationFilter === 'all'
         ? videoCount
         : activePool.filter(f => f.type === 'video' && f.orientation === orientationFilter).length;
 
     const handleAudioUpload = async () => {
-        // Use IPC file picker (same as MediaManager) to get the real filesystem path.
-        // Native <input type="file"> gives blob URLs because contextIsolation strips File.path.
         if (!window.ipcRenderer?.selectFiles) {
             console.error('[TrailerWizard] IPC not available for audio picker');
             return;
@@ -348,13 +278,12 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
         if (!result.success || !result.files?.length) return;
 
         const picked = result.files[0];
-        const filePath = picked.path; // Real filesystem path from Electron main process
+        const filePath = picked.path;
         const url = `file://${filePath}`;
 
         if (audioUrl && audioUrl.startsWith('blob:')) URL.revokeObjectURL(audioUrl);
-        setAudioFile(null); // No File object from IPC, but we don't need one
+        setAudioFile(null);
         setAudioUrl(url);
-        // Store raw filesystem path globally for export fallback
         (window as any).__godModeAudioFilePath = filePath;
         gmStore.setAudioGuide({ useAudioGuide: true, audioFile: picked.filename, audioUrl: url, audioFilePath: filePath });
         update({ audioFile: picked.filename, audioUrl: url, audioFilePath: filePath, useAudioGuide: true });
@@ -362,7 +291,7 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
 
     const handleAudioLoaded = () => {
         const dur = audioRef.current?.duration || 0;
-        setAudioTrimEnd(dur); // Default to full audio on load
+        setAudioTrimEnd(dur);
         update({ audioTrimStart: 0, audioTrimEnd: dur });
     };
 
@@ -378,7 +307,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
         setIsAnalyzing(true);
         try {
             const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-            // Fetch audio data from the file:// URL (or blob: URL)
             const response = await fetch(audioUrl);
             const buf = await response.arrayBuffer();
             const decoded = await ctx.decodeAudioData(buf);
@@ -386,7 +314,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
             setAudioAnalysis(result);
             update({ audioAnalysis: result });
             
-            // Slightly random start to simulate re-analysis variations
             const dropSeg = result.segments.find(s => s.type === 'drop');
             if (dropSeg) {
                 const start = Math.max(0, dropSeg.start - (Math.random() * 2));
@@ -421,7 +348,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
         setAudioPlaying(false);
     };
 
-    // Track audio time
     useEffect(() => {
         if (!audioRef.current || !audioPlaying) return;
         let raf: number;
@@ -443,7 +369,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
         return () => cancelAnimationFrame(raf);
     }, [audioPlaying, audioTrimEnd, audioTrimStart]);
 
-    // Global Mouse Handlers for Dragging
     useEffect(() => {
         if (!isDragging || !audioAnalysis || !waveformWrapperRef.current) return;
         
@@ -478,20 +403,16 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
         };
     }, [isDragging, audioAnalysis, audioTrimStart, audioTrimEnd, dragStartPos]);
 
-    // Intelligent Segment Selection: auto-pick best segment matching target duration
     const autoSelectBestSegment = (targetDur: number) => {
         if (!audioAnalysis || audioAnalysis.segments.length === 0) return;
         const segs = audioAnalysis.segments;
-        // Priority: drop > chorus > buildup > verse > bridge > intro > breakdown > outro
         const priority: Record<string, number> = { drop: 8, chorus: 7, buildup: 6, verse: 5, bridge: 4, intro: 3, breakdown: 2, outro: 1 };
-        // Score each segment by energy * priority
         const scored = segs.map(s => ({
             ...s,
             score: (priority[s.type] || 1) * s.avgEnergy,
             dur: s.end - s.start,
         })).sort((a, b) => b.score - a.score);
 
-        // Cycle through candidates on repeated clicks
         const cycleKey = targetDur;
         const prevIdx = bestSegmentCycleRef.current[cycleKey] ?? -1;
         const nextIdx = (prevIdx + 1) % scored.length;
@@ -499,7 +420,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
 
         const best = scored[nextIdx];
         if (best) {
-            // Center the target duration around this segment
             const segMid = (best.start + best.end) / 2;
             const halfDur = targetDur / 2;
             const start = Math.max(0, Math.min(segMid - halfDur, audioAnalysis.duration - targetDur));
@@ -510,36 +430,27 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
         }
     };
 
-    // Click a specific segment â€” additive: expand trim range to include it, or remove it
-    // â”€â”€ BEATâ†”DURATION SYNC: segment clicks also update Target Duration â”€â”€
     const handleSegmentClick = (seg: { start: number; end: number }) => {
-        // Check if segment is already within current trim range
         const isIncluded = audioTrimStart <= seg.start && audioTrimEnd >= seg.end;
         if (isIncluded) {
-            // Deselect: contract range to exclude this segment (find next best bounds)
             if (!audioAnalysis) return;
-            // Find all segments still selected (excluding this one)
             const remaining = audioAnalysis.segments.filter(s => {
                 if (s.start === seg.start && s.end === seg.end) return false;
                 return audioTrimStart <= s.start && audioTrimEnd >= s.end;
             });
             if (remaining.length === 0) {
-                // Nothing left, reset
                 setAudioTrimStart(0); setAudioTrimEnd(30);
                 update({ audioTrimStart: 0, audioTrimEnd: 30, targetDuration: 30 });
             } else {
                 const newStart = Math.min(...remaining.map(r => r.start));
                 const newEnd = Math.max(...remaining.map(r => r.end));
                 setAudioTrimStart(newStart); setAudioTrimEnd(newEnd);
-                // Sync target duration to new selection range
                 update({ audioTrimStart: newStart, audioTrimEnd: newEnd, targetDuration: Math.round(newEnd - newStart) });
             }
         } else {
-            // Add: expand range to include this segment
             const newStart = Math.min(audioTrimStart, seg.start);
             const newEnd = Math.max(audioTrimEnd, seg.end);
             setAudioTrimStart(newStart); setAudioTrimEnd(newEnd);
-            // Sync target duration to expanded range
             update({ audioTrimStart: newStart, audioTrimEnd: newEnd, targetDuration: Math.round(newEnd - newStart) });
         }
     };
@@ -550,7 +461,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
             audioTrimStart, audioTrimEnd
         };
 
-        // Smart-Preset: track which presets were used
         if (settings.templates?.length > 0) {
             settings.templates.forEach(t => incrementTemplate(t));
         }
@@ -566,38 +476,33 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
             incrementGodMode(godModeVibe);
         }
 
-        // Persist settings for return trip
         gmStore.setAutoGenerate(finalSettings);
         onGenerate(finalSettings);
     };
 
     const handleTemplateSelect = (tmpl: typeof TEMPLATES[0], e?: React.MouseEvent) => {
         if (e && (e.ctrlKey || e.metaKey)) {
-            // Chaos mode multi-select
             let next = [...settings.templates];
             if (next.includes(tmpl.id)) {
                 next = next.filter(id => id !== tmpl.id);
-                if (next.length === 0) next = [tmpl.id]; // Keep at least one
+                if (next.length === 0) next = [tmpl.id];
             } else {
                 next.push(tmpl.id);
             }
-            // Update settings using the first selected template's settings, but keep all IDs
             const baseSettings = TEMPLATES.find(t => t.id === next[0])?.settings || {};
             update({ templates: next, ...baseSettings });
         } else {
-            // Single select
             if (tmpl.settings) update({ templates: [tmpl.id], ...tmpl.settings });
             else update({ templates: ['custom'] });
         }
     };
 
-    // â”€â”€ VIBE â†’ SETTINGS AUTO-DEDUCTION ENGINE â”€â”€
     const VIBE_MAP: Record<string, { pacing: string; style: string; hook: 'none' | 'snap-speed' | 'pattern-interrupt' | 'speed-freeze' | 'auto'; retention: boolean; loop: boolean; texture: 'none' | 'grain' | 'vintage' | 'chromatic' | 'motion-blur'; transitionsEnabled: boolean; transitionPreset: string }> = {
         'clean': { pacing: 'montage', style: 'none', hook: 'none', retention: false, loop: false, texture: 'none', transitionsEnabled: false, transitionPreset: 'hard-cuts' },
-        'cinematic': { pacing: 'filmscore', style: 'cinematic', hook: 'speed-freeze', retention: false, loop: false, texture: 'grain', transitionsEnabled: true, transitionPreset: 'cinematic' },
-        'high-energy': { pacing: 'social', style: 'music-video', hook: 'snap-speed', retention: false, loop: false, texture: 'none', transitionsEnabled: true, transitionPreset: 'whip-pan' },
-        'chaos': { pacing: 'kinetic', style: 'retention-max', hook: 'pattern-interrupt', retention: true, loop: true, texture: 'chromatic', transitionsEnabled: true, transitionPreset: 'viral' },
-        'viral': { pacing: 'social', style: 'viral-hook', hook: 'auto', retention: true, loop: true, texture: 'none', transitionsEnabled: true, transitionPreset: 'snap-cut' },
+        'cinematic': { pacing: 'filmscore', style: 'cinematic-ramp', hook: 'speed-freeze', retention: false, loop: false, texture: 'grain', transitionsEnabled: true, transitionPreset: 'cinematic' },
+        'high-energy': { pacing: 'social', style: 'beat-locked', hook: 'snap-speed', retention: false, loop: false, texture: 'none', transitionsEnabled: true, transitionPreset: 'whip-pan' },
+        'chaos': { pacing: 'kinetic', style: 'chaos-engine', hook: 'pattern-interrupt', retention: true, loop: true, texture: 'chromatic', transitionsEnabled: true, transitionPreset: 'viral' },
+        'viral': { pacing: 'social', style: 'snap-viral', hook: 'auto', retention: true, loop: true, texture: 'none', transitionsEnabled: true, transitionPreset: 'snap-cut' },
     };
 
     const handleVibeGenerate = () => {
@@ -606,7 +511,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
         if (!vibe) return;
         const pacingTmpl = TEMPLATES.find(t => t.id === vibe.pacing);
         const styleTmpl = STYLE_TEMPLATES.find(t => t.id === vibe.style);
-        // When audio guide is active, duration MUST match the selected audio segment
         const effectiveDuration = settings.useAudioGuide
             ? Math.round(audioTrimEnd - audioTrimStart)
             : godModeDuration;
@@ -667,7 +571,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
     return (
         <div className="w-full h-full overflow-y-auto custom-scrollbar">
             <div className="max-w-4xl mx-auto p-8 flex flex-col gap-8">
-                {/* Header */}
                 <div className="flex items-center gap-3">
                     <div className="p-2 bg-gradient-to-br from-purple-500 to-blue-600 rounded-lg shadow-lg">
                         <Wand2 size={20} className="text-white drop-shadow-md" />
@@ -680,7 +583,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     </div>
                 </div>
 
-                {/* Pool Stats + Orientation Filter (unified) */}
                 <div className="bg-black/40 rounded-xl border border-white/5 p-4 relative overflow-hidden space-y-4">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 blur-[50px] pointer-events-none rounded-full" />
                     <div>
@@ -720,7 +622,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     )}
                 </div>
 
-                {/* ═══ GOD MODE (directly under Media Pool) ═══ */}
                 <div className="border rounded-xl overflow-hidden transition-all" style={{ borderColor: godMode ? 'rgba(234,179,8,0.3)' : 'rgba(255,255,255,0.05)' }}>
                     <button onClick={() => setGodMode(!godMode)}
                         className={clsx("w-full flex items-center justify-between p-4 transition-all",
@@ -779,7 +680,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                 </div>
                             </div>
 
-                            {/* ── Music Selection (inside Godmode) ── */}
                             <div className="border border-yellow-500/10 rounded-xl bg-black/20 p-4 space-y-3">
                                 <div className="flex items-center gap-2">
                                     <Music size={14} className={settings.useAudioGuide ? "text-purple-400" : "text-white/40"} />
@@ -870,7 +770,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                 )}
                             </div>
 
-                            {/* ── STEP 1: What's the Vibe? ── */}
                             <div className="space-y-2">
                                 <div className="text-[9px] font-black uppercase tracking-widest text-yellow-300/60">Step 1 — What's the vibe?</div>
                                 <div className="grid grid-cols-5 gap-2">
@@ -894,7 +793,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                 </div>
                             </div>
 
-                            {/* ── STEP 2: Generate Button ── */}
                             {godModeVibe && (
                                 <motion.button
                                     initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
@@ -907,7 +805,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                 </motion.button>
                             )}
 
-                            {/* ── Transitions (inside GodMode) ── */}
                             <div className="border border-yellow-500/10 rounded-xl bg-black/20 p-3 space-y-3">
                                 <div className="flex items-center justify-between">
                                     <label className="text-[10px] font-black uppercase tracking-widest text-yellow-100/60 flex items-center gap-2">
@@ -935,14 +832,12 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                 )}
                             </div>
 
-                            {/* ── Advanced Toggle ── */}
                             <button onClick={() => setGodModeAdvanced(!godModeAdvanced)}
                                 className="flex items-center gap-2 text-[9px] font-bold text-white/30 hover:text-white/50 transition-colors uppercase tracking-wider">
                                 {godModeAdvanced ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                                 {godModeAdvanced ? 'Hide' : 'Show'} Advanced Presets
                             </button>
 
-                            {/* ── Preset Grid (Advanced) ── */}
                             {godModeAdvanced && GODMODE_TIERS.map((tier, tierIdx) => {
                                 const tierPresets = GODMODE_PRESETS.filter(p => p.tier === tierIdx);
                                 if (tierPresets.length === 0) return null;
@@ -983,7 +878,7 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                         </div>
                     )}
                 </div>
-                {/* ── BEAT INTELLIGENCE ENGINE ── */}
+                
                 <div className="border border-white/5 rounded-xl bg-black/20 p-5 space-y-4">
                     <div className="flex items-center gap-2">
                         <Music size={16} className={settings.useAudioGuide ? "text-purple-400" : "text-white/40"} />
@@ -1003,7 +898,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                         </motion.button>
                     ) : (
                         <div className="space-y-4">
-                            {/* Player Row */}
                             <div className="flex items-center justify-between bg-white/5 p-3 rounded-lg border border-white/10 relative overflow-hidden">
                                 {analysisToast && <div className="absolute inset-0 bg-green-500/20 flex items-center justify-center text-green-300 text-[10px] font-bold uppercase tracking-widest z-10 animate-pulse">Analysis Refreshed!</div>}
                                 <div className="flex items-center gap-3 overflow-hidden z-0">
@@ -1032,14 +926,13 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                 </div>
                             </div>
 
-                            {/* Interactive Waveform Canvas */}
                             {audioAnalysis && (
                                 <div ref={waveformWrapperRef} className="relative group cursor-crosshair select-none"
                                      onMouseDown={(e) => {
                                          const rect = waveformWrapperRef.current!.getBoundingClientRect();
                                          const x = e.clientX - rect.left;
                                          const time = (x / rect.width) * audioAnalysis.duration;
-                                         const timeTolerance = (10 / rect.width) * audioAnalysis.duration; // 10 pixels tolerance
+                                         const timeTolerance = (10 / rect.width) * audioAnalysis.duration;
                                          if (Math.abs(time - audioTrimStart) < timeTolerance) setIsDragging('start');
                                          else if (Math.abs(time - audioTrimEnd) < timeTolerance) setIsDragging('end');
                                          else if (time > audioTrimStart && time < audioTrimEnd) { setIsDragging('move'); setDragStartPos(time - audioTrimStart); }
@@ -1066,14 +959,12 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                         })}
                                     </div>
                                     
-                                    {/* Selection Overlay */}
                                     <div className="absolute top-0 bottom-0 bg-blue-500/30 border-l-2 border-r-2 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.5)] pointer-events-none flex items-center justify-between"
                                          style={{ left: `${(audioTrimStart / audioAnalysis.duration) * 100}%`, width: `${((audioTrimEnd - audioTrimStart) / audioAnalysis.duration) * 100}%` }}>
                                          <div className="w-1.5 h-6 bg-white rounded-r-sm -ml-0.5 shadow-md" />
                                          <div className="w-1.5 h-6 bg-white rounded-l-sm -mr-0.5 shadow-md" />
                                     </div>
 
-                                    {/* Playhead */}
                                     <div className="absolute top-0 bottom-0 w-px bg-red-500 shadow-[0_0_8px_rgba(239,68,68,1)] pointer-events-none z-20"
                                          style={{ left: `${(audioCurrentTime / audioAnalysis.duration) * 100}%` }}>
                                          <div className="w-2 h-2 bg-red-500 rounded-full -ml-1 -top-1 absolute" />
@@ -1081,7 +972,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                 </div>
                             )}
 
-                            {/* Analysis Stats */}
                             {audioAnalysis && (
                                 <div className="grid grid-cols-4 gap-2">
                                     {[
@@ -1099,7 +989,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                 </div>
                             )}
 
-                            {/* Manual Trim Adjustments */}
                             {audioAnalysis && (
                                 <div className="flex gap-4">
                                     <div className="flex-1 space-y-1">
@@ -1117,7 +1006,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                 </div>
                             )}
 
-                            {/* Segment Chips â€” additive multi-select */}
                             {audioAnalysis && audioAnalysis.segments.length > 0 && (
                                 <div className="space-y-2">
                                     <div className="flex items-center justify-between">
@@ -1158,7 +1046,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                 </div>
                             )}
 
-                            {/* Sensitivity */}
                             <SliderControl label="Beat Sensitivity" icon={Zap} value={settings.beatSensitivity || 0.5}
                                 min={0} max={1} step={0.1} unit="" onChange={(v) => update({ beatSensitivity: v })} />
                         </div>
@@ -1166,11 +1053,8 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                 </div>
 
 
-                {/* â•â•â• GOD MODE INJECTION â€” disables manual controls â•â•â• */}
                 <div className={clsx(godMode && "opacity-30 pointer-events-none select-none")}>
 
-
-                {/* Include Grids Selector */}
                 <div className="space-y-3 border border-white/5 rounded-xl bg-black/20 p-4">
                     <label className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
                         <Layers size={12} className="text-teal-400" /> Include Grids
@@ -1193,14 +1077,11 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     </div>
                 </div>
 
-
-                {/* â”€â”€â”€ 2026 RETENTION & TEXTURE CONTROLS â”€â”€â”€ */}
                 <div className="space-y-4 border border-white/5 rounded-xl bg-black/20 p-4">
                     <label className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
                         <Zap size={12} className="text-orange-400" /> Viral Intelligence
                     </label>
 
-                    {/* Hook Style */}
                     <div className="space-y-1.5">
                         <span className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Hook (First 3s)</span>
                         <div className="grid grid-cols-5 gap-1.5">
@@ -1222,7 +1103,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                         </div>
                     </div>
 
-                    {/* Visual Texture */}
                     <div className="space-y-1.5">
                         <span className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Visual Texture</span>
                         <div className="grid grid-cols-5 gap-1.5">
@@ -1244,7 +1124,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                         </div>
                     </div>
 
-                    {/* Toggles Row */}
                     <div className="flex gap-4">
                         <label className="flex items-center gap-2 cursor-pointer">
                             <button onClick={() => update({ retentionInterrupts: !settings.retentionInterrupts })}
@@ -1263,7 +1142,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     </div>
                 </div>
 
-                {/* â”€â”€â”€ TRANSITIONS CONTROLS (shown here when GodMode is OFF) â”€â”€â”€ */}
                 {godMode ? (
                     <div className="border border-yellow-500/10 rounded-xl bg-black/10 p-3 text-center">
                         <span className="text-[9px] text-yellow-300/50 font-bold uppercase">âš¡ Transitions moved to God Mode panel above</span>
@@ -1282,7 +1160,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     </div>
 
                     <div className={clsx("space-y-4 pt-2 transition-all", !settings.transitionsEnabled && "opacity-30 pointer-events-none")}>
-                        {/* Mode Toggle: Preset vs Custom */}
                         <div className="flex gap-2 mb-1">
                             <button onClick={() => update({ transitionMode: 'random' })}
                                 className={clsx("flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase transition-all border",
@@ -1301,7 +1178,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                         </div>
 
                         {(settings.transitionMode || 'random') !== 'single' ? (
-                            /* Preset Groups */
                             <div className="flex flex-wrap gap-2">
                                 {['cinematic', 'buttery', 'kinetic', 'whip', 'dramatic', 'organic', 'whip-pan', 'snap-cut', 'viral', 'all'].map(preset => (
                                     <button key={preset} onClick={() => update({ transitionPreset: preset })}
@@ -1315,7 +1191,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                 ))}
                             </div>
                         ) : (
-                            /* Individual Transition Chips */
                             <div className="space-y-2">
                                 <div className="flex justify-between items-center">
                                     <span className="text-[9px] text-white/40 font-bold uppercase tracking-wider">Select transitions to use</span>
@@ -1366,7 +1241,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                 </div>
                 )}
 
-                {/* Pacing Templates â€” Smart Preset: Quick Picks + Advanced */}
                 <div className="space-y-3">
                     <label className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
                         <Zap size={12} className="text-purple-400" /> Quick Picks
@@ -1407,7 +1281,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                         ))}
                     </div>
 
-                    {/* Advanced: All Templates */}
                     <details className="group/adv">
                         <summary className="text-[10px] font-bold text-white/30 uppercase tracking-wider cursor-pointer hover:text-white/50 flex items-center gap-1 select-none list-none mt-2">
                             <ChevronDown size={10} className="group-open/adv:hidden" />
@@ -1441,20 +1314,17 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     </details>
                 </div>
 
-                {/* Duration & Clip Boundaries */}
                 <div className="grid sm:grid-cols-2 gap-8 bg-black/20 p-5 rounded-xl border border-white/5 mt-6">
                     <div className="space-y-4">
                         <SliderControl label="Target Duration" icon={Clock} value={settings.targetDuration}
                             min={5} max={180} step={5} unit="s" onChange={(v) => {
                                 update({ targetDuration: v });
-                                // â”€â”€ BEATâ†”DURATION SYNC: When duration changes with audio active,
-                                // auto-reposition the audio trim region to match â”€â”€
                                 if (settings.useAudioGuide && audioAnalysis) {
                                     autoSelectBestSegment(v);
                                 }
                             }} />
                         <div className="flex flex-wrap gap-2">
-                            {settings.useAudioGuide && audioAnalysis ? (
+                            {settings.useAudioGuide && audioAnalysis && (
                                 <>
                                     <button onClick={() => update({ targetDuration: Math.round(audioTrimEnd - audioTrimStart) })}
                                         className={clsx("px-2 py-1.5 rounded-md text-[10px] font-bold transition-all border whitespace-nowrap",
@@ -1470,23 +1340,27 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                                 : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10")}>
                                         Full Audio
                                     </button>
-                                    {[5, 10, 15, 30].map(val => (
-                                        <button key={val} onClick={() => update({ targetDuration: val })}
-                                            className={clsx("flex-1 min-w-[40px] py-1.5 rounded-md text-[10px] font-bold transition-all border",
-                                                settings.targetDuration === val ? "bg-primary text-white border-primary shadow-lg" : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10")}>
-                                            {val}s
-                                        </button>
-                                    ))}
                                 </>
-                            ) : (
-                                [5, 10, 15, 30].map(val => (
-                                    <button key={val} onClick={() => update({ targetDuration: val })}
-                                        className={clsx("flex-1 min-w-[40px] py-1.5 rounded-md text-[10px] font-bold transition-all border",
-                                            settings.targetDuration === val ? "bg-primary text-white border-primary shadow-lg" : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10")}>
-                                        {val}s
-                                    </button>
-                                ))
                             )}
+                            {[
+                                { label: 'Social Snap', dur: 10, shortest: 0.1, longest: 0.5, desc: 'IG/TikTok energy' },
+                                { label: 'Kinetic Blitz', dur: 15, shortest: 0.08, longest: 0.25, desc: 'Machine-gun micro-cuts' },
+                                { label: 'Dynamic Flow', dur: 30, shortest: 0.2, longest: 2.0, desc: 'Builds from slow to fast' },
+                                { label: 'Cinematic Hold', dur: 45, shortest: 0.5, longest: 2.5, desc: 'Dramatic breathing room' },
+                            ].map(preset => (
+                                <button key={preset.label} onClick={() => update({
+                                    targetDuration: preset.dur,
+                                    shortestClip: preset.shortest,
+                                    longestClip: preset.longest,
+                                })}
+                                    className={clsx("flex-1 min-w-[100px] p-2 rounded-lg text-left transition-all border",
+                                        settings.targetDuration === preset.dur
+                                            ? "bg-primary/20 text-white border-primary shadow-lg"
+                                            : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10")}>
+                                    <div className={clsx("text-[10px] font-black uppercase", settings.targetDuration === preset.dur ? "text-purple-200" : "text-white/70")}>{preset.label}</div>
+                                    <div className="text-[9px] text-white/30">{preset.dur}s • {preset.desc}</div>
+                                </button>
+                            ))}
                         </div>
                     </div>
                     <div className="space-y-6">
@@ -1499,7 +1373,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     </div>
                 </div>
 
-                {/* Toggles */}
                 <div className="flex flex-col sm:flex-row gap-4">
                     <label className="flex flex-1 items-center justify-between p-4 rounded-xl border border-white/5 bg-white/5 cursor-pointer hover:bg-white/10 transition-colors">
                         <div className="flex flex-col gap-1">
@@ -1529,29 +1402,17 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     </label>
                 </div>
 
-                {/* Cinematic Speed */}
                 <div className="space-y-3">
                     <label className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
                         <Clock size={12} className="text-blue-400" /> Cinematic Speed
                     </label>
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-5 gap-2">
                         {[
                             { id: 'none', label: 'Normal (1.0x)', desc: 'No speed modification' },
-                            { id: 'slowmo', label: 'Slow-Mo (0.5x)', desc: 'All clips at half speed' },
-                            { id: 'fast', label: 'Fast (1.5x)', desc: 'All clips at 1.5x' },
-                            { id: 'timelapse', label: 'Time-lapse (2.5x)', desc: 'All clips at 2.5x' },
-                            { id: 'hyperfast', label: 'Hyper (4.0x)', desc: 'All clips at 4x' },
-                            { id: 'mixed-slow', label: 'Mixed Slow', desc: 'Random slow-mo sprinkled in' },
-                            { id: 'mixed-fast', label: 'Mixed Fast', desc: 'Random speed-ups' },
-                            { id: 'mixed-all', label: 'Mixed Action', desc: 'Random mix of slow/fast' },
                             { id: 'dramatic', label: 'Dramatic Build', desc: 'Start slow, accelerate' },
-                            { id: 'dramatic-reverse', label: 'Reverse Build', desc: 'Start fast, decelerate' },
-                            { id: 'ramped', label: 'Speed Ramp', desc: 'Fastâ†’Slowâ†’Fast wave' },
-                            { id: 'ramped-inverse', label: 'Inverse Ramp', desc: 'Slowâ†’Fastâ†’Slow wave' },
-                            { id: 'slowmo-fast', label: 'Slow + Bursts', desc: 'Base 0.5x + random 2x' },
-                            { id: 'fast-slowmo', label: 'Fast + Drops', desc: 'Base 1.5x + random 0.3x' },
+                            { id: 'mixed-all', label: 'Mixed Action', desc: 'Random mix of slow/fast' },
                             { id: 'pulse', label: 'Pulse', desc: 'Alternating slow-fast' },
-                            { id: 'breathe', label: 'Breathe', desc: 'Gentle 0.7xâ€“1.3x wave' },
+                            { id: 'random', label: 'Random', desc: 'Surprise speed policy' },
                         ].map(opt => (
                             <button key={opt.id} onClick={() => update({ slowmoPolicy: opt.id as any })}
                                 className={clsx("p-2.5 rounded-lg border text-left transition-all",
@@ -1565,26 +1426,17 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     </div>
                 </div>
 
-                {/* â”€â”€â”€ CUT RHYTHM PATTERN â”€â”€â”€ */}
                 <div className="space-y-3">
                     <label className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
                         <Activity size={12} className="text-emerald-400" /> Cut Rhythm
                     </label>
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-5 gap-2">
                         {[
-                            { id: 'flat', label: 'Pure Random', desc: 'No rhythmic structure' },
-                            { id: 'pulse-2-1-2', label: 'Pulse (2-1-2)', desc: 'Long-Short-Long heartbeat' },
                             { id: 'accelerando', label: 'Accelerando', desc: 'Cuts get shorter over time' },
-                            { id: 'ritardando', label: 'Ritardando', desc: 'Cuts get longer over time' },
                             { id: 'breathing', label: 'Breathing Room', desc: '4 fast cuts + 1 breather' },
-                            { id: 'heartbeat', label: 'Heartbeat', desc: 'lub-dub-pause pattern' },
-                            { id: 'cascade', label: 'Cascade', desc: 'Long â†’ rapid descent â†’ landing' },
-                            { id: 'call-response', label: 'Call & Response', desc: '4 quick calls + 1 answer' },
-                            { id: 'fibonacci', label: 'Fibonacci', desc: 'Golden ratio durations' },
-                            { id: 'wave', label: 'Wave', desc: 'Smooth sinusoidal ebb-flow' },
-                            { id: 'staccato-legato', label: 'Staccato/Legato', desc: '3 rapid + 2 sustained' },
-                            { id: 'climax-arc', label: 'Climax Arc', desc: 'Slow â†’ fastest at mid â†’ slow' },
-                            { id: 'random-walk', label: 'Random Walk', desc: 'Organic Brownian drift' },
+                            { id: 'cascade', label: 'Cascade', desc: 'Long → rapid descent → landing' },
+                            { id: 'climax-arc', label: 'Climax Arc', desc: 'Slow → fastest at mid → slow' },
+                            { id: 'random', label: 'Random', desc: 'Surprise rhythm each clip' },
                         ].map(opt => (
                             <button key={opt.id} onClick={() => update({ rhythmPattern: opt.id as any })}
                                 className={clsx("p-2.5 rounded-lg border text-left transition-all",
@@ -1598,7 +1450,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     </div>
                 </div>
 
-                {/* â”€â”€â”€ EDITING STYLE INJECTION â”€â”€â”€ */}
                 <div className="space-y-4 border border-white/5 rounded-xl bg-black/20 p-4">
                     <label className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
                         <Sparkles size={12} className="text-indigo-400" /> Editing Style Engine
@@ -1718,6 +1569,12 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                         { id: 'rubber-band-speed' as EditingStyleOption, label: 'Zoom + Speed', color: 'amber' },
                                         { id: 'multi-boomerang' as EditingStyleOption, label: 'Boomerang', color: 'emerald' },
                                         { id: 'triple-shot' as EditingStyleOption, label: 'Triple-Shot', color: 'rose' },
+                                        { id: 'snap-burst' as EditingStyleOption, label: 'Snap Burst', color: 'orange' },
+                                        { id: 'pendulum-sway' as EditingStyleOption, label: 'Pendulum Sway', color: 'sky' },
+                                        { id: 'hyper-cut' as EditingStyleOption, label: 'Hyper Cut', color: 'red' },
+                                        { id: 'bear-chaos' as EditingStyleOption, label: 'Bear Chaos', color: 'yellow' },
+                                        { id: 'pattern-interrupt' as EditingStyleOption, label: 'Pattern Interrupt', color: 'pink' },
+                                        { id: 'beat-bounce' as EditingStyleOption, label: 'Beat Bounce', color: 'violet' },
                                     ].map(style => {
                                         const active = settings.editingStyles.includes(style.id);
                                         return (

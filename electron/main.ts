@@ -442,13 +442,15 @@ ipcMain.handle('export-project', async (event, { filePath, clips: rawClips, sett
 
             if (validVideoClips.length === 0) { resolve({ success: false, error: 'No valid video clips.' }); return; }
 
-            const fps = settings?.exportFps && settings.exportFps > 0 ? settings.exportFps : (settings?.fps || 30);
+            const exportFps = settings?.exportFps && settings.exportFps > 0 ? settings.exportFps : (settings?.fps || 30);
+            const projectFps = settings?.fps || 30;
+            const fps = exportFps; // Output frame rate
             const outW = settings?.outputWidth || 1920;
             const outH = settings?.outputHeight || 1080;
             const outCodec = settings?.outputCodec || 'libx264';
             const outBitrate = settings?.outputBitrate || 0;
             const outAudioBitrate = settings?.outputAudioBitrate || 256;
-            log(`Output: ${outW}x${outH} ${outCodec} @ ${outBitrate > 0 ? outBitrate+'kbps' : 'CRF'} | ${fps}fps | audio ${outAudioBitrate}k`);
+            log(`Output: ${outW}x${outH} ${outCodec} @ ${outBitrate > 0 ? outBitrate+'kbps' : 'CRF'} | export ${exportFps}fps (project ${projectFps}fps) | audio ${outAudioBitrate}k`);
             log(`Clips: ${validVideoClips.length} video + ${clips.filter((c: any) => c.type === 'audio').length} audio`);
 
             // ── 3. PER-CLIP RENDER ──
@@ -460,18 +462,28 @@ ipcMain.handle('export-project', async (event, { filePath, clips: rawClips, sett
             for (let i = 0; i < totalClips && !cancelled; i++) {
                 const clip = validVideoClips[i];
                 const probe = probeCache.get(clip.path)!;
-                // FIX: Use ?? (nullish coalescing) instead of || to treat frame 0 as valid
-                const seekTo = (clip.trimStartFrame ?? 0) / fps;
+                // FIX: Use projectFps for frame→second conversion (clip data is in project fps).
+                // Use TIMELINE duration (endFrame-startFrame) as the canonical output duration,
+                // NOT (trimEnd-trimStart) which can be shared across multiple beat-matched segments.
+                const seekTo = (clip.trimStartFrame ?? 0) / projectFps;
                 const sourceDur = probe.duration;
-                let clipDur = ((clip.trimEndFrame ?? 0) - (clip.trimStartFrame ?? 0)) / fps;
-                let seekClamped = seekTo;
+                const speed = clip.speed || 1.0;
 
-                // FIX: If trimEndFrame is missing/undefined but sourceDurationFrames exists,
-                // repair the clip duration to use the full source or the timeline endFrame
-                if ((clip.trimEndFrame === undefined || clip.trimEndFrame === null) && clip.sourceDurationFrames > 0) {
-                    clipDur = clip.sourceDurationFrames / fps;
-                    log(`  ⚠ Clip ${i+1} "${clip.filename}": trimEndFrame was missing, repaired to full source duration (${clipDur.toFixed(2)}s)`);
+                // Timeline duration = how long this clip should appear in the output
+                let timelineDur = ((clip.endFrame ?? 0) - (clip.startFrame ?? 0)) / projectFps;
+                if (timelineDur <= 0) {
+                    // Fallback to trim-based if timeline data is missing
+                    timelineDur = ((clip.trimEndFrame ?? 0) - (clip.trimStartFrame ?? 0)) / projectFps;
+                    log(`  ⚠ Clip ${i+1} "${clip.filename}": timeline frames missing, fallback to trim-based duration`);
                 }
+                if (timelineDur <= 0 && clip.sourceDurationFrames > 0) {
+                    timelineDur = clip.sourceDurationFrames / projectFps;
+                    log(`  ⚠ Clip ${i+1} "${clip.filename}": all duration data missing, fallback to source duration`);
+                }
+
+                // Source material needed: timelineDur * speed (speed < 1 means slow-mo, need less source)
+                let clipDur = timelineDur * speed;
+                let seekClamped = seekTo;
 
                 if (sourceDur > 0.5) {
                     if (seekClamped >= sourceDur) {
@@ -482,22 +494,20 @@ ipcMain.handle('export-project', async (event, { filePath, clips: rawClips, sett
                     if (seekClamped < 0) seekClamped = 0;
                     if (seekClamped + clipDur > sourceDur) {
                         const oldDur = clipDur;
-                        clipDur = Math.max(0.5, sourceDur - seekClamped - 0.05);
+                        clipDur = Math.max(0.04, sourceDur - seekClamped - 0.01);
                         log(`  ⚠ Clip ${i+1}: seek+dur (${(seekClamped + oldDur).toFixed(2)}s) exceeds source ${sourceDur.toFixed(2)}s → dur clamped to ${clipDur.toFixed(2)}s`);
                     }
                 }
-                // FIX: Use 0.5s minimum instead of 0.1s to avoid sub-frame clips in final render
-                if (clipDur < 0.03) {
-                    log(`  ⚠ Clip ${i+1}: computed duration was ${clipDur.toFixed(4)}s — using 0.5s minimum`);
-                    clipDur = 0.5;
+                if (clipDur < 0.01) {
+                    log(`  ⚠ Clip ${i+1}: source duration too short (${clipDur.toFixed(4)}s) — using 0.04s minimum`);
+                    clipDur = 0.04;
                 }
 
-                const speed = clip.speed || 1.0;
                 const volume = ((clip.volume !== undefined ? clip.volume : 100) / 100) * (clip.isMuted ? 0 : 1);
                 const hasAudio = probe.hasAudio && clip.type !== 'image';
                 const expectedOutputDur = clipDur / speed;
 
-                log(`Clip ${i+1}/${totalClips}: "${clip.filename}" seek=${seekClamped.toFixed(2)}s dur=${clipDur.toFixed(2)}s speed=${speed} vol=${volume.toFixed(2)} expectedOut=${expectedOutputDur.toFixed(2)}s`);
+                log(`Clip ${i+1}/${totalClips}: "${clip.filename}" seek=${seekClamped.toFixed(2)}s srcTrim=${clipDur.toFixed(3)}s speed=${speed} → output=${expectedOutputDur.toFixed(3)}s (timeline=${timelineDur.toFixed(3)}s) vol=${volume.toFixed(2)}`);
                 event.sender.send('export-progress', Math.round((i / totalClips) * 80));
 
                 // Video filter
@@ -611,9 +621,30 @@ ipcMain.handle('export-project', async (event, { filePath, clips: rawClips, sett
                 const bgFilters: string[] = [];
                 finalBgAudio.forEach((c: any, idx: number) => {
                     const vol = ((c.volume ?? 100) / 100) * (c.isMuted ? 0 : 1);
-                    // FIX: Use ?? (nullish coalescing) for trim frame access
                     const trimStart = (c.trimStartFrame ?? 0) / fps;
-                    const trimEnd = (c.trimEndFrame ?? c.endFrame ?? 0) / fps;
+                    let trimEnd = (c.trimEndFrame ?? 0) / fps;
+
+                    // FIX: If trimEnd resolves to 0 or is less than trimStart, compute a real duration
+                    if (trimEnd <= trimStart) {
+                        // Try endFrame (timeline position)
+                        const endFrameTime = (c.endFrame ?? 0) / fps;
+                        if (endFrameTime > trimStart) {
+                            trimEnd = endFrameTime;
+                            log(`  ⚠ BG Audio[${idx}]: trimEnd was 0, using endFrame: ${trimEnd.toFixed(2)}s`);
+                        } else {
+                            // Probe the actual source file for its real duration
+                            try {
+                                const audioProbe = probeClipFile(ffmpegBin, c.path);
+                                trimEnd = audioProbe.duration > 0 ? audioProbe.duration : actualTotalDuration;
+                                log(`  ⚠ BG Audio[${idx}]: trimEnd was 0, probed source duration: ${trimEnd.toFixed(2)}s`);
+                            } catch {
+                                // Last resort: use total video duration so music spans the full render
+                                trimEnd = actualTotalDuration > 0 ? actualTotalDuration : 300;
+                                log(`  ⚠ BG Audio[${idx}]: trimEnd was 0, using video duration: ${trimEnd.toFixed(2)}s`);
+                            }
+                        }
+                    }
+
                     const audioDur = trimEnd - trimStart;
                     log(`  BG Audio[${idx}]: "${c.filename}" trimStart=${trimStart.toFixed(2)}s trimEnd=${trimEnd.toFixed(2)}s dur=${audioDur.toFixed(2)}s vol=${vol.toFixed(2)}`);
                     bgFilters.push(`[${idx+1}:a]atrim=start=${trimStart.toFixed(4)}:duration=${audioDur.toFixed(4)},asetpts=PTS-STARTPTS,volume=${vol.toFixed(4)}[bgv${idx}]`);
@@ -686,6 +717,460 @@ ipcMain.handle('export-project', async (event, { filePath, clips: rawClips, sett
             }
         } catch (err: any) {
             console.error('[Export] Setup error:', err);
+            log(`Export setup FAILED: ${err.message || 'Unknown error'}`);
+            resolve({ success: false, error: err.message || 'Unexpected export setup error' });
+        }
+    });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EXPORT PIPELINE — Monolithic Architecture (Single-Pass Filter Graph)
+// All clips are stitched together in one FFmpeg invocation. Supports xfade
+// transitions, audio mixing, and direct process spawning (no PowerShell).
+// Faster for small-medium timelines. May OOM on very large projects.
+// ══════════════════════════════════════════════════════════════════════════════
+ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: rawClips, settings, isIntermediate }) => {
+    return new Promise(async (resolve) => {
+        const { spawn } = require('child_process');
+        const path = require('path');
+        const os = require('os');
+        const ffmpegBin = resolveFFmpegBin();
+
+        const renderLogPath = join(app.getPath('userData'), 'render_log_monolithic.txt');
+        const log = (msg: string) => {
+            fs.appendFileSync(renderLogPath, `[${new Date().toISOString()}] ${msg}\n`);
+            console.log('[Monolithic]', msg);
+            try { event.sender.send('export-log', `[Monolithic] ${msg}`); } catch {}
+        };
+        fs.writeFileSync(renderLogPath, `=== MMMedia Pro Render Log (Monolithic Engine) ===\nStarted: ${new Date().toISOString()}\nOutput: ${filePath}\n\n`);
+
+        try {
+            // ── 1. NORMALIZE, FILTER, VALIDATE ──
+            let clips = rawClips
+                .filter((c: any) => !c.disabled)
+                .map((c: any) => ({ ...c, path: normalizeClipPath(c.path) }))
+                .filter((c: any) => {
+                    if (!c.path || c.path.startsWith('blob:') || c.path.startsWith('http:') || c.path.startsWith('data:')) {
+                        log(`⚠ Skipping "${c.filename}" — invalid path type`);
+                        return false;
+                    }
+                    if (!fs.existsSync(c.path)) {
+                        log(`⚠ Skipping "${c.filename}" — file not found: ${c.path?.substring(0, 80)}`);
+                        return false;
+                    }
+                    return true;
+                })
+                .sort((a: any, b: any) => {
+                    if (a.type === 'audio' && b.type !== 'audio') return 1;
+                    if (a.type !== 'audio' && b.type === 'audio') return -1;
+                    return (a.startFrame ?? 0) - (b.startFrame ?? 0);
+                });
+
+            // Dedup audio clips
+            const audioClips = clips.filter((c: any) => c.type === 'audio');
+            const videoClips = clips.filter((c: any) => c.type !== 'audio');
+            if (audioClips.length > 1) {
+                const seen = new Set<string>();
+                const deduped = audioClips.filter((c: any) => {
+                    const k = `${c.path}|${c.trimStartFrame ?? 0}`;
+                    if (seen.has(k)) return false;
+                    seen.add(k);
+                    return true;
+                });
+                clips = [...videoClips, ...deduped];
+            }
+
+            log(`── Clip data (${rawClips.length} raw → ${clips.length} filtered) ──`);
+            videoClips.forEach((c: any, i: number) => {
+                log(`  V[${i}] "${c.filename}" startF=${c.startFrame} endF=${c.endFrame} trimStart=${c.trimStartFrame} trimEnd=${c.trimEndFrame} srcDur=${c.sourceDurationFrames} speed=${c.speed} vol=${c.volume} muted=${c.isMuted}`);
+            });
+            audioClips.forEach((c: any, i: number) => {
+                log(`  A[${i}] "${c.filename}" trimStart=${c.trimStartFrame} trimEnd=${c.trimEndFrame} endFrame=${c.endFrame} vol=${c.volume} track=${c.track} path=${c.path?.substring(0, 80)}`);
+            });
+
+            // ── 2. PROBE ALL SOURCES ──
+            const probeCache = new Map<string, { hasAudio: boolean; duration: number }>();
+            const probeResults: { hasAudio: boolean; duration: number }[] = clips.map((clip: any) => {
+                if (clip.type === 'audio') return { hasAudio: true, duration: 9999 };
+                if (probeCache.has(clip.path)) return probeCache.get(clip.path)!;
+                const result = probeClipFile(ffmpegBin, clip.path);
+                probeCache.set(clip.path, result);
+                return result;
+            });
+
+            const exportFps = settings?.exportFps && settings.exportFps > 0 ? settings.exportFps : (settings?.fps || 30);
+            const projectFps = settings?.fps || 30;
+            const fps = exportFps; // Output frame rate only
+            const outW = settings?.outputWidth || 1920;
+            const outH = settings?.outputHeight || 1080;
+            const outCodec = settings?.outputCodec || 'libx264';
+            const outBitrate = settings?.outputBitrate || 0;
+            const outAudioBitrate = settings?.outputAudioBitrate || 256;
+            log(`Output: ${outW}x${outH} ${outCodec} @ ${outBitrate > 0 ? outBitrate + 'kbps' : 'CRF'} | export ${exportFps}fps (project ${projectFps}fps) | audio ${outAudioBitrate}k`);
+
+            // ── 3. BUILD FILTER GRAPH ──
+            let filterChains: string[] = [];
+            let inputArgs: string[] = [];
+            let videoInputCount = 0;
+            let preparedVideoStreams: string[] = [];
+            let preparedAudioStreams: string[] = [];
+            let clipDurations: number[] = [];
+            let clipTransitions: { enter: string; durationFrames: number }[] = [];
+
+            const transitionToXfade: Record<string, string> = {
+                'crossfade': 'fade', 'slide-left': 'slideleft', 'slide-right': 'slideright',
+                'slide-up': 'slideup', 'slide-down': 'slidedown', 'wipe-left': 'wipeleft',
+                'wipe-right': 'wiperight', 'wipe-up': 'wipeup', 'wipe-down': 'wipedown',
+                'push-left': 'slideleft', 'push-right': 'slideright', 'zoom-in': 'fadegrays',
+                'zoom-out': 'fadeblack', 'spin-in': 'circleopen', 'glitch-cut': 'pixelize', 'none': '',
+            };
+
+            clips.forEach((clip: any, index: number) => {
+                const seekTo = (clip.trimStartFrame ?? 0) / projectFps;
+                const sourceDuration = probeResults[index].duration;
+
+                let speed = clip.speed || 1.0;
+                if (clip.speedRampId) {
+                    if (clip.speedRampId.includes('slow')) speed = 0.5;
+                    else if (clip.speedRampId.includes('fast') || clip.speedRampId.includes('speed_up')) speed = 2.0;
+                    else if (clip.speedRampId.includes('bullet')) speed = 0.25;
+                }
+
+                // FIX: Use TIMELINE duration as canonical output duration
+                let timelineDur = ((clip.endFrame ?? 0) - (clip.startFrame ?? 0)) / projectFps;
+                if (timelineDur <= 0 && clip.type !== 'audio') {
+                    // Fallback to trim-based
+                    timelineDur = ((clip.trimEndFrame ?? 0) - (clip.trimStartFrame ?? 0)) / projectFps;
+                }
+                if (timelineDur <= 0 && clip.type !== 'audio') {
+                    if (clip.sourceDurationFrames > 0) {
+                        timelineDur = clip.sourceDurationFrames / projectFps;
+                        log(`  ⚠ Clip ${index} "${clip.filename}": all duration data missing, using source duration`);
+                    } else if (sourceDuration > 0) {
+                        timelineDur = sourceDuration;
+                    }
+                }
+
+                // Source material to extract: timelineDur * speed
+                let clipDur = clip.type === 'audio' ? ((clip.trimEndFrame ?? 0) - (clip.trimStartFrame ?? 0)) / projectFps : timelineDur * speed;
+
+                // Clamp seek to source bounds
+                let seekClamped = seekTo;
+                if (sourceDuration > 0.5 && clip.type !== 'audio') {
+                    if (seekClamped >= sourceDuration) {
+                        log(`  ⚠ Clip ${index}: seek ${seekClamped.toFixed(1)}s > source ${sourceDuration.toFixed(1)}s → clamped`);
+                        seekClamped = Math.max(0, sourceDuration - clipDur - 0.1);
+                    }
+                    if (seekClamped < 0) seekClamped = 0;
+                    if (seekClamped + clipDur > sourceDuration) {
+                        clipDur = Math.max(0.04, sourceDuration - seekClamped - 0.01);
+                    }
+                }
+                if (clipDur < 0.01 && clip.type !== 'audio') clipDur = 0.04;
+
+                // Skip sub-frame clips
+                if (clip.type !== 'audio' && (clipDur / speed) < (1 / fps)) {
+                    log(`⚠ Skipping clip ${index} "${clip.filename}" — output duration ${(clipDur/speed).toFixed(4)}s is sub-frame`);
+                    return;
+                }
+
+                // Fast-seek: -ss before -i for speed
+                inputArgs.push('-ss', seekClamped.toFixed(4), '-i', clip.path);
+
+                // Volume
+                let finalVolume: number;
+                if (clip.type === 'audio') {
+                    finalVolume = (clip.volume !== undefined ? clip.volume : 100) / 100;
+                    log(`Audio clip ${index}: "${clip.filename}" → volume=${finalVolume.toFixed(2)}`);
+                } else {
+                    const volume = (clip.volume !== undefined ? clip.volume : 100) / 100;
+                    const mute = clip.isMuted ? 0 : 1;
+                    finalVolume = volume * mute;
+                }
+
+                if (clip.type === 'audio') {
+                    // Audio duration: use probed source as fallback
+                    let audioDur = clipDur;
+                    if (audioDur <= 0) {
+                        const trimStart = (clip.trimStartFrame ?? 0) / projectFps;
+                        const trimEnd = (clip.trimEndFrame ?? clip.endFrame ?? 0) / projectFps;
+                        audioDur = trimEnd - trimStart;
+                        if (audioDur <= 0) {
+                            const audioProbe = probeClipFile(ffmpegBin, clip.path);
+                            audioDur = audioProbe.duration > 0 ? audioProbe.duration : 300;
+                            log(`  ⚠ Audio "${clip.filename}": trim data yielded 0s, using probed duration ${audioDur.toFixed(1)}s`);
+                        }
+                    }
+                    filterChains.push(
+                        `[${index}:a]atrim=start=0:duration=${audioDur.toFixed(4)},asetpts=PTS-STARTPTS,volume=${finalVolume.toFixed(4)}[a_bg_${index}]`
+                    );
+                } else {
+                    const vOut = `v${index}`;
+                    const aOut = `a${index}`;
+                    const outDur = clipDur / speed; // Output duration after speed application
+
+                    // Video chain — trim extracts source material, setpts applies speed
+                    let vf = `[${index}:v]trim=start=0:duration=${clipDur.toFixed(4)},setpts=PTS-STARTPTS`;
+                    vf += `,scale=${outW}:${outH}:force_original_aspect_ratio=decrease,pad=${outW}:${outH}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
+
+                    // Rotation support
+                    const rot = clip.rotation || 0;
+                    if (rot === 90) vf += ',transpose=1';
+                    else if (rot === 180) vf += ',transpose=1,transpose=1';
+                    else if (rot === 270) vf += ',transpose=2';
+
+                    // Effects
+                    if (clip.effectIds && clip.effectIds.length > 0) {
+                        const fxMap: Record<string, string> = {
+                            'fx_bw_contrast': 'hue=s=0,eq=contrast=1.2',
+                            'fx_vhs_glitch': 'boxblur=2:1,eq=contrast=1.2:saturation=1.2',
+                            'fx_warm_glow': 'colorbalance=rs=.2:gs=-.1:bs=-.2',
+                            'fx_cinematic_teal_v1': 'colorbalance=rs=-0.2:gs=0:bs=0.2:rm=0:gm=0:bm=0:rh=0.2:gh=0:bh=-0.2',
+                            'fx_vintage_film_v1': 'noise=alls=20:allf=t,eq=saturation=0.6:contrast=1.1',
+                            'fx_neon_glow_v1': 'eq=saturation=2.0:contrast=1.1',
+                        };
+                        const effects = clip.effectIds.map((id: string) => fxMap[id] || '').filter(Boolean).join(',');
+                        if (effects) vf += `,${effects}`;
+                    }
+
+                    // Visual textures
+                    const visualTexture = clip.visualTexture || clip._visualTexture || 'none';
+                    if (visualTexture === 'grain') vf += ',noise=alls=15:allf=t';
+                    else if (visualTexture === 'chromatic') vf += ',rgbashift=rh=-3:bh=3';
+                    else if (visualTexture === 'motion-blur') vf += ',tblend=all_mode=average';
+                    else if (visualTexture === 'vintage') vf += ',noise=alls=20:allf=t,eq=saturation=0.6:contrast=1.1,colorbalance=rs=.1:gs=-.05:bs=-.1';
+
+                    vf += `,setpts=${(1 / speed).toFixed(4)}*PTS[${vOut}]`;
+                    filterChains.push(vf);
+
+                    // Audio chain
+                    const hasRealAudio = probeResults[index].hasAudio && clip.type !== 'image';
+
+                    if (hasRealAudio) {
+                        let atempoChain = '';
+                        if (speed !== 1.0) {
+                            let rem = speed;
+                            const parts: string[] = [];
+                            while (rem > 2.0) { parts.push('atempo=2.0'); rem /= 2.0; }
+                            while (rem < 0.5) { parts.push('atempo=0.5'); rem /= 0.5; }
+                            parts.push(`atempo=${rem.toFixed(4)}`);
+                            atempoChain = ',' + parts.join(',');
+                        }
+                        filterChains.push(
+                            `[${index}:a]atrim=start=0:duration=${clipDur.toFixed(4)},asetpts=PTS-STARTPTS${atempoChain},volume=${finalVolume.toFixed(4)}[${aOut}]`
+                        );
+                    } else {
+                        filterChains.push(`anullsrc=r=48000:cl=stereo[sil_${index}]`);
+                        filterChains.push(`[sil_${index}]atrim=start=0:duration=${outDur.toFixed(4)},asetpts=PTS-STARTPTS[${aOut}]`);
+                    }
+
+                    preparedVideoStreams.push(`[${vOut}]`);
+                    preparedAudioStreams.push(`[${aOut}]`);
+                    clipDurations.push(outDur);
+
+                    // Extract transition metadata
+                    let enterType = 'none';
+                    if (clip.transitionEnter) {
+                        const te = Array.isArray(clip.transitionEnter) ? clip.transitionEnter[0] : clip.transitionEnter;
+                        if (te && te !== 'none') enterType = te;
+                    }
+                    clipTransitions.push({
+                        enter: enterType,
+                        durationFrames: clip.transitionDurationFrames || 0,
+                    });
+
+                    log(`Clip ${index}: ${clip.filename} | seek=${seekClamped.toFixed(2)}s srcTrim=${clipDur.toFixed(3)}s speed=${speed} → output=${outDur.toFixed(3)}s (timeline=${timelineDur.toFixed(3)}s) vol=${finalVolume.toFixed(2)} audio=${hasRealAudio}`);
+                    videoInputCount++;
+                }
+            });
+
+            if (videoInputCount === 0) {
+                resolve({ success: false, error: 'No video clips to export.' });
+                return;
+            }
+
+            // ── 4. TRANSITION-AWARE STITCHING ──
+            const hasTransitions = clipTransitions.some((t, i) => i > 0 && t.enter !== 'none' && t.durationFrames > 0);
+            let finalVideoMap = '';
+            let finalAudioMap = '';
+
+            if (hasTransitions && videoInputCount > 1) {
+                log(`Building xfade transition chain for ${videoInputCount} clips`);
+                let prevVideoLabel = preparedVideoStreams[0];
+                let accumulatedDuration = clipDurations[0];
+
+                for (let i = 1; i < videoInputCount; i++) {
+                    const trans = clipTransitions[i];
+                    const transType = transitionToXfade[trans.enter] || 'fade';
+                    const transDurSec = Math.min(trans.durationFrames / fps, accumulatedDuration * 0.4, clipDurations[i] * 0.4);
+                    const transOffset = Math.max(0, accumulatedDuration - transDurSec);
+
+                    if (trans.enter !== 'none' && transDurSec > 0.03) {
+                        const outLabel = i === videoInputCount - 1 ? '[concat_v]' : `[xf_v${i}]`;
+                        filterChains.push(
+                            `${prevVideoLabel}${preparedVideoStreams[i]}xfade=transition=${transType}:duration=${transDurSec.toFixed(4)}:offset=${transOffset.toFixed(4)}${outLabel}`
+                        );
+                        prevVideoLabel = outLabel;
+                        accumulatedDuration = transOffset + clipDurations[i];
+                    } else {
+                        const outLabel = i === videoInputCount - 1 ? '[concat_v]' : `[xf_v${i}]`;
+                        filterChains.push(
+                            `${prevVideoLabel}${preparedVideoStreams[i]}concat=n=2:v=1:a=0${outLabel}`
+                        );
+                        prevVideoLabel = outLabel;
+                        accumulatedDuration += clipDurations[i];
+                    }
+                }
+
+                // Audio crossfade chain
+                let prevAudioLabel = preparedAudioStreams[0];
+                let accAudioDur = clipDurations[0];
+
+                for (let i = 1; i < videoInputCount; i++) {
+                    const trans = clipTransitions[i];
+                    const transDurSec = Math.min(trans.durationFrames / fps, accAudioDur * 0.4, clipDurations[i] * 0.4);
+
+                    if (trans.enter !== 'none' && transDurSec > 0.03) {
+                        const outLabel = i === videoInputCount - 1 ? '[concat_a]' : `[xf_a${i}]`;
+                        filterChains.push(
+                            `${prevAudioLabel}${preparedAudioStreams[i]}acrossfade=d=${transDurSec.toFixed(4)}:c1=tri:c2=tri${outLabel}`
+                        );
+                        prevAudioLabel = outLabel;
+                        accAudioDur = (accAudioDur - transDurSec) + clipDurations[i];
+                    } else {
+                        const outLabel = i === videoInputCount - 1 ? '[concat_a]' : `[xf_a${i}]`;
+                        filterChains.push(
+                            `${prevAudioLabel}${preparedAudioStreams[i]}concat=n=2:v=0:a=1${outLabel}`
+                        );
+                        prevAudioLabel = outLabel;
+                        accAudioDur += clipDurations[i];
+                    }
+                }
+                finalVideoMap = 'concat_v';
+                finalAudioMap = 'concat_a';
+                log(`Xfade chain complete: ${videoInputCount - 1} transitions applied`);
+            } else {
+                log('No transitions — using simple concat');
+                const concatPairs = preparedVideoStreams.map((v, i) => `${v}${preparedAudioStreams[i]}`).join('');
+                filterChains.push(
+                    `${concatPairs}concat=n=${videoInputCount}:v=1:a=1[concat_v][concat_a]`
+                );
+                finalVideoMap = 'concat_v';
+                finalAudioMap = 'concat_a';
+            }
+
+            // ── 5. BACKGROUND AUDIO MIXING ──
+            const audioBgOuts = clips.map((c: any, i: number) => c.type === 'audio' ? `[a_bg_${i}]` : null).filter(Boolean);
+
+            if (audioBgOuts.length > 0) {
+                log(`Mixing ${audioBgOuts.length} background audio track(s) via amix`);
+                filterChains.push(`[concat_a]${audioBgOuts.join('')}amix=inputs=${audioBgOuts.length + 1}:duration=first:dropout_transition=0[final_a]`);
+                finalAudioMap = 'final_a';
+            } else {
+                log('No background audio tracks — using concat audio directly.');
+            }
+
+            // Write filter to temp file
+            const filterScript = filterChains.join(';\n');
+            const tmpDir = os.tmpdir();
+            const filterFile = path.join(tmpDir, `mmm_mono_filter_${Date.now()}.txt`);
+            fs.writeFileSync(filterFile, filterScript, 'utf-8');
+            log(`Filter script (${filterChains.length} chains, ${videoInputCount} video clips) written`);
+
+            // Quality preset args
+            const quality = settings?.exportQuality || 'standard';
+            const isHevc = outCodec === 'libx265';
+            let qualityArgs: string[] = [];
+
+            if (isIntermediate) {
+                qualityArgs = ['-preset', 'ultrafast', '-crf', '10', '-c:a', 'aac', '-b:a', '320k'];
+            } else if (outBitrate > 0) {
+                qualityArgs = ['-b:v', `${outBitrate}k`, '-maxrate', `${Math.round(outBitrate * 1.5)}k`, '-bufsize', `${Math.round(outBitrate * 2)}k`];
+                if (quality === 'draft') qualityArgs.push('-preset', isHevc ? 'fast' : 'veryfast');
+                else if (quality === 'master') qualityArgs.push('-preset', 'slow');
+                else qualityArgs.push('-preset', isHevc ? 'medium' : 'medium');
+                qualityArgs.push('-c:a', 'aac', '-b:a', `${outAudioBitrate}k`);
+            } else {
+                if (quality === 'master') qualityArgs = ['-crf', isHevc ? '20' : '17', '-preset', 'slow'];
+                else if (quality === 'draft') qualityArgs = ['-crf', isHevc ? '30' : '28', '-preset', isHevc ? 'fast' : 'veryfast'];
+                else qualityArgs = ['-crf', isHevc ? '24' : '20', '-preset', isHevc ? 'medium' : 'medium'];
+                qualityArgs.push('-c:a', 'aac', '-b:a', `${outAudioBitrate}k`);
+            }
+
+            // Build full FFmpeg args
+            const ffmpegArgs = [
+                '-y',
+                ...inputArgs,
+                '-filter_complex_script', filterFile,
+                '-map', `[${finalVideoMap}]`,
+                '-map', `[${finalAudioMap}]`,
+                '-r', fps.toString(),
+                '-c:v', outCodec,
+                '-pix_fmt', 'yuv420p',
+                '-colorspace', 'bt709',
+                '-color_trc', 'bt709',
+                '-color_primaries', 'bt709',
+                '-movflags', '+faststart',
+                ...qualityArgs,
+                filePath
+            ];
+
+            log(`Spawning FFmpeg directly with ${ffmpegArgs.length} args`);
+
+            // ── 6. SPAWN FFMPEG DIRECTLY (no PowerShell wrapper) ──
+            const proc = spawn(ffmpegBin, ffmpegArgs, { windowsHide: true });
+            activeExportProc = proc;
+            let stderrLog = '';
+
+            proc.stderr.on('data', (data: Buffer) => {
+                const line = data.toString();
+                stderrLog += line;
+                try { event.sender.send('export-log', `[Monolithic:ffmpeg] ${line.trim()}`); } catch {}
+                // Parse progress
+                const timeMatch = line.match(/time=(\d+):(\d+):([0-9.]+)/);
+                if (timeMatch) {
+                    const currentTime = parseInt(timeMatch[1]) * 3600 + parseInt(timeMatch[2]) * 60 + parseFloat(timeMatch[3]);
+                    const totalDur = clips.reduce((sum: number, c: any) => {
+                        if (c.type === 'audio') return sum;
+                        return sum + ((c.endFrame ?? 0) - (c.startFrame ?? 0)) / fps;
+                    }, 0);
+                    if (totalDur > 0) {
+                        const percent = Math.min(99, Math.round((currentTime / totalDur) * 100));
+                        event.sender.send('export-progress', percent);
+                    }
+                }
+            });
+
+            proc.on('close', (code: number) => {
+                try { fs.unlinkSync(filterFile); } catch {}
+                activeExportProc = null;
+
+                if (code === 0) {
+                    try {
+                        const finalProbe = probeClipFile(ffmpegBin, filePath);
+                        log(`Export COMPLETE! Output: ${filePath} | Duration: ${finalProbe.duration.toFixed(2)}s`);
+                    } catch {
+                        log('Export COMPLETE! Output: ' + filePath);
+                    }
+                    event.sender.send('export-progress', 100);
+                    resolve({ success: true });
+                } else {
+                    log(`Export FAILED (code ${code})`);
+                    log('FFmpeg stderr (last 1000 chars):\n' + stderrLog.slice(-1000));
+                    const errMsg = stderrLog.slice(-500).trim() || `FFmpeg exited with code ${code}`;
+                    resolve({ success: false, error: errMsg });
+                }
+            });
+
+            proc.on('error', (err: any) => {
+                try { fs.unlinkSync(filterFile); } catch {}
+                activeExportProc = null;
+                console.error('[Monolithic] Spawn error:', err);
+                resolve({ success: false, error: err.message || 'Failed to start FFmpeg' });
+            });
+
+        } catch (err: any) {
+            console.error('[Monolithic] Setup error:', err);
             log(`Export setup FAILED: ${err.message || 'Unknown error'}`);
             resolve({ success: false, error: err.message || 'Unexpected export setup error' });
         }

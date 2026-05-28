@@ -39,7 +39,7 @@ export interface TrailerSettings {
     useAudioGuide: boolean;
     beatTimestamps: number[] | null;
     audioMixStrategy: 'muted' | 'subtle' | 'original' | 'ducking';
-    slowmoPolicy: 'none' | 'slowmo' | 'fast' | 'timelapse' | 'hyperfast' | 'mixed-slow' | 'mixed-fast' | 'mixed-all' | 'dramatic' | 'dramatic-reverse' | 'ramped' | 'ramped-inverse' | 'slowmo-fast' | 'fast-slowmo' | 'pulse' | 'breathe';
+    slowmoPolicy: 'none' | 'slowmo' | 'fast' | 'timelapse' | 'hyperfast' | 'mixed-slow' | 'mixed-fast' | 'mixed-all' | 'dramatic' | 'dramatic-reverse' | 'ramped' | 'ramped-inverse' | 'slowmo-fast' | 'fast-slowmo' | 'pulse' | 'breathe' | 'random';
     templates: string[];
     // Audio trimming
     audioFile?: string | null;
@@ -152,6 +152,12 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         slowmoPolicy = 'none',
         orientationFilter = 'all',
     } = { ...DEFAULT_TRAILER_SETTINGS, ...settings };
+
+    // Resolve 'random' slowmoPolicy to a concrete policy
+    if (slowmoPolicy === 'random') {
+        const SPEED_POOL: typeof slowmoPolicy[] = ['slowmo', 'fast', 'timelapse', 'hyperfast', 'mixed-slow', 'mixed-fast', 'mixed-all', 'dramatic', 'dramatic-reverse', 'ramped', 'ramped-inverse', 'slowmo-fast', 'fast-slowmo', 'pulse', 'breathe'];
+        slowmoPolicy = SPEED_POOL[Math.floor(Math.random() * SPEED_POOL.length)];
+    }
 
     // 1. Filter Pool
     let validPool: PoolFile[] = pool.filter(f => {

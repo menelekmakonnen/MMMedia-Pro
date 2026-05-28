@@ -6,7 +6,7 @@ import { useViewStore } from '../../store/viewStore';
 import { generateManifest } from '../../lib/manifestBridge';
 import {
     Trash2, Film, PlayCircle, HardDriveDownload, Calendar, AlertCircle,
-    Save, FolderUp, Clock, Layers, AlertTriangle, Sparkles, Search, SortDesc
+    Save, FolderUp, Clock, Layers, AlertTriangle, Sparkles, Search, SortDesc, Play
 } from 'lucide-react';
 import clsx from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -265,9 +265,17 @@ export const EditsTab: React.FC = () => {
                                         key={edit.id}
                                         className="bg-black/40 rounded-2xl border border-white/5 overflow-hidden shadow-2xl group flex flex-col hover:border-white/15 hover:shadow-[0_0_30px_rgba(var(--color-primary),0.08)] transition-all duration-300"
                                     >
-                                        {/* Thumbnail */}
-                                        <div className="h-36 relative border-b border-white/5 flex flex-col justify-end overflow-hidden group/thumb cursor-pointer"
-                                            onClick={() => handleLoadToTimeline(edit)}>
+                                        {/* Thumbnail — 4:5 vertical */}
+                                        <div className="relative aspect-[4/5] border-b border-white/5 flex flex-col justify-end overflow-hidden group/thumb cursor-pointer"
+                                            onClick={() => handleLoadToTimeline(edit)}
+                                            onMouseEnter={(e) => {
+                                                const vid = e.currentTarget.querySelector('video');
+                                                if (vid) { vid.play().catch(() => {}); }
+                                            }}
+                                            onMouseLeave={(e) => {
+                                                const vid = e.currentTarget.querySelector('video');
+                                                if (vid) { vid.pause(); }
+                                            }}>
                                             {/* Real video thumbnail or animated fallback */}
                                             {(() => {
                                                 const thumbPath = edit.thumbnailPath || edit.clips?.find(c => c.type === 'video' && c.path)?.path;
@@ -277,9 +285,10 @@ export const EditsTab: React.FC = () => {
                                                             src={`file://${thumbPath}`}
                                                             className="absolute inset-0 w-full h-full object-cover"
                                                             muted
+                                                            loop
+                                                            playsInline
                                                             preload="metadata"
                                                             onLoadedMetadata={(e) => {
-                                                                // Seek to 1s for a representative frame
                                                                 const vid = e.currentTarget;
                                                                 if (vid.duration > 1) vid.currentTime = 1;
                                                                 else if (vid.duration > 0) vid.currentTime = vid.duration * 0.3;
@@ -290,6 +299,12 @@ export const EditsTab: React.FC = () => {
                                                 return <AnimatedThumbnail clipCount={edit.clipCount} />;
                                             })()}
                                             <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent pointer-events-none" />
+                                            {/* Play icon on hover */}
+                                            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity duration-200 pointer-events-none z-10">
+                                                <div className="w-12 h-12 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
+                                                    <Play size={22} className="text-white/80 ml-0.5" />
+                                                </div>
+                                            </div>
                                             {/* Shimmer on hover */}
                                             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.03] to-transparent opacity-0 group-hover/thumb:opacity-100 transition-opacity duration-500 pointer-events-none" style={{ transform: 'skewX(-20deg)' }} />
                                             {/* Stat badges */}
@@ -331,9 +346,14 @@ export const EditsTab: React.FC = () => {
                                                 <Film size={14} className="group-hover/btn:animate-pulse" /> Open in Timeline
                                             </button>
                                             <div className="flex gap-2">
-                                                <button onClick={() => handleExportManifest(edit)}
+                                                <button onClick={() => {
+                                                    setClips(edit.clips);
+                                                    updateEditLastOpened(edit.id);
+                                                    setActiveTab('export');
+                                                    toast.success(`Loaded "${edit.name}" — ready to render`);
+                                                }}
                                                     className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl bg-purple-500/10 hover:bg-purple-500/30 text-purple-400 hover:text-purple-200 text-xs font-bold transition-all border border-purple-500/20">
-                                                    <HardDriveDownload size={14} /> Manifest
+                                                    <HardDriveDownload size={14} /> Render
                                                 </button>
                                                 {deleteConfirm === edit.id ? (
                                                     <button

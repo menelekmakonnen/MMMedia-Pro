@@ -21,7 +21,7 @@ export const ExportTab: React.FC = () => {
     const {
         activeTab, setActiveTab,
         selectedPresetId, exportQuality, orientation, selectedFps,
-        setLastExportPath, setIsExporting,
+        setLastExportPath, setIsExporting, renderEngine,
     } = useExportSettingsStore();
 
     const [isExportingDirect, setIsExportingDirect] = useState(false);
@@ -31,6 +31,10 @@ export const ExportTab: React.FC = () => {
     const [isExportingManifest, setIsExportingManifest] = useState(false);
     const [isPaused, setIsPaused] = useState(false);
     const exportStartTime = useRef(0);
+
+    // Dual engine progress tracking (for 'both' mode)
+    const [perClipProgress, setPerClipProgress] = useState(0);
+    const [monolithicProgress, setMonolithicProgress] = useState(0);
 
     const [exportReport, setExportReport] = useState<{
         path: string; presetName: string; resolution: string;
@@ -72,33 +76,23 @@ export const ExportTab: React.FC = () => {
         console.log(`[ExportTab] Track volumes:`, trackVolumes);
 
         let ec = clips.map(c => {
-            const trackVol = trackVolumes[c.track ?? 1] ?? 100;
-
-            // For VIDEO/IMAGE clips: the A1 track mute + volume slider is the
-            // sole authority over embedded video audio. The TrailerGenerator may
-            // have baked isMuted=true / volume=0 into clips (audioMixStrategy),
-            // but the user's track-level controls must override that.
-            // If A1 is muted → silence all embedded audio.
-            // If A1 is unmuted → use the track volume slider value.
-            if (c.type !== 'audio') {
-                const audio1Vol = trackVolumes[2] ?? 100;
-                if (audio1Muted) {
-                    return { ...c, volume: 0, isMuted: true };
-                }
-                return { ...c, volume: audio1Vol, isMuted: false };
-            }
-            // For AUDIO clips on track 2 (legacy from older MediaManager imports):
-            // Promote to track 101 so they don't collide with the video-audio mute flag
-            if (c.type === 'audio' && c.track === 2) {
-                const effectiveVol = Math.round(((c.volume ?? 100) * trackVol) / 100);
-                return { ...c, track: 101, volume: effectiveVol };
-            }
-            // For AUDIO clips on track 101+: apply track volume
+            // ── AUDIO-TYPE CLIPS: background music, SFX, etc. ──
+            // These must NEVER be affected by track-2 (A1/video-audio) mute or volume.
+            // Remap legacy track 2 → 101 FIRST, then apply the correct track's volume.
             if (c.type === 'audio') {
-                const effectiveVol = Math.round(((c.volume ?? 100) * trackVol) / 100);
-                return { ...c, volume: effectiveVol };
+                const audioTrack = c.track === 2 ? 101 : (c.track ?? 101);
+                const audioTrackVol = trackVolumes[audioTrack] ?? 100;
+                const effectiveVol = Math.round(((c.volume ?? 100) * audioTrackVol) / 100);
+                console.log(`[ExportTab] Audio clip "${c.filename}": track ${c.track}→${audioTrack}, clipVol=${c.volume}, trackVol=${audioTrackVol}, effectiveVol=${effectiveVol}`);
+                return { ...c, track: audioTrack, volume: effectiveVol };
             }
-            return c;
+
+            // ── VIDEO/IMAGE CLIPS: embedded audio controlled by A1 ──
+            const audio1Vol = trackVolumes[2] ?? 100;
+            if (audio1Muted) {
+                return { ...c, volume: 0, isMuted: true };
+            }
+            return { ...c, volume: audio1Vol, isMuted: false };
         });
 
         // Filter out audio clips only if their SPECIFIC track is muted (101, 102, etc.)
@@ -106,6 +100,9 @@ export const ExportTab: React.FC = () => {
         ec = ec.filter(c => {
             if (c.type === 'audio') {
                 const audioTrackMuted = trackMutes[c.track] ?? false;
+                if (audioTrackMuted) {
+                    console.log(`[ExportTab] Filtering out muted audio clip "${c.filename}" on track ${c.track}`);
+                }
                 return !audioTrackMuted;
             }
             return true;
@@ -144,15 +141,24 @@ export const ExportTab: React.FC = () => {
     useEffect(() => {
         const cleanupProgress = window.ipcRenderer.onExportProgress((progress) => {
             if (isExportingAME) setAmeProgress(progress);
-            if (isExportingDirect) setDirectProgress(progress);
+            if (isExportingDirect) {
+                // In 'both' mode, progress comes interleaved — we track via log prefixes
+                setDirectProgress(progress);
+            }
         });
         // Subscribe to real-time export log stream from main process
         const cleanupLog = window.ipcRenderer.onExportLog?.((msg: string) => {
             const ts = new Date().toLocaleTimeString();
             setExportLog(prev => [...prev, `[${ts}] ${msg}`]);
+            // Track per-engine progress in 'both' mode via log prefixes
+            if (renderEngine === 'both') {
+                const progressMatch = msg.match(/export-progress.*?(\d+)/);
+                if (msg.includes('[Per-Clip]') && progressMatch) setPerClipProgress(Number(progressMatch[1]));
+                if (msg.includes('[Monolithic]') && progressMatch) setMonolithicProgress(Number(progressMatch[1]));
+            }
         });
         return () => { cleanupProgress(); cleanupLog?.(); };
-    }, [isExportingAME, isExportingDirect]);
+    }, [isExportingAME, isExportingDirect, renderEngine]);
 
     const handleExportDirect = async () => {
         if (clips.length === 0) { toast.warning('Timeline is empty!'); return; }
@@ -169,20 +175,42 @@ export const ExportTab: React.FC = () => {
             let exportClips = getExportClips();
 
             // ── PRE-FLIGHT VALIDATION: Repair clips with bad trim data ──
+            // The old (reliable) system sent raw clips — no repair needed.
+            // We only repair truly broken data, using timeline data as source of truth.
             let repairCount = 0;
             exportClips = exportClips.map(c => {
                 if (c.type === 'audio') return c;
-                // Repair: trimEndFrame missing or zero but source duration known
-                if ((!c.trimEndFrame && c.trimEndFrame !== 0) && c.sourceDurationFrames > 0) {
-                    repairCount++;
-                    console.warn(`[ExportTab] Pre-flight repair: "${c.filename}" trimEndFrame was ${c.trimEndFrame}, set to sourceDurationFrames=${c.sourceDurationFrames}`);
-                    return { ...c, trimEndFrame: c.sourceDurationFrames };
+                const trimStart = c.trimStartFrame ?? 0;
+                let trimEnd = c.trimEndFrame;
+                const speed = c.speed || 1.0;
+
+                // Repair: trimEndFrame missing/undefined
+                if (trimEnd === undefined || trimEnd === null) {
+                    // Compute from timeline: the clip occupies (endFrame - startFrame) frames on the timeline.
+                    // The source range is that * speed.
+                    const timelineFrames = (c.endFrame ?? 0) - (c.startFrame ?? 0);
+                    if (timelineFrames > 0) {
+                        trimEnd = trimStart + Math.round(timelineFrames * speed);
+                        console.warn(`[ExportTab] Pre-flight repair: "${c.filename}" trimEndFrame was missing, computed from timeline: ${trimEnd}`);
+                    } else if (c.sourceDurationFrames > 0) {
+                        // Last resort: use full source, but this is likely wrong
+                        trimEnd = c.sourceDurationFrames;
+                        console.warn(`[ExportTab] Pre-flight repair: "${c.filename}" trimEndFrame AND timeline data missing, fallback to sourceDur: ${trimEnd}`);
+                    }
+                    if (trimEnd !== undefined && trimEnd !== null) {
+                        repairCount++;
+                        return { ...c, trimEndFrame: trimEnd };
+                    }
                 }
+
                 // Repair: trimEndFrame <= trimStartFrame (invalid range)
-                if (c.trimEndFrame <= (c.trimStartFrame ?? 0) && c.sourceDurationFrames > 0) {
+                if (trimEnd !== undefined && trimEnd <= trimStart && c.sourceDurationFrames > 0) {
+                    const timelineFrames = (c.endFrame ?? 0) - (c.startFrame ?? 0);
+                    const repairedEnd = timelineFrames > 0
+                        ? trimStart + Math.round(timelineFrames * speed)
+                        : Math.min(c.sourceDurationFrames, trimStart + c.sourceDurationFrames);
                     repairCount++;
-                    const repairedEnd = Math.min(c.sourceDurationFrames, (c.trimStartFrame ?? 0) + c.sourceDurationFrames);
-                    console.warn(`[ExportTab] Pre-flight repair: "${c.filename}" trimEnd(${c.trimEndFrame}) <= trimStart(${c.trimStartFrame}), set to ${repairedEnd}`);
+                    console.warn(`[ExportTab] Pre-flight repair: "${c.filename}" trimEnd(${trimEnd}) <= trimStart(${trimStart}), repaired to ${repairedEnd}`);
                     return { ...c, trimEndFrame: repairedEnd };
                 }
                 return c;
@@ -205,7 +233,7 @@ export const ExportTab: React.FC = () => {
             videoClips.filter(c => c.isMuted || c.volume === 0).length > 0 &&
                 addLog(`  ⚠ ${videoClips.filter(c => c.isMuted || c.volume === 0).length} video clips have muted/zero-volume audio`);
 
-            const result = await window.ipcRenderer.exportProject({
+            const exportPayload = {
                 filePath, clips: exportClips,
                 settings: {
                     ...settings, exportQuality, exportPresetId: selectedPresetId,
@@ -215,7 +243,43 @@ export const ExportTab: React.FC = () => {
                     outputAudioBitrate: selectedPreset.audioBitrate,
                 },
                 isIntermediate: false
-            });
+            };
+
+            let result: { success: boolean; error?: string };
+
+            if (renderEngine === 'both') {
+                // Dual engine: render with both simultaneously
+                const ext = filePath.match(/\.[^.]+$/)?.[0] || '.mp4';
+                const base = filePath.replace(/\.[^.]+$/, '');
+                const perClipPath = `${base}_PerClip${ext}`;
+                const monoPath = `${base}_Monolithic${ext}`;
+                addLog(`Dual render: Per-Clip → ${perClipPath.split(/[\\/]/).pop()}`);
+                addLog(`Dual render: Monolithic → ${monoPath.split(/[\\/]/).pop()}`);
+                setPerClipProgress(0);
+                setMonolithicProgress(0);
+
+                const [perClipResult, monoResult] = await Promise.all([
+                    window.ipcRenderer.exportProject({ ...exportPayload, filePath: perClipPath }),
+                    window.ipcRenderer.exportProjectMonolithic({ ...exportPayload, filePath: monoPath }),
+                ]);
+
+                if (perClipResult.success && monoResult.success) {
+                    result = { success: true };
+                    addLog(`Both engines completed successfully`);
+                } else {
+                    const errors: string[] = [];
+                    if (!perClipResult.success) errors.push(`Per-Clip: ${perClipResult.error}`);
+                    if (!monoResult.success) errors.push(`Monolithic: ${monoResult.error}`);
+                    result = { success: false, error: errors.join(' | ') };
+                }
+            } else if (renderEngine === 'monolithic') {
+                addLog('Engine: Monolithic (single-pass filter graph)');
+                result = await window.ipcRenderer.exportProjectMonolithic(exportPayload);
+            } else {
+                addLog('Engine: Per-Clip (intermediate architecture)');
+                result = await window.ipcRenderer.exportProject(exportPayload);
+            }
+
             if (result.success) {
                 const elapsed = Math.round((Date.now() - exportStartTime.current) / 1000);
                 setLastExportPath(filePath);
@@ -341,6 +405,9 @@ export const ExportTab: React.FC = () => {
                         onPauseExport={handlePauseExport}
                         onResumeExport={handleResumeExport}
                         isPaused={isPaused}
+                        perClipProgress={perClipProgress}
+                        monolithicProgress={monolithicProgress}
+                        renderEngine={renderEngine}
                         onAddToQueue={() => {
                             const item: QueueItem = {
                                 id: uuidv4(),

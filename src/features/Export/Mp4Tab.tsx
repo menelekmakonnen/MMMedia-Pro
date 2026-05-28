@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { useClipStore } from '../../store/clipStore';
 import { useProjectStore } from '../../store/projectStore';
 import { useExportSettingsStore } from '../../store/exportSettingsStore';
+import { type RenderEngine } from '../../store/exportSettingsStore';
 import { useGodModeStore } from '../../store/godModeStore';
 import { ExportProgress } from './ExportProgress';
 import { SpaceFlightBg } from './SpaceFlightBg';
@@ -36,6 +37,9 @@ interface Props {
     onPauseExport?: () => void;
     onResumeExport?: () => void;
     isPaused?: boolean;
+    perClipProgress?: number;
+    monolithicProgress?: number;
+    renderEngine?: RenderEngine;
 }
 
 export interface QueueItem {
@@ -48,7 +52,7 @@ export interface QueueItem {
     filePath: string | null;
 }
 
-export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onExport, disabled, exportLog, exportQueue, onAddToQueue, onRemoveFromQueue, onClearQueue, onCancelExport, onPauseExport, onResumeExport, isPaused }) => {
+export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onExport, disabled, exportLog, exportQueue, onAddToQueue, onRemoveFromQueue, onClearQueue, onCancelExport, onPauseExport, onResumeExport, isPaused, perClipProgress = 0, monolithicProgress = 0, renderEngine: renderEngineProp }) => {
     const { clips } = useClipStore();
     const [logCopied, setLogCopied] = useState(false);
     const { settings } = useProjectStore();
@@ -57,7 +61,10 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
         exportQuality, setExportQuality,
         orientation, setOrientation,
         selectedFps, setSelectedFps,
+        renderEngine: storeEngine, setRenderEngine,
     } = useExportSettingsStore();
+
+    const activeEngine = renderEngineProp ?? storeEngine;
 
     const selectedPreset = useMemo(() =>
         EXPORT_PRESETS.find(p => p.id === selectedPresetId) || EXPORT_PRESETS.find(p => p.id === 'hd_1080')!,
@@ -99,6 +106,49 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
         const speeds = new Set(vc.map(c => c.speed).filter(s => s !== 1));
         return { vc: vc.length, ac: ac.length, effects: [...effects], textures: [...textures], transitions: [...transitions], hasZoom, hasRotation, speeds: [...speeds] };
     }, [clips]);
+
+    // ── Animated SVG Engine Icons ──
+    const MonolithicIcon = () => (
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+            <rect x="3" y="3" width="18" height="18" rx="3" fill="currentColor" opacity="0.3">
+                <animate attributeName="opacity" values="0.3;0.7;0.3" dur="2s" repeatCount="indefinite" />
+            </rect>
+            <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor">
+                <animate attributeName="opacity" values="0.7;1;0.7" dur="2s" repeatCount="indefinite" />
+            </rect>
+            <rect x="9" y="9" width="6" height="6" rx="1" fill="currentColor">
+                <animate attributeName="opacity" values="1;0.6;1" dur="1.5s" repeatCount="indefinite" />
+            </rect>
+        </svg>
+    );
+
+    const PerClipIcon = () => (
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+            <rect x="2" y="3" width="5" height="18" rx="1.5" fill="currentColor">
+                <animate attributeName="opacity" values="1;0.4;1" dur="1.8s" begin="0s" repeatCount="indefinite" />
+            </rect>
+            <rect x="9.5" y="3" width="5" height="18" rx="1.5" fill="currentColor">
+                <animate attributeName="opacity" values="1;0.4;1" dur="1.8s" begin="0.3s" repeatCount="indefinite" />
+            </rect>
+            <rect x="17" y="3" width="5" height="18" rx="1.5" fill="currentColor">
+                <animate attributeName="opacity" values="1;0.4;1" dur="1.8s" begin="0.6s" repeatCount="indefinite" />
+            </rect>
+        </svg>
+    );
+
+    const BothEnginesIcon = () => (
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
+            <rect x="2" y="3" width="9" height="8" rx="2" fill="currentColor">
+                <animate attributeName="opacity" values="0.5;1;0.5" dur="2s" begin="0s" repeatCount="indefinite" />
+            </rect>
+            <rect x="13" y="3" width="9" height="8" rx="2" fill="currentColor">
+                <animate attributeName="opacity" values="1;0.5;1" dur="2s" begin="0s" repeatCount="indefinite" />
+            </rect>
+            <rect x="2" y="13" width="20" height="8" rx="2" fill="currentColor" opacity="0.4">
+                <animate attributeName="opacity" values="0.4;0.8;0.4" dur="1.5s" repeatCount="indefinite" />
+            </rect>
+        </svg>
+    );
 
     if (isExporting) {
         return (
@@ -188,6 +238,54 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
                         <ExportProgress progress={progress} presetName={selectedPreset.name} clips={clips} startTime={startTime}
                             projectName={settings.name} resolution={`${outputDims.w}×${outputDims.h}`} duration={totalDuration} status={exportStatus} />
                     </div>
+
+                    {/* Dual Engine Progress Bars (shown in 'both' mode) */}
+                    {activeEngine === 'both' && (
+                        <div className="w-full max-w-2xl mt-3 bg-black/40 backdrop-blur-sm rounded-xl border border-white/5 p-4 space-y-3">
+                            <div className="text-[9px] font-black uppercase tracking-widest text-white/30">Engine Progress</div>
+                            {/* Combined average bar */}
+                            <div>
+                                <div className="flex justify-between text-[9px] mb-1">
+                                    <span className="text-white/50 font-bold flex items-center gap-1.5"><BothEnginesIcon /> Combined</span>
+                                    <span className="text-white/70 font-mono font-bold">{Math.round((perClipProgress + monolithicProgress) / 2)}%</span>
+                                </div>
+                                <div className="w-full h-2.5 bg-white/5 rounded-full overflow-hidden">
+                                    <div className="h-full rounded-full bg-gradient-to-r from-violet-500 via-cyan-500 to-emerald-500 transition-all duration-500" style={{ width: `${Math.round((perClipProgress + monolithicProgress) / 2)}%` }} />
+                                </div>
+                            </div>
+                            {/* Per-engine bars */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <div className="flex justify-between text-[8px] mb-1">
+                                        <span className="text-cyan-300/60 font-bold flex items-center gap-1"><PerClipIcon /> Per-Clip</span>
+                                        <span className="text-cyan-300/50 font-mono">{perClipProgress}%</span>
+                                    </div>
+                                    <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                                        <div className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all duration-500" style={{ width: `${perClipProgress}%` }} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="flex justify-between text-[8px] mb-1">
+                                        <span className="text-amber-300/60 font-bold flex items-center gap-1"><MonolithicIcon /> Monolithic</span>
+                                        <span className="text-amber-300/50 font-mono">{monolithicProgress}%</span>
+                                    </div>
+                                    <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
+                                        <div className="h-full rounded-full bg-gradient-to-r from-amber-500 to-orange-500 transition-all duration-500" style={{ width: `${monolithicProgress}%` }} />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Engine badge */}
+                    {activeEngine !== 'both' && (
+                        <div className="mt-2 flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 border border-white/10">
+                            {activeEngine === 'monolithic' ? <MonolithicIcon /> : <PerClipIcon />}
+                            <span className="text-[9px] font-black uppercase tracking-wider text-white/40">
+                                {activeEngine === 'monolithic' ? 'Monolithic Engine' : 'Per-Clip Engine'}
+                            </span>
+                        </div>
+                    )}
 
                     {/* Live Export Log */}
                     <div className="w-full max-w-2xl mt-4 flex-1 min-h-0 flex flex-col bg-black/50 backdrop-blur-sm rounded-xl border border-white/5 overflow-hidden">
@@ -361,6 +459,37 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
                             className="bg-black/60 text-white text-xs font-bold border border-white/10 rounded-lg px-3 py-1.5 focus:outline-none focus:border-primary/50 cursor-pointer">
                             {FPS_OPTIONS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                         </select>
+                    </div>
+                </div>
+
+                {/* Render Engine selector */}
+                <div className="bg-gradient-to-br from-white/[0.02] to-white/[0.05] rounded-xl border border-white/8 p-4 space-y-3">
+                    <div className="text-[9px] font-black uppercase tracking-widest text-white/30">Render Engine</div>
+                    <div className="flex bg-black/40 rounded-lg border border-white/10 p-0.5 gap-0.5">
+                        {([
+                            { key: 'per-clip' as const, label: 'Per-Clip', icon: <PerClipIcon />, color: 'from-cyan-500 to-blue-500' },
+                            { key: 'monolithic' as const, label: 'Monolithic', icon: <MonolithicIcon />, color: 'from-amber-500 to-orange-500' },
+                            { key: 'both' as const, label: 'Both', icon: <BothEnginesIcon />, color: 'from-violet-500 to-pink-500' },
+                        ]).map(opt => (
+                            <button key={opt.key} onClick={() => setRenderEngine(opt.key)}
+                                className={clsx('flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[10px] font-bold uppercase transition-all flex-1 justify-center',
+                                    activeEngine === opt.key
+                                        ? `bg-gradient-to-r ${opt.color} text-white shadow-lg`
+                                        : 'hover:bg-white/5 text-white/40')}>
+                                {opt.icon} {opt.label}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="text-[9px] text-white/25 leading-relaxed">
+                        {activeEngine === 'per-clip' && (
+                            <span>Renders each clip as a lossless intermediate, then concatenates. <span className="text-cyan-300/50 font-bold">Best for large timelines (50+ clips).</span> No transition support.</span>
+                        )}
+                        {activeEngine === 'monolithic' && (
+                            <span>Single-pass filter graph — all clips in one FFmpeg invocation. <span className="text-amber-300/50 font-bold">Faster, supports transitions, reliable audio.</span> May OOM on very large projects.</span>
+                        )}
+                        {activeEngine === 'both' && (
+                            <span>Renders with both engines simultaneously, producing two output files. <span className="text-violet-300/50 font-bold">Compare quality side-by-side.</span></span>
+                        )}
                     </div>
                 </div>
 

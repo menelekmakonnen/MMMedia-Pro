@@ -29,7 +29,8 @@ export type RhythmPatternId =
     | 'wave'            // Sinusoidal: smooth ebb and flow
     | 'staccato-legato' // Alternating bursts of rapid and sustained cuts
     | 'climax-arc'      // Slow build → fastest at midpoint → slow resolution
-    | 'random-walk';    // Brownian: each clip slightly shorter or longer than last
+    | 'random-walk'     // Brownian: each clip slightly shorter or longer than last
+    | 'random';         // Meta: randomly picks a pattern from the pool each clip
 
 export interface RhythmPattern {
     id: RhythmPatternId;
@@ -194,6 +195,24 @@ const randomWalk: RhythmPattern = {
     },
 };
 
+// ── Random meta-pattern: delegates to a randomly chosen pattern per clip ──
+const RANDOM_POOL_IDS: RhythmPatternId[] = [
+    'flat', 'pulse-2-1-2', 'accelerando', 'ritardando', 'breathing',
+    'heartbeat', 'cascade', 'call-response', 'fibonacci', 'wave',
+    'staccato-legato', 'climax-arc', 'random-walk',
+];
+
+const randomMetaPattern: RhythmPattern = {
+    id: 'random',
+    name: 'Random',
+    description: 'Randomly picks a rhythm pattern from the pool for each clip. Maximum variety.',
+    getMultiplier: (i, total, prev) => {
+        const pick = RANDOM_POOL_IDS[Math.floor(Math.random() * RANDOM_POOL_IDS.length)];
+        // Lazily look up from the registry (defined below)
+        return RHYTHM_PATTERNS[pick].getMultiplier(i, total, prev);
+    },
+};
+
 // ── REGISTRY ──────────────────────────────────────────────────────────────
 
 export const RHYTHM_PATTERNS: Record<RhythmPatternId, RhythmPattern> = {
@@ -210,6 +229,7 @@ export const RHYTHM_PATTERNS: Record<RhythmPatternId, RhythmPattern> = {
     'staccato-legato': staccatoLegato,
     'climax-arc': climaxArc,
     'random-walk': randomWalk,
+    'random': randomMetaPattern,
 };
 
 export const RHYTHM_PATTERN_LIST: RhythmPattern[] = Object.values(RHYTHM_PATTERNS);

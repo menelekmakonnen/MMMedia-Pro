@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { ExportQuality, ExportOrientation } from '../lib/exportPresets';
 
+export type RenderEngine = 'per-clip' | 'monolithic' | 'both';
+
 interface ExportSettingsState {
     // Persisted user selections
     selectedPresetId: string;
@@ -10,6 +12,7 @@ interface ExportSettingsState {
     selectedFps: number;
     lastExportPath: string | null;
     activeTab: 'mp4' | 'premiere' | 'ame';
+    renderEngine: RenderEngine;
     isExporting: boolean;
 
     // Actions
@@ -19,6 +22,7 @@ interface ExportSettingsState {
     setSelectedFps: (fps: number) => void;
     setLastExportPath: (path: string | null) => void;
     setActiveTab: (tab: 'mp4' | 'premiere' | 'ame') => void;
+    setRenderEngine: (engine: RenderEngine) => void;
     setIsExporting: (v: boolean) => void;
 }
 
@@ -31,6 +35,7 @@ export const useExportSettingsStore = create<ExportSettingsState>()(
             selectedFps: 30,
             lastExportPath: null,
             activeTab: 'mp4',
+            renderEngine: 'per-clip',
             isExporting: false,
 
             setSelectedPresetId: (selectedPresetId) => set({ selectedPresetId }),
@@ -39,6 +44,7 @@ export const useExportSettingsStore = create<ExportSettingsState>()(
             setSelectedFps: (selectedFps) => set({ selectedFps }),
             setLastExportPath: (lastExportPath) => set({ lastExportPath }),
             setActiveTab: (activeTab) => set({ activeTab }),
+            setRenderEngine: (renderEngine) => set({ renderEngine }),
             setIsExporting: (isExporting) => set({ isExporting }),
         }),
         {

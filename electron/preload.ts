@@ -36,6 +36,7 @@ try {
         // Export API
         showExportDialog: (options: any) => ipcRenderer.invoke('show-export-dialog', options),
         exportProject: (args: { filePath: string, clips: any[], settings: any, isIntermediate?: boolean }) => ipcRenderer.invoke('export-project', args),
+        exportProjectMonolithic: (args: { filePath: string, clips: any[], settings: any, isIntermediate?: boolean }) => ipcRenderer.invoke('export-project-monolithic', args),
         randomRender: (args: { filePath: string, clips: any[], settings: any }) => ipcRenderer.invoke('random-render', args),
         cancelExport: () => ipcRenderer.invoke('cancel-export'),
         pauseExport: () => ipcRenderer.invoke('pause-export'),

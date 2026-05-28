@@ -13,6 +13,7 @@ export interface ElectronAPI {
     // Export API
     showExportDialog: (options: any) => Promise<{ canceled: boolean; filePath?: string }>;
     exportProject: (args: { filePath: string; clips: any[]; settings: any; isIntermediate?: boolean }) => Promise<{ success: boolean; error?: string }>;
+    exportProjectMonolithic: (args: { filePath: string; clips: any[]; settings: any; isIntermediate?: boolean }) => Promise<{ success: boolean; error?: string }>;
     cancelExport: () => Promise<{ success: boolean; error?: string }>;
     pauseExport: () => Promise<{ success: boolean; error?: string }>;
     resumeExport: () => Promise<{ success: boolean; error?: string }>;
