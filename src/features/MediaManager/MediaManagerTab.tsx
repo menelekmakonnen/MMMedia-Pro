@@ -747,8 +747,8 @@ export const MediaManagerTab: React.FC = () => {
                                         </button>
                                     </div>
                                 </div>
-                            ) : selectedFileIds.length > 1 ? (
-                                /* ── MULTI-SELECTION SUMMARY ── */
+                            ) : selectedFileIds.length > 1 && !detailFileId ? (
+                                /* ── MULTI-SELECTION SUMMARY (no active detail file) ── */
                                 <div className="h-full flex flex-col bg-[#080810]">
                                     <div className="p-4 border-b border-white/5 flex items-center justify-between">
                                         <h3 className="font-medium text-white/90">{selectedFileIds.length} Selected</h3>
@@ -822,7 +822,9 @@ export const MediaManagerTab: React.FC = () => {
                                     <div className="flex-1 overflow-y-auto p-4 space-y-1">
                                         <div className="text-[10px] text-white/30 uppercase tracking-wider font-bold mb-2">Selected Files</div>
                                         {files.filter(f => selectedFileIds.includes(f.id)).map((f, i) => (
-                                            <div key={f.id} className="flex items-center gap-2 text-xs text-white/60 py-1 px-2 rounded hover:bg-white/5">
+                                            <div key={f.id}
+                                                onClick={() => setDetailFileId(f.id)}
+                                                className="flex items-center gap-2 text-xs text-white/60 py-1 px-2 rounded hover:bg-white/5 cursor-pointer">
                                                 <span className="text-white/20 font-mono text-[9px] w-4">{i + 1}</span>
                                                 {f.type === 'video' ? <FileVideo size={12} className="text-accent/50 flex-shrink-0" /> : <FileAudio size={12} className="text-accent/50 flex-shrink-0" />}
                                                 <span className="truncate">{f.filename}</span>
@@ -835,7 +837,6 @@ export const MediaManagerTab: React.FC = () => {
                                         <button
                                             onClick={() => {
                                                 const count = selectedFileIds.length;
-                                                // Navigate to Trailer — selection stays active so Trailer uses these clips
                                                 setActiveTab('trailer');
                                                 toast.success(`${count} clips ready for Trailer`);
                                             }}
@@ -847,13 +848,35 @@ export const MediaManagerTab: React.FC = () => {
                                     </div>
                                 </div>
                             ) : (
-                                <MediaDetailsPanel
-                                    clip={selectedFile ? fileToClipPreview(selectedFile) : null}
-                                    mediaFile={selectedFile}
-                                    onClose={() => setDetailFileId(null)}
-                                    onAdd={selectedFile ? () => handleAddClipToTimeline(selectedFile.id) : undefined}
-                                    onRotate={selectedFile ? () => handleRotate(selectedFile.id) : undefined}
-                                />
+                                /* ── DETAIL / TRIM PANEL (single select OR active file within multi-select) ── */
+                                <div className="h-full flex flex-col bg-[#080810]">
+                                    {/* Compact multi-select bar when multi-selecting */}
+                                    {selectedFileIds.length > 1 && (
+                                        <div className="px-3 py-2 border-b border-purple-500/20 bg-purple-500/5 flex items-center justify-between flex-shrink-0">
+                                            <div className="flex items-center gap-2">
+                                                <CheckSquare size={12} className="text-purple-400" />
+                                                <span className="text-[10px] font-bold text-purple-300 uppercase tracking-wider">
+                                                    {selectedFileIds.length} selected
+                                                </span>
+                                            </div>
+                                            <button
+                                                onClick={() => clearSelection()}
+                                                className="text-[9px] font-bold text-white/40 hover:text-white/70 uppercase tracking-wider px-2 py-0.5 rounded hover:bg-white/10 transition-colors"
+                                            >
+                                                Clear
+                                            </button>
+                                        </div>
+                                    )}
+                                    <div className="flex-1 overflow-y-auto min-h-0">
+                                        <MediaDetailsPanel
+                                            clip={selectedFile ? fileToClipPreview(selectedFile) : null}
+                                            mediaFile={selectedFile}
+                                            onClose={() => setDetailFileId(null)}
+                                            onAdd={selectedFile ? () => handleAddClipToTimeline(selectedFile.id) : undefined}
+                                            onRotate={selectedFile ? () => handleRotate(selectedFile.id) : undefined}
+                                        />
+                                    </div>
+                                </div>
                             )}
                         </div>
                     </>
