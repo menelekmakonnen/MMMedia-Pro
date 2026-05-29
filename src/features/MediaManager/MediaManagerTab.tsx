@@ -872,7 +872,7 @@ export const MediaManagerTab: React.FC = () => {
                                             clip={selectedFile ? fileToClipPreview(selectedFile) : null}
                                             mediaFile={selectedFile}
                                             onClose={() => setDetailFileId(null)}
-                                            onAdd={selectedFile ? () => handleAddClipToTimeline(selectedFile.id) : undefined}
+                                            onAdd={selectedFile ? () => setActiveTab('trailer') : undefined}
                                             onRotate={selectedFile ? () => handleRotate(selectedFile.id) : undefined}
                                         />
                                     </div>
