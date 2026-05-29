@@ -120,6 +120,9 @@ export interface TrailerClip extends Clip {
 interface PoolFile extends MediaFile {
     sourceDurationFrames: number;
     name?: string;
+    // Effective trim range in frames (respects MediaFile.trimIn/trimOut)
+    effectiveTrimInFrames: number;
+    effectiveTrimOutFrames: number;
 }
 
 // Helper for true uniform shuffle
@@ -170,17 +173,33 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         if (orientationFilter === 'all' || f.type !== 'video') return true;
         return f.orientation === orientationFilter;
     }).map(f => {
-        let durationFrames = 9000; // Assume 5 min if unknown
-        if (f.duration) durationFrames = Math.floor(f.duration * DEFAULT_FPS);
-        if (mediaType !== 'video') durationFrames = 900; // Images act as 30s clips
-        return { ...f, sourceDurationFrames: durationFrames };
+        let fullDurationFrames = 9000; // Assume 5 min if unknown
+        if (f.duration) fullDurationFrames = Math.floor(f.duration * DEFAULT_FPS);
+        if (mediaType !== 'video') fullDurationFrames = 900; // Images act as 30s clips
+
+        // Respect pre-import trim constraints from Media Library
+        const trimInFrames = f.trimIn != null ? Math.floor(f.trimIn * DEFAULT_FPS) : 0;
+        const trimOutFrames = f.trimOut != null ? Math.floor(f.trimOut * DEFAULT_FPS) : fullDurationFrames;
+        const effectiveDuration = trimOutFrames - trimInFrames;
+
+        return {
+            ...f,
+            sourceDurationFrames: fullDurationFrames,
+            effectiveTrimInFrames: trimInFrames,
+            effectiveTrimOutFrames: trimOutFrames,
+        };
     });
 
     if (validPool.length === 0) {
-        validPool = pool.map(f => ({
-            ...f,
-            sourceDurationFrames: f.duration ? Math.floor(f.duration * DEFAULT_FPS) : 9000
-        }));
+        validPool = pool.map(f => {
+            const dur = f.duration ? Math.floor(f.duration * DEFAULT_FPS) : 9000;
+            return {
+                ...f,
+                sourceDurationFrames: dur,
+                effectiveTrimInFrames: f.trimIn != null ? Math.floor(f.trimIn * DEFAULT_FPS) : 0,
+                effectiveTrimOutFrames: f.trimOut != null ? Math.floor(f.trimOut * DEFAULT_FPS) : dur,
+            };
+        });
     }
 
     // Force chop behavior if there's exactly one video
@@ -282,21 +301,30 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
     };
 
     // Helper to find best trim start avoiding collisions
-    const getBestTrimStart = (maxStart: number, sourceReq: number, history: string[]): number => {
-        const START_OFFSET_FRAMES = Math.floor(1.0 * DEFAULT_FPS);
-        const actualMaxStart = maxStart > START_OFFSET_FRAMES ? maxStart - START_OFFSET_FRAMES : maxStart;
-        const baseOffset = maxStart > START_OFFSET_FRAMES ? START_OFFSET_FRAMES : 0;
+    // Respects the file's effective trim region (trimIn offset)
+    const getBestTrimStart = (file: PoolFile, sourceReq: number, history: string[]): number => {
+        const trimInOffset = file.effectiveTrimInFrames;
+        const trimOutLimit = file.effectiveTrimOutFrames;
+        const availableRange = trimOutLimit - trimInOffset - sourceReq;
 
-        if (!history || history.length === 0 || actualMaxStart <= 0) {
-            return baseOffset + Math.floor(Math.random() * Math.max(0, actualMaxStart));
+        if (availableRange <= 0) {
+            return trimInOffset; // File is shorter than requested — use from trim start
         }
 
-        let bestTrimStart = baseOffset + Math.floor(Math.random() * actualMaxStart);
+        const START_OFFSET_FRAMES = Math.floor(1.0 * DEFAULT_FPS);
+        const effectiveStart = trimInOffset + Math.min(START_OFFSET_FRAMES, availableRange);
+        const effectiveRange = trimOutLimit - sourceReq - effectiveStart;
+
+        if (!history || history.length === 0 || effectiveRange <= 0) {
+            return effectiveStart + Math.floor(Math.random() * Math.max(0, effectiveRange));
+        }
+
+        let bestTrimStart = effectiveStart + Math.floor(Math.random() * effectiveRange);
         let maxDistance = -1;
         const numCandidates = 15;
 
         for (let i = 0; i < numCandidates; i++) {
-            const candidate = baseOffset + Math.floor(Math.random() * actualMaxStart);
+            const candidate = effectiveStart + Math.floor(Math.random() * effectiveRange);
             const candEnd = candidate + sourceReq;
             let minDist = Infinity;
 
@@ -605,9 +633,8 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 let speed = baseSpeed * speedMult;
                 const clipDuration = Math.min(beatGapFrames, clipMax);
                 const sourceReq = Math.max(1, Math.ceil(clipDuration * speed));
-                const maxStartF = Math.max(0, file.sourceDurationFrames - sourceReq);
                 const history = usedSegments.get(file.path) || [];
-                const trimStart = getBestTrimStart(maxStartF, sourceReq, history);
+                const trimStart = getBestTrimStart(file, sourceReq, history);
                 const trimEnd = trimStart + sourceReq;
                 if (!usedSegments.has(file.path)) usedSegments.set(file.path, []);
                 usedSegments.get(file.path)!.push(`${trimStart}-${trimEnd}`);
@@ -666,9 +693,8 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 const { speed: baseSpeed, volume, isMuted } = getSpeedAndVolume();
                 const speed = baseSpeed * speedMult;
                 const sourceReq = Math.max(1, Math.ceil(clipDuration * speed));
-                const maxStartF = Math.max(0, file.sourceDurationFrames - sourceReq);
                 const history = usedSegments.get(file.path) || [];
-                const trimStart = getBestTrimStart(maxStartF, sourceReq, history);
+                const trimStart = getBestTrimStart(file, sourceReq, history);
                 const trimEnd = trimStart + sourceReq;
                 if (!usedSegments.has(file.path)) usedSegments.set(file.path, []);
                 usedSegments.get(file.path)!.push(`${trimStart}-${trimEnd}`);
@@ -717,13 +743,8 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 );
                 const { speed, volume, isMuted } = getSpeedAndVolume();
                 const sourceReq = Math.max(1, Math.ceil(clipDur * speed));
-                const sourceAvailable = file.sourceDurationFrames;
-                if (sourceReq > sourceAvailable) clipDur = Math.floor(sourceAvailable / speed);
-                if (clipDur < 2) continue;
-
-                const maxStart = Math.max(0, sourceAvailable - sourceReq);
                 const history = usedSegments.get(file.path) || [];
-                const trimStart = getBestTrimStart(maxStart, sourceReq, history);
+                const trimStart = getBestTrimStart(file, sourceReq, history);
                 const trimEnd = trimStart + sourceReq;
 
                 if (!usedSegments.has(file.path)) usedSegments.set(file.path, []);
@@ -760,9 +781,8 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             const sourceAvailable = file.sourceDurationFrames;
             if (sourceReq > sourceAvailable) cutDurationFrames = Math.floor(sourceAvailable / speed);
 
-            const maxStart = Math.max(0, sourceAvailable - sourceReq);
             const history = usedSegments.get(file.path) || [];
-            const trimStart = getBestTrimStart(maxStart, sourceReq, history);
+            const trimStart = getBestTrimStart(file, sourceReq, history);
             const trimEnd = trimStart + sourceReq;
 
             if (!usedSegments.has(file.path)) usedSegments.set(file.path, []);
@@ -808,9 +828,8 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
 
         const { speed, volume, isMuted } = getSpeedAndVolume();
         const sourceReq = Math.max(1, Math.ceil(safeDuration * speed));
-        const maxStart = Math.max(0, sourceAvailable - sourceReq);
         const history = usedSegments.get(file.path) || [];
-        let trimStart = getBestTrimStart(maxStart, sourceReq, history);
+        let trimStart = getBestTrimStart(file, sourceReq, history);
         let trimEnd = trimStart + sourceReq;
 
         if (!allowSameSegment && usedSegments.has(file.path)) {
@@ -821,7 +840,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
 
             if (collision) {
                 for (let i = 0; i < 3; i++) {
-                    trimStart = getBestTrimStart(maxStart, sourceReq, history);
+                    trimStart = getBestTrimStart(file, sourceReq, history);
                     trimEnd = trimStart + sourceReq;
                     collision = history.some(range => {
                         const [s, e] = range.split('-').map(Number);

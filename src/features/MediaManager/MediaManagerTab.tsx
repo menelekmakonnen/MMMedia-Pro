@@ -83,9 +83,12 @@ export const MediaManagerTab: React.FC = () => {
         const fps = 30;
         for (const file of newFiles) {
             const durationFrames = Math.floor(file.duration * fps);
+            // Respect pre-trim constraints if set
+            const trimStartFrame = file.trimIn != null ? Math.floor(file.trimIn * fps) : 0;
+            const trimEndFrame = file.trimOut != null ? Math.floor(file.trimOut * fps) : durationFrames;
+            const clipDuration = trimEndFrame - trimStartFrame;
 
             if (file.type === 'video') {
-                // Videos go to the main timeline (track 1)
                 addClip({
                     id: uuidv4(),
                     mediaLibraryId: file.id,
@@ -93,10 +96,10 @@ export const MediaManagerTab: React.FC = () => {
                     path: file.path,
                     filename: file.filename,
                     startFrame: 0,
-                    endFrame: durationFrames || 150,
+                    endFrame: clipDuration || 150,
                     sourceDurationFrames: durationFrames,
-                    trimStartFrame: 0,
-                    trimEndFrame: durationFrames,
+                    trimStartFrame,
+                    trimEndFrame,
                     track: 1,
                     speed: 1.0,
                     volume: 100,
@@ -107,7 +110,6 @@ export const MediaManagerTab: React.FC = () => {
                     locked: false
                 });
             } else if (file.type === 'audio') {
-                // Audio goes to sequence only (track 2 — audio track, not rendered on main timeline)
                 addClip({
                     id: uuidv4(),
                     mediaLibraryId: file.id,
@@ -119,7 +121,7 @@ export const MediaManagerTab: React.FC = () => {
                     sourceDurationFrames: durationFrames,
                     trimStartFrame: 0,
                     trimEndFrame: durationFrames,
-                    track: 101,  // Audio track — background music, NOT linked clip audio (track 2)
+                    track: 101,
                     speed: 1.0,
                     volume: 100,
                     reversed: false,
@@ -130,7 +132,6 @@ export const MediaManagerTab: React.FC = () => {
                 });
             }
         }
-        // Snap all track-1 clips back-to-back
         magnetizeClips();
     };
 
@@ -316,21 +317,16 @@ export const MediaManagerTab: React.FC = () => {
         const file = files.find(f => f.id === fileId);
         if (!file) return;
 
-        // Check if this specific MediaFile is already used on the timeline
         const { clips } = useClipStore.getState();
         const isUsed = clips.some(c => c.mediaLibraryId === fileId);
 
         let targetFile = file;
 
-        // If used, DUPLICATE the media file in the library first
         if (isUsed) {
             const newFile: MediaFile = {
                 ...file,
                 id: uuidv4(),
-                // We keep the same filename or append copy, user preference usually implies visual duplicate
-                // But typically bins show "Name" and "Name". Let's append copy to be clear it's a new instance.
-                filename: file.filename, // User can rename if they want, or we can auto-increment. 
-                // Let's keep filename identical so it looks like a clean clone as per "Duplicate items... show the duplicates".
+                filename: file.filename,
                 createdAt: Date.now()
             };
             addFiles([newFile]);
@@ -339,19 +335,23 @@ export const MediaManagerTab: React.FC = () => {
 
         const fps = 30;
         const durationFrames = Math.floor(targetFile.duration * fps);
+        // Respect pre-trim constraints
+        const trimStartFrame = targetFile.trimIn != null ? Math.floor(targetFile.trimIn * fps) : 0;
+        const trimEndFrame = targetFile.trimOut != null ? Math.floor(targetFile.trimOut * fps) : durationFrames;
+        const clipDuration = trimEndFrame - trimStartFrame;
 
         addClip({
-            id: uuidv4(), // New ID for timeline instance
-            mediaLibraryId: targetFile.id, // Link to the specific Media Library item used
+            id: uuidv4(),
+            mediaLibraryId: targetFile.id,
             type: targetFile.type,
             path: targetFile.path,
             filename: targetFile.filename,
             startFrame: 0,
-            endFrame: durationFrames || 150, // Default 5s if 0
+            endFrame: clipDuration || 150,
             sourceDurationFrames: durationFrames,
-            trimStartFrame: 0,
-            trimEndFrame: durationFrames,
-            track: 1, // Default to track 1
+            trimStartFrame,
+            trimEndFrame,
+            track: 1,
             speed: 1.0,
             volume: 100,
             reversed: false,
@@ -398,23 +398,24 @@ export const MediaManagerTab: React.FC = () => {
         setActiveTab('grideditor');
     };
 
-    // Helper to adapt MediaFile to Clip for display
     const fileToClipPreview = (file: MediaFile): Clip => {
         const fps = 30;
         const durationFrames = Math.floor(file.duration * fps);
+        const trimStartFrame = file.trimIn != null ? Math.floor(file.trimIn * fps) : 0;
+        const trimEndFrame = file.trimOut != null ? Math.floor(file.trimOut * fps) : durationFrames;
         return {
             id: file.id,
             type: file.type,
             path: file.path,
             filename: file.filename,
             startFrame: 0,
-            endFrame: durationFrames || 150,
+            endFrame: trimEndFrame - trimStartFrame || 150,
             sourceDurationFrames: durationFrames,
-            trimStartFrame: 0,
-            trimEndFrame: durationFrames,
+            trimStartFrame,
+            trimEndFrame,
             speed: 1.0,
             volume: 100,
-            track: 0, // Preview only
+            track: 0,
             reversed: false,
             isMuted: false,
             isPinned: false,
@@ -611,6 +612,8 @@ export const MediaManagerTab: React.FC = () => {
                                         clip={fileToClipPreview(file)}
                                         isSelected={file.id === detailFileId}
                                         isMultiSelected={selectedFileIds.includes(file.id)}
+                                        isTrimmed={file.trimIn != null && file.trimOut != null}
+                                        trimDurationLabel={file.trimIn != null && file.trimOut != null ? `${(file.trimOut - file.trimIn).toFixed(1)}s` : undefined}
                                         viewMode={viewMode}
                                         onSelect={(e) => handleItemClick(file.id, e)}
                                         onAdd={() => handleAddClipToTimeline(file.id)}
@@ -846,6 +849,7 @@ export const MediaManagerTab: React.FC = () => {
                             ) : (
                                 <MediaDetailsPanel
                                     clip={selectedFile ? fileToClipPreview(selectedFile) : null}
+                                    mediaFile={selectedFile}
                                     onClose={() => setDetailFileId(null)}
                                     onAdd={selectedFile ? () => handleAddClipToTimeline(selectedFile.id) : undefined}
                                     onRotate={selectedFile ? () => handleRotate(selectedFile.id) : undefined}

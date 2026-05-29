@@ -1,12 +1,14 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { Clip } from '../../store/clipStore';
-import { Plus, FileVideo, FileAudio, LayoutGrid, Trash2, CheckSquare, Square as SquareIcon, RotateCw } from 'lucide-react';
+import { Plus, FileVideo, FileAudio, LayoutGrid, Trash2, CheckSquare, Square as SquareIcon, RotateCw, Scissors } from 'lucide-react';
 
 interface MediaItemProps {
     clip: Clip;
     isSelected: boolean;
     isMultiSelected: boolean;
+    isTrimmed?: boolean;
+    trimDurationLabel?: string;
     viewMode: 'grid' | 'list';
     onSelect: (e: React.MouseEvent) => void;
     onAdd: () => void;
@@ -15,7 +17,7 @@ interface MediaItemProps {
     onDelete?: () => void;
 }
 
-export const MediaItem: React.FC<MediaItemProps> = ({ clip, isSelected, isMultiSelected, viewMode, onSelect, onAdd, onGridAdd, onRotate, onDelete }) => {
+export const MediaItem: React.FC<MediaItemProps> = ({ clip, isSelected, isMultiSelected, isTrimmed, trimDurationLabel, viewMode, onSelect, onAdd, onGridAdd, onRotate, onDelete }) => {
     return (
         <motion.div
             onClick={onSelect}
@@ -73,6 +75,14 @@ export const MediaItem: React.FC<MediaItemProps> = ({ clip, isSelected, isMultiS
                 <div className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/80 rounded text-[10px] items-center text-white/80 font-mono">
                     {(clip.sourceDurationFrames / 30).toFixed(1)}s
                 </div>
+
+                {/* Trim Badge */}
+                {isTrimmed && (
+                    <div className="absolute top-1.5 right-1.5 z-20 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-violet-600/80 text-[9px] font-bold text-white shadow-lg backdrop-blur-sm border border-violet-400/30">
+                        <Scissors size={9} />
+                        {trimDurationLabel && <span>{trimDurationLabel}</span>}
+                    </div>
+                )}
 
                 {/* Hover Overlay — GRID VIEW ONLY */}
                 {viewMode === 'grid' && (

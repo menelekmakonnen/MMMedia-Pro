@@ -27,6 +27,10 @@ export interface MediaFile {
     format?: string;
     size?: number;
     createdAt?: number;
+    // Pre-import trim constraints (seconds). When set, all downstream tools
+    // (trailer, godmode, timeline, flux) only use this portion of the source.
+    trimIn?: number;   // Start of usable region (default: 0)
+    trimOut?: number;  // End of usable region (default: duration)
 }
 
 interface MediaState {
@@ -49,6 +53,9 @@ interface MediaState {
     rotateFile: (id: string) => void;
     setOrientationFilter: (filter: 'all' | 'horizontal' | 'vertical' | 'square') => void;
     setPreloadedAudio: (path: string | null, name: string | null) => void;
+    // Trim constraints
+    setFileTrim: (id: string, trimIn: number, trimOut: number) => void;
+    clearFileTrim: (id: string) => void;
     // Multi-select actions
     toggleFileSelection: (id: string, mode: 'single' | 'ctrl' | 'shift', allVisibleIds?: string[]) => void;
     selectAllFiles: (visibleIds?: string[]) => void;
@@ -98,6 +105,14 @@ export const useMediaStore = create<MediaState>()(
             setOrientationFilter: (filter) => set({ orientationFilter: filter }),
 
             setPreloadedAudio: (path, name) => set({ preloadedAudioPath: path, preloadedAudioName: name }),
+
+            setFileTrim: (id, trimIn, trimOut) => set((state) => ({
+                files: state.files.map(f => f.id === id ? { ...f, trimIn, trimOut } : f)
+            })),
+
+            clearFileTrim: (id) => set((state) => ({
+                files: state.files.map(f => f.id === id ? { ...f, trimIn: undefined, trimOut: undefined } : f)
+            })),
 
             toggleFileSelection: (id, mode, allVisibleIds) => set((state) => {
                 if (mode === 'single') {
