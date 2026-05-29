@@ -15,7 +15,7 @@ export const ClipControls: React.FC<ClipControlsProps> = ({ clipId, variant = 's
     const [showAssetPicker, setShowAssetPicker] = useState(false);
     const [showStyleMenu, setShowStyleMenu] = useState(false);
 
-    const applyStyle = (styleName: 'rubber-band-standard' | 'rubber-band-zoom' | 'rubber-band-zoom-speed' | 'rubber-band-extreme' | 'multi-boomerang' | 'triple-shot') => {
+    const applyStyle = (styleName: 'rubber-band-standard' | 'rubber-band-zoom' | 'rubber-band-zoom-speed' | 'rubber-band-extreme' | 'multi-boomerang' | 'triple-shot' | 'rubber-band' | 'rubber-band-speed') => {
         useClipStore.getState().applyEditingStyle(clipId, styleName);
         setShowStyleMenu(false);
     };

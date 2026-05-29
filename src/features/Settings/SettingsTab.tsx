@@ -11,7 +11,7 @@ import { toast } from '../../components/Toast';
 
 export const SettingsTab: React.FC = () => {
     const { settings, updateSettings } = useProjectStore();
-    const { fps, state, errorCount } = useAppHealthStore();
+    const { fps, state, errorCount: _errorCount } = useAppHealthStore();
     const clipCount = useClipStore(s => s.clips.length);
     const mediaCount = useMediaStore(s => s.files.length);
     const [memMB, setMemMB] = useState(0);

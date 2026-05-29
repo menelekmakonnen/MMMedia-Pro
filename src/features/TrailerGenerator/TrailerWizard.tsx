@@ -3,9 +3,9 @@ import { motion } from 'framer-motion';
 import { useMediaStore } from '../../store/mediaStore';
 import { usePresetUsageStore } from '../../store/presetUsageStore';
 import { TrailerSettings, DEFAULT_TRAILER_SETTINGS, EditingStyleOption, DEFAULT_STYLE_CONFIG } from '../../lib/trailerGenerator';
-import { Wand2, Clock, Zap, Settings2, Video, Flame, Scissors, Check, PlayCircle, Music, Upload, Play, Pause, Trash2, Loader2, Sparkles, Film, SlidersHorizontal, ChevronDown, ChevronUp, Crown, Heart, Camera, Clapperboard, Podcast, Smartphone, Monitor, Square, Globe, Dumbbell, Shuffle, ArrowLeftRight, Layers, Pin, Activity } from 'lucide-react';
+import { Wand2, Clock, Zap, Settings2, Video, Flame, Scissors, Check, PlayCircle, Music, Upload, Play, Pause, Trash2, Loader2, Sparkles, Film, SlidersHorizontal, ChevronDown, ChevronUp, Crown, Heart, Camera, Clapperboard, Podcast, Smartphone, Monitor, Square, Globe, Dumbbell, ArrowLeftRight, Layers, Pin, Activity } from 'lucide-react';
 import { TRANSITION_CATALOG, TransitionType, ALL_TRANSITION_TYPES } from '../../lib/transitions';
-import { analyzeAudio, AudioAnalysisResult, SegmentType } from '../../lib/audioAnalysis';
+import { analyzeAudio, AudioAnalysisResult, SegmentType as _SegmentType } from '../../lib/audioAnalysis';
 import clsx from 'clsx';
 import { useGodModeStore } from '../../store/godModeStore';
 
@@ -137,11 +137,11 @@ interface WizardProps {
 
 export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
     const { files, orientationFilter, setOrientationFilter, selectedFileIds, preloadedAudioPath, preloadedAudioName, setPreloadedAudio } = useMediaStore();
-    const { incrementTemplate, incrementStyle, incrementGodMode, togglePinTemplate, togglePinStyle, togglePinGodMode, pinnedTemplates, pinnedStyles, pinnedGodModes, getTopTemplates, getTopStyles, getTopGodModes, templateUsage, styleUsage, godModeUsage } = usePresetUsageStore();
+    const { incrementTemplate, incrementStyle, incrementGodMode, togglePinTemplate, togglePinStyle, togglePinGodMode: _togglePinGodMode, pinnedTemplates, pinnedStyles, pinnedGodModes, getTopTemplates, getTopStyles, getTopGodModes, templateUsage, styleUsage, godModeUsage } = usePresetUsageStore();
 
     const topTemplateIds = useMemo(() => getTopTemplates(5), [templateUsage, pinnedTemplates]);
     const topStyleIds = useMemo(() => getTopStyles(5), [styleUsage, pinnedStyles]);
-    const topGodModeIds = useMemo(() => getTopGodModes(5), [godModeUsage, pinnedGodModes]);
+    const _topGodModeIds = useMemo(() => getTopGodModes(5), [godModeUsage, pinnedGodModes]);
 
     const [settings, setSettings] = useState<TrailerSettings>(() => {
         try {
@@ -161,7 +161,7 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
         return { ...DEFAULT_TRAILER_SETTINGS };
     });
 
-    const [audioFile, setAudioFile] = useState<File | null>(null);
+    const [_audioFile, setAudioFile] = useState<File | null>(null);
     const [audioPlaying, setAudioPlaying] = useState(false);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
 
@@ -184,7 +184,7 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
     const setAudioAnalysis = (v: AudioAnalysisResult | null) => gmStore.setAudioGuide({ useAudioGuide: gmStore.useAudioGuide, audioAnalysis: v });
 
     const audioRef = useRef<HTMLAudioElement>(null);
-    const audioInputRef = useRef<HTMLInputElement>(null);
+    const _audioInputRef = useRef<HTMLInputElement>(null);
     const waveformRef = useRef<HTMLCanvasElement>(null);
     const bestSegmentCycleRef = useRef<Record<number, number>>({});
 
@@ -1610,7 +1610,7 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                         <SliderControl label="Slow-Mo" icon={Clock} value={settings.styleConfig.rampSlowSpeed}
                                             min={0.1} max={0.6} step={0.05} unit="x"
                                             onChange={v => update({ styleConfig: { ...settings.styleConfig, rampSlowSpeed: v } })} />
-                                        <SliderControl label="Zoom Range" icon={Video} value={settings.styleConfig.zoomRange}
+                                        <SliderControl label="Zoom Range" icon={Video} value={(typeof settings.styleConfig.zoomRange === 'number' ? settings.styleConfig.zoomRange : 145)}
                                             min={110} max={200} step={5} unit="%"
                                             onChange={v => update({ styleConfig: { ...settings.styleConfig, zoomRange: v } })} />
                                         <SliderControl label="Boom. Slices" icon={Scissors} value={settings.styleConfig.boomerangSlices}

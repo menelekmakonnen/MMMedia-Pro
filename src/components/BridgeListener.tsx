@@ -106,7 +106,7 @@ export const BridgeListener: React.FC = () => {
                         reversed: false,
                         isMuted: false,
                         isPinned: false,
-                        origin: 'darkroom-trailer',
+                        origin: 'darkroom-trailer' as any,
                         locked: false
                     });
 

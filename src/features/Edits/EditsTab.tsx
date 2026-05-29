@@ -152,7 +152,7 @@ export const EditsTab: React.FC = () => {
             });
             if (canceled || !filePath) return;
             const payload = JSON.stringify({ savedEdits: useSavedEditsStore.getState().savedEdits }, null, 2);
-            await window.ipcRenderer.writeFile(filePath, payload);
+            await (window.ipcRenderer as any).writeFile(filePath, payload);
             toast.success(`Saved ${savedEdits.length} edits to .mmm`);
         } catch (err) {
             console.error('Failed to save .mmm:', err);

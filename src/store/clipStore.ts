@@ -6,6 +6,7 @@ import { MediaFile } from './mediaStore';
 import { v4 as uuidv4 } from 'uuid';
 import { Clip as BaseClip, GridClip, GridCell } from '../types';
 import { useUserStore } from './userStore';
+import type { EditingStyleOption } from '../lib/trailerGenerator';
 import { analyzeAudio } from '../lib/audioAnalysis';
 
 // Extend BaseClip with store-specific properties
@@ -96,7 +97,7 @@ interface ClipStore {
     // Phase 18: Sequence Actions
     magnetizeClips: () => void;
     reorderClips: (fromIndex: number, toIndex: number) => void;
-    applyEditingStyle: (clipId: string, styleName: 'rubber-band-standard' | 'rubber-band' | 'rubber-band-speed' | 'rubber-band-extreme' | 'multi-boomerang' | 'triple-shot') => void;
+    applyEditingStyle: (clipId: string, styleName: EditingStyleOption) => void;
 
     // Automation
     regenerateTimeline: (sourceFiles: MediaFile[], seed: string) => void;
@@ -836,14 +837,14 @@ export const useClipStore = create<ClipStore>((set, get) => ({
                         if (cell.id !== cellId) return cell;
                         const fluxed = cell.clips.map(clip => {
                             const src = clip.sourceDurationFrames || 150;
-                            const newTrimStart = Math.floor(rng.next() * src * 0.6);
+                            const newTrimStart = Math.floor(rng.random() * src * 0.6);
                             const maxLen = src - newTrimStart;
-                            const newLen = Math.max(30, Math.floor(rng.next() * maxLen));
+                            const newLen = Math.max(30, Math.floor(rng.random() * maxLen));
                             return {
                                 ...clip,
                                 trimStartFrame: newTrimStart,
                                 trimEndFrame: newTrimStart + newLen,
-                                speed: parseFloat((0.5 + rng.next() * 2.0).toFixed(2)),
+                                speed: parseFloat((0.5 + rng.random() * 2.0).toFixed(2)),
                             };
                         });
                         return { ...cell, clips: fluxed, clip: fluxed[0] || null };
@@ -1287,12 +1288,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
             console.error('[ClipStore] Audio analysis failed:', error);
         }
     },
-
-    // Track controls
-    setTrackMuted: (trackId, muted) => set((s) => ({
-        trackMutes: { ...s.trackMutes, [trackId]: muted },
-    })),
-    isTrackMuted: (trackId) => get().trackMutes[trackId] ?? false,
+    // Track volume controls
     setTrackVolume: (trackId, volume) => set((s) => ({
         trackVolumes: { ...s.trackVolumes, [trackId]: Math.max(0, Math.min(100, volume)) },
     })),

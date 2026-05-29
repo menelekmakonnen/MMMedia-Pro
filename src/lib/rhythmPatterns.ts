@@ -162,7 +162,7 @@ const staccatoLegato: RhythmPattern = {
     name: 'Staccato/Legato',
     description: 'Alternating blocks of 3 rapid staccato cuts followed by 2 sustained legato shots. Musical and dynamic.',
     getMultiplier: (i) => {
-        const block = Math.floor(i / 5); // 5-clip blocks
+        const _block = Math.floor(i / 5); // 5-clip blocks
         const pos = i % 5;
         if (pos < 3) {
             // Staccato: fast, crisp

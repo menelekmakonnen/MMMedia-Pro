@@ -102,7 +102,7 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
         const textures = new Set(vc.map(c => c.visualTexture).filter(Boolean));
         const transitions = new Set(vc.map(c => c.transitionEnter).flat().filter(Boolean));
         const hasZoom = vc.some(c => c.zoomLevel && c.zoomLevel > 100);
-        const hasRotation = vc.some(c => c.rotation && c.rotation !== 0);
+        const hasRotation = vc.some(c => !!c.rotation);
         const speeds = new Set(vc.map(c => c.speed).filter(s => s !== 1));
         return { vc: vc.length, ac: ac.length, effects: [...effects], textures: [...textures], transitions: [...transitions], hasZoom, hasRotation, speeds: [...speeds] };
     }, [clips]);

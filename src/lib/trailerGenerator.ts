@@ -6,7 +6,7 @@ import { Clip } from '../types';
 import { assignTransitions, TransitionType, TRANSITION_PRESETS } from './transitions';
 import { RHYTHM_PATTERNS, resolveRhythmDuration, RhythmPatternId } from './rhythmPatterns';
 
-export type EditingStyleOption = 'rubber-band-standard' | 'rubber-band' | 'rubber-band-speed' | 'multi-boomerang' | 'triple-shot' | 'snap-burst' | 'pendulum-sway' | 'hyper-cut' | 'bear-chaos' | 'pattern-interrupt' | 'beat-bounce';
+export type EditingStyleOption = 'rubber-band-standard' | 'rubber-band' | 'rubber-band-speed' | 'rubber-band-extreme' | 'rubber-band-zoom' | 'rubber-band-zoom-speed' | 'multi-boomerang' | 'triple-shot' | 'snap-burst' | 'pendulum-sway' | 'hyper-cut' | 'bear-chaos' | 'pattern-interrupt' | 'beat-bounce';
 
 export interface EditingStyleConfig {
     rampFastSpeed: number;        // Speed of the fast segment (1.5 - 4.0x)
@@ -16,6 +16,7 @@ export interface EditingStyleConfig {
     boomerangSlices: number;      // Number of forward/reverse slices (2 - 4)
     reversalChance: number;       // Probability that a style includes reversal (0.0 - 1.0)
     burstMode: 'short' | 'long'; // Short = tight cuts, Long = breathing room
+    zoomRange?: number | [number, number];  // Optional zoom range — single number or [min%, max%] for zoom-based styles
 }
 
 export const DEFAULT_STYLE_CONFIG: EditingStyleConfig = {
@@ -158,8 +159,8 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
 
     // Resolve 'random' slowmoPolicy to a concrete policy
     if (slowmoPolicy === 'random') {
-        const SPEED_POOL: typeof slowmoPolicy[] = ['slowmo', 'fast', 'timelapse', 'hyperfast', 'mixed-slow', 'mixed-fast', 'mixed-all', 'dramatic', 'dramatic-reverse', 'ramped', 'ramped-inverse', 'slowmo-fast', 'fast-slowmo', 'pulse', 'breathe'];
-        slowmoPolicy = SPEED_POOL[Math.floor(Math.random() * SPEED_POOL.length)];
+        const SPEED_POOL = ['slowmo', 'fast', 'timelapse', 'hyperfast', 'mixed-slow', 'mixed-fast', 'mixed-all', 'dramatic', 'dramatic-reverse', 'ramped', 'ramped-inverse', 'slowmo-fast', 'fast-slowmo', 'pulse', 'breathe'] as const;
+        slowmoPolicy = SPEED_POOL[Math.floor(Math.random() * SPEED_POOL.length)] as typeof slowmoPolicy;
     }
 
     // 1. Filter Pool
@@ -180,7 +181,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         // Respect pre-import trim constraints from Media Library
         const trimInFrames = f.trimIn != null ? Math.floor(f.trimIn * DEFAULT_FPS) : 0;
         const trimOutFrames = f.trimOut != null ? Math.floor(f.trimOut * DEFAULT_FPS) : fullDurationFrames;
-        const effectiveDuration = trimOutFrames - trimInFrames;
+        const _effectiveDuration = trimOutFrames - trimInFrames;
 
         return {
             ...f,
@@ -210,6 +211,11 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
     const targetFrames = Math.floor(targetDuration * DEFAULT_FPS);
     const minFrames = Math.max(1, Math.floor(shortestClip * DEFAULT_FPS));
     const maxFrames = Math.max(minFrames + 1, Math.floor(longestClip * DEFAULT_FPS));
+
+    console.log('[TrailerGen] ═══ GENERATION START ═══');
+    console.log('[TrailerGen] Settings:', { targetDuration, shortestClip, longestClip, targetFrames, minFrames, maxFrames, slowmoPolicy, useAllClips, allowDuplicates });
+    console.log('[TrailerGen] Pool size:', validPool.length, 'files');
+    validPool.forEach((f, i) => console.log(`[TrailerGen]   Pool[${i}]: "${f.filename}" dur=${f.duration}s srcFrames=${f.sourceDurationFrames} trimIn=${f.effectiveTrimInFrames} trimOut=${f.effectiveTrimOutFrames}`));
 
     let accumulatedFrames = 0;
     const sequence: Clip[] = [];
@@ -370,9 +376,11 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
 
     // Helper: finalize a clip sequence with orientation-aware zoom + transitions
     const finalizeSequence = (seq: Clip[]): Clip[] => {
+        console.log(`[TrailerGen] ═══ FINALIZE ═══ ${seq.length} clips, accumulated=${accumulatedFrames}fr (${(accumulatedFrames/DEFAULT_FPS).toFixed(1)}s)`);
+        
         // ── BLACK SCREEN PREVENTION ──────────────────────────────────────
         // 0a. Clamp all trim ranges to valid source bounds
-        const clamped = seq.map(c => {
+        const clamped = seq.map((c, idx) => {
             const srcDur = c.sourceDurationFrames || 9000;
             let ts = Math.max(0, c.trimStartFrame || 0);
             let te = Math.min(srcDur, c.trimEndFrame || srcDur);
@@ -385,6 +393,11 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             // If the clip's output duration exceeds what the source can provide, shrink it
             const maxOutputFrames = Math.ceil((te - ts) / (c.speed || 1));
             const safeDur = Math.min(clipDur, maxOutputFrames);
+            
+            if (safeDur < clipDur) {
+                console.warn(`[TrailerGen] CLAMP clip[${idx}] "${c.filename}": clipDur=${clipDur} -> safeDur=${safeDur} (srcDur=${srcDur}, trimRange=${te-ts}, speed=${c.speed}, maxOutput=${maxOutputFrames})`);
+            }
+            
             return {
                 ...c,
                 trimStartFrame: ts,
@@ -414,6 +427,8 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
 
         // Zoom effects removed — pass through directly
         const zoomFixed = gapFilled;
+        const totalOutputFrames = gapFilled.reduce((sum, c) => sum + (c.endFrame - c.startFrame), 0);
+        console.log(`[TrailerGen] Final output: ${gapFilled.length} clips, ${totalOutputFrames}fr (${(totalOutputFrames/DEFAULT_FPS).toFixed(1)}s) target was ${targetFrames}fr (${targetDuration}s)`);
         // 2. Assign transitions (respecting settings)
         if (settings.transitionsEnabled === false) {
             return zoomFixed.map(c => ({ ...c, transitionEnter: ['none'], transitionExit: ['none'], transitionDurationFrames: 0 }));
@@ -873,7 +888,10 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         lastDurationFrames = safeDuration;
 
         if (!allowDuplicates && usedFiles.size >= validPool.length) {
-            break;
+            // All unique files used — auto-enable duplicates to reach target duration
+            console.log(`[TrailerGen] Pool exhausted (${usedFiles.size}/${validPool.length} files used) at ${(accumulatedFrames/DEFAULT_FPS).toFixed(1)}s / ${targetDuration}s — enabling duplicates to fill remaining duration`);
+            allowDuplicates = true;
+            usedSegments.clear(); // Reset segment tracking so new segments can be picked
         }
     }
 
@@ -1118,8 +1136,8 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 const srcSlice = Math.floor(availSource / swingCount);
                 const zooms = [118, 108, 115];
                 for (let s = 0; s < swingCount; s++) {
-                    const zTarget = zooms[s % zooms.length];
-                    const isOut = s % 2 === 1;
+                    const _zTarget = zooms[s % zooms.length];
+                    const _isOut = s % 2 === 1;
                     styledSequence.push({ ...base, id: uuidv4(),
                         trimStartFrame: srcStart + s * srcSlice, trimEndFrame: srcStart + (s + 1) * srcSlice,
                         startFrame: curFrame, endFrame: curFrame + swingDur, speed: 0.85 } as any);
@@ -1150,7 +1168,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 const srcSlice = Math.floor(availSource / phases);
                 for (let p = 0; p < phases; p++) {
                     const speedVar = 0.6 + Math.random() * 1.4; // 0.6x to 2.0x
-                    const zoomBase = 140 + Math.floor(Math.random() * 25); // 140-165% tight crop
+                    const _zoomBase = 140 + Math.floor(Math.random() * 25); // 140-165% tight crop
                     styledSequence.push({ ...base, id: uuidv4(),
                         trimStartFrame: srcStart + p * srcSlice, trimEndFrame: srcStart + (p + 1) * srcSlice,
                         startFrame: curFrame, endFrame: curFrame + phaseDur,

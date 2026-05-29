@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
     Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
     Maximize2, Minimize2, Repeat, ChevronLeft, ChevronRight,
-    Film, Clock, Gauge, Music
+    Film
 } from 'lucide-react';
 import { useClipStore, Clip } from '../../store/clipStore';
 import { useProjectStore } from '../../store/projectStore';
@@ -24,7 +24,7 @@ export const VideoPlayerTab: React.FC = () => {
     const [isPlaying, setIsPlaying] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [showControls, setShowControls] = useState(true);
-    const [isSeeking, setIsSeeking] = useState(false);
+    const [_isSeeking, setIsSeeking] = useState(false);
     const [loopMode, setLoopMode] = useState(false);
     const [hoverTime, setHoverTime] = useState<number | null>(null);
     const [hoverX, setHoverX] = useState(0);
@@ -35,10 +35,10 @@ export const VideoPlayerTab: React.FC = () => {
     const lastClipIdx = useRef(-1);
     const lastRafTimeRef = useRef(0);
     const bgAudioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
-    const bgAudioRefsCleanup = useRef<Set<string>>(new Set());
+    const _bgAudioRefsCleanup = useRef<Set<string>>(new Set());
     const poolSources = useRef<string[]>(['', '', '']);
     const containerRef = useRef<HTMLDivElement>(null);
-    const controlsTimerRef = useRef<ReturnType<typeof setTimeout>>();
+    const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
     const fps = settings.fps || DEFAULT_FPS;
 

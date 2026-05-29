@@ -13,9 +13,9 @@ export const AppHealthMonitor: React.FC = () => {
     const { setState, setScrollVelocity, setFps, incrementError } = useAppHealthStore();
     const lastScrollY = useRef(0);
     const lastScrollTime = useRef(Date.now());
-    const scrollTimeout = useRef<ReturnType<typeof setTimeout>>();
+    const scrollTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const frameTimestamps = useRef<number[]>([]);
-    const animFrameId = useRef<number>();
+    const animFrameId = useRef<number | undefined>(undefined);
 
     useEffect(() => {
         // ── Scroll Velocity Tracking ────────────────────────────────
