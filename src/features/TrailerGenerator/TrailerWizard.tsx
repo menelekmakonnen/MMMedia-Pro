@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { useMediaStore } from '../../store/mediaStore';
 import { usePresetUsageStore } from '../../store/presetUsageStore';
 import { TrailerSettings, DEFAULT_TRAILER_SETTINGS, EditingStyleOption, DEFAULT_STYLE_CONFIG } from '../../lib/trailerGenerator';
-import { Wand2, Clock, Zap, Settings2, Video, Flame, Scissors, Check, PlayCircle, Music, Upload, Play, Pause, Trash2, Loader2, Sparkles, Film, SlidersHorizontal, ChevronDown, ChevronUp, Crown, Heart, Camera, Clapperboard, Podcast, Smartphone, Monitor, Square, Globe, Dumbbell, ArrowLeftRight, Layers, Pin, Activity } from 'lucide-react';
+import { Wand2, Clock, Zap, Settings2, Video, Flame, Scissors, Check, PlayCircle, Music, Upload, Play, Pause, Trash2, Loader2, Sparkles, Film, SlidersHorizontal, ChevronDown, ChevronUp, Crown, Heart, Camera, Clapperboard, Podcast, Smartphone, Monitor, Square, Globe, Dumbbell, ArrowLeftRight, Layers, Pin } from 'lucide-react';
 import { TRANSITION_CATALOG, TransitionType, ALL_TRANSITION_TYPES } from '../../lib/transitions';
 import { analyzeAudio, AudioAnalysisResult, SegmentType as _SegmentType } from '../../lib/audioAnalysis';
 import clsx from 'clsx';
@@ -24,33 +24,74 @@ const TEMPLATES = [
 ];
 
 const STYLE_TEMPLATES = [
-    { id: 'snap-viral', name: 'Snap Viral', desc: 'Retention-first: snap bursts + pattern interrupts', icon: Zap,
-      mix: 'every' as const, styles: ['snap-burst', 'pattern-interrupt', 'hyper-cut'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.5, rampSlowSpeed: 0.15, fastPortion: 0.1, slowPortion: 0.3, boomerangSlices: 4, reversalChance: 0.9, burstMode: 'short' as const } },
-    { id: 'beat-locked', name: 'Beat Locked', desc: 'Pure beat-synced bounces + speed drops', icon: Music,
-      mix: 'heavy' as const, styles: ['beat-bounce', 'rubber-band-speed', 'snap-burst'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.25, fastPortion: 0.12, slowPortion: 0.35, boomerangSlices: 4, reversalChance: 0.85, burstMode: 'short' as const } },
-    { id: 'whiplash-pro', name: 'Whiplash', desc: 'Extreme speed contrast: fast↔ultra-slow', icon: Flame,
-      mix: 'every' as const, styles: ['rubber-band-standard', 'rubber-band-speed', 'triple-shot'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 4.0, rampSlowSpeed: 0.1, fastPortion: 0.08, slowPortion: 0.45, reversalChance: 1.0, burstMode: 'short' as const } },
-    { id: 'cinematic-ramp', name: 'Cinematic Ramp', desc: 'Elegant hero slow-mo + gentle speed ramps', icon: Film,
-      mix: 'light' as const, styles: ['rubber-band-standard', 'rubber-band'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.8, rampSlowSpeed: 0.35, fastPortion: 0.15, slowPortion: 0.5, reversalChance: 0.5, burstMode: 'long' as const } },
-    { id: 'chaos-engine', name: 'Chaos Engine', desc: 'Every style at once, maximum density', icon: Sparkles,
-      mix: 'every' as const, styles: ['snap-burst', 'hyper-cut', 'multi-boomerang', 'pattern-interrupt', 'triple-shot', 'bear-chaos'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.8, rampSlowSpeed: 0.12, fastPortion: 0.1, slowPortion: 0.25, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' as const } },
-    { id: 'pendulum-drift', name: 'Pendulum Drift', desc: 'Floating sway + gentle boomerangs', icon: ArrowLeftRight,
-      mix: 'heavy' as const, styles: ['pendulum-sway', 'rubber-band', 'multi-boomerang'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.5, rampSlowSpeed: 0.3, fastPortion: 0.1, slowPortion: 0.45, reversalChance: 0.6, burstMode: 'long' as const } },
-    { id: 'stutter-punch', name: 'Stutter Punch', desc: 'Rapid micro-boomerangs + triple-shot intercuts', icon: Scissors,
-      mix: 'every' as const, styles: ['multi-boomerang', 'triple-shot', 'hyper-cut'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.2, rampSlowSpeed: 0.25, fastPortion: 0.12, slowPortion: 0.3, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' as const } },
-    { id: 'bear-mode', name: 'Bear Mode', desc: 'Immersive chaos — tight crops + speed variation', icon: Camera,
-      mix: 'heavy' as const, styles: ['bear-chaos', 'hyper-cut', 'rubber-band-speed'] as EditingStyleOption[],
-      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.2, fastPortion: 0.15, slowPortion: 0.35, reversalChance: 0.8, burstMode: 'short' as const } },
+    { id: 'music-video', name: 'Music Video', desc: 'Boomerangs, zoom punches, speed drops', icon: Music,
+      mix: 'heavy' as const, styles: ['rubber-band-zoom', 'multi-boomerang', 'rubber-band-zoom-speed'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampSlowSpeed: 0.2, zoomRange: 160, boomerangSlices: 4, reversalChance: 0.95, burstMode: 'short' as const } },
+    { id: 'action-reel', name: 'Action Reel', desc: 'Hard ramps + triple-shot intercuts', icon: Flame,
+      mix: 'heavy' as const, styles: ['rubber-band-standard', 'triple-shot', 'rubber-band-zoom-speed'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.5, rampSlowSpeed: 0.15, fastPortion: 0.1, slowPortion: 0.4, reversalChance: 1.0, burstMode: 'short' as const } },
+    { id: 'cinematic', name: 'Cinematic', desc: 'Elegant slow ramps + gentle zoom', icon: Film,
+      mix: 'light' as const, styles: ['rubber-band-standard', 'rubber-band-zoom'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.8, rampSlowSpeed: 0.4, fastPortion: 0.2, slowPortion: 0.5, zoomRange: 125, reversalChance: 0.7, burstMode: 'long' as const } },
+    { id: 'instagram', name: 'IG Reels', desc: 'Snappy boomerangs + zoom drops', icon: Video,
+      mix: 'every' as const, styles: ['multi-boomerang', 'rubber-band-zoom'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.3, zoomRange: 170, boomerangSlices: 4, reversalChance: 0.9, burstMode: 'short' as const } },
+    { id: 'whiplash', name: 'Whiplash', desc: 'Extreme speed contrast on every clip', icon: Zap,
+      mix: 'every' as const, styles: ['rubber-band-standard', 'rubber-band-zoom-speed', 'triple-shot'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 4.0, rampSlowSpeed: 0.1, fastPortion: 0.08, slowPortion: 0.45, zoomRange: 180, reversalChance: 1.0, burstMode: 'short' as const } },
+    { id: 'dreamy', name: 'Dreamy', desc: 'Slow zooms with reversed flows', icon: Sparkles,
+      mix: 'heavy' as const, styles: ['rubber-band-zoom', 'rubber-band-standard'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.5, rampSlowSpeed: 0.15, fastPortion: 0.25, slowPortion: 0.5, zoomRange: 130, reversalChance: 1.0, burstMode: 'long' as const } },
+    { id: 'film-noir', name: 'Film Noir', desc: 'Slow reveals, dramatic zoom crawls', icon: Camera,
+      mix: 'light' as const, styles: ['rubber-band-zoom', 'rubber-band-standard'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.3, rampSlowSpeed: 0.2, fastPortion: 0.3, slowPortion: 0.5, zoomRange: 115, reversalChance: 0.5, burstMode: 'long' as const } },
+    { id: 'pulse-drop', name: 'Pulse Drop', desc: 'Beat-sync speed drops + zoom punches', icon: Heart,
+      mix: 'heavy' as const, styles: ['rubber-band-zoom-speed', 'rubber-band-standard', 'multi-boomerang'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.1, fastPortion: 0.12, slowPortion: 0.35, zoomRange: 155, reversalChance: 0.85, burstMode: 'short' as const } },
+    { id: 'stutter-cut', name: 'Stutter Cut', desc: 'Rapid micro-boomerangs + hard cuts', icon: Scissors,
+      mix: 'every' as const, styles: ['multi-boomerang', 'triple-shot'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 2.5, rampSlowSpeed: 0.3, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' as const } },
+    { id: 'tiktok', name: 'TikTok Chaos', desc: 'Everything at once, maximum energy', icon: Zap,
+      mix: 'every' as const, styles: ['multi-boomerang', 'rubber-band-zoom-speed', 'triple-shot', 'rubber-band-zoom'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.8, rampSlowSpeed: 0.15, fastPortion: 0.1, slowPortion: 0.3, zoomRange: 175, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' as const } },
+    { id: 'sports-hype', name: 'Sports Hype', desc: 'Speed ramps + triple-shot energy', icon: Dumbbell,
+      mix: 'heavy' as const, styles: ['rubber-band-zoom-speed', 'triple-shot'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.5, rampSlowSpeed: 0.2, fastPortion: 0.15, slowPortion: 0.35, zoomRange: 165, reversalChance: 0.95, burstMode: 'short' as const } },
+    { id: 'retro-vhs', name: 'Retro VHS', desc: 'Loose boomerangs + slow zooms', icon: Film,
+      mix: 'light' as const, styles: ['multi-boomerang', 'rubber-band-zoom'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.6, rampSlowSpeed: 0.4, fastPortion: 0.2, slowPortion: 0.4, zoomRange: 120, boomerangSlices: 3, reversalChance: 0.6, burstMode: 'long' as const } },
+    { id: 'asmr-flow', name: 'ASMR Flow', desc: 'Ultra-slow zooms, minimal cuts', icon: Sparkles,
+      mix: 'light' as const, styles: ['rubber-band-zoom'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.3, rampSlowSpeed: 0.15, fastPortion: 0.05, slowPortion: 0.6, zoomRange: 115, reversalChance: 0.3, burstMode: 'long' as const } },
+    { id: 'concert-live', name: 'Concert Live', desc: 'Beat-locked zoom punches + boomerangs', icon: Music,
+      mix: 'every' as const, styles: ['rubber-band-zoom-speed', 'multi-boomerang'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.2, rampSlowSpeed: 0.25, fastPortion: 0.12, slowPortion: 0.3, zoomRange: 170, boomerangSlices: 4, reversalChance: 0.9, burstMode: 'short' as const } },
+    { id: 'travel-montage', name: 'Travel Montage', desc: 'Gentle ramps + dreamy zoom drifts', icon: Globe,
+      mix: 'heavy' as const, styles: ['rubber-band-standard', 'rubber-band-zoom'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.6, rampSlowSpeed: 0.3, fastPortion: 0.1, slowPortion: 0.45, zoomRange: 125, reversalChance: 0.65, burstMode: 'long' as const } },
+    { id: 'horror-tension', name: 'Horror Tension', desc: 'Hard reversals + glitch-like stutter', icon: Zap,
+      mix: 'heavy' as const, styles: ['rubber-band-standard', 'triple-shot', 'multi-boomerang'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.12, fastPortion: 0.08, slowPortion: 0.5, zoomRange: 140, boomerangSlices: 3, reversalChance: 1.0, burstMode: 'short' as const } },
+    // — 2026 VIRAL STYLES —
+    { id: 'viral-hook', name: 'Viral Hook', desc: 'Snap-zooms + pattern interrupts + hyper-cuts', icon: Zap,
+      mix: 'every' as const, styles: ['snap-zoom-burst', 'pattern-interrupt', 'hyper-cut'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.5, rampSlowSpeed: 0.15, zoomRange: 280, boomerangSlices: 4, reversalChance: 0.9, burstMode: 'short' as const } },
+    { id: 'bear-style', name: 'The Bear', desc: 'Immersive chaos — tight crops + speed variation', icon: Flame,
+      mix: 'heavy' as const, styles: ['bear-chaos', 'hyper-cut', 'triple-shot'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.2, zoomRange: 165, reversalChance: 0.8, burstMode: 'short' as const } },
+    { id: 'pendulum-flow', name: 'Pendulum Flow', desc: 'Floating hover + gentle zoom sway', icon: Sparkles,
+      mix: 'heavy' as const, styles: ['pendulum-sway', 'rubber-band-zoom'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.5, rampSlowSpeed: 0.3, zoomRange: 125, reversalChance: 0.6, burstMode: 'long' as const } },
+    { id: 'retention-max', name: 'Max Retention', desc: 'Pattern interrupts + snap zooms + boomerangs', icon: Zap,
+      mix: 'every' as const, styles: ['pattern-interrupt', 'snap-zoom-burst', 'multi-boomerang', 'hyper-cut'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.8, rampSlowSpeed: 0.1, zoomRange: 250, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' as const } },
+    { id: 'clean-viral', name: 'Clean Viral', desc: 'Minimal chaos — pendulum + light snap zooms', icon: Camera,
+      mix: 'light' as const, styles: ['pendulum-sway', 'snap-zoom-burst'] as EditingStyleOption[],
+      config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 2.0, rampSlowSpeed: 0.3, zoomRange: 150, reversalChance: 0.4, burstMode: 'long' as const } },
     { id: 'none', name: 'None', desc: 'No style injection', icon: Settings2, mix: 'none' as const, styles: [] as EditingStyleOption[], config: DEFAULT_STYLE_CONFIG },
     { id: 'custom-style', name: 'Custom', desc: 'Manual config', icon: SlidersHorizontal, mix: null, styles: null, config: null },
 ];
+
 
 const GODMODE_TIERS = [
     { label: 'Simple', color: 'text-emerald-400' },
@@ -60,6 +101,7 @@ const GODMODE_TIERS = [
 ] as const;
 
 const GODMODE_PRESETS = [
+    // — Simple / Minimal —
     { id: 'gm-clean-cut', name: 'Clean Cut', icon: Scissors, desc: 'Precise hard cuts, no effects',
       pacing: 'montage', style: 'none', duration: 30, tier: 0 },
     { id: 'gm-slideshow', name: 'Elegant Hold', icon: Monitor, desc: 'Long cinematic holds, zero noise',
@@ -70,44 +112,45 @@ const GODMODE_PRESETS = [
       pacing: 'social', style: 'none', duration: 15, tier: 0 },
     { id: 'gm-dynamic-intro', name: 'Dynamic Intro', icon: ArrowLeftRight, desc: 'Builds momentum, no effects',
       pacing: 'dynamic', style: 'none', duration: 20, tier: 0 },
-    { id: 'gm-gentle-flow', name: 'Gentle Flow', icon: Camera, desc: 'Soft cinematic drifts, slow pace',
-      pacing: 'filmscore', style: 'cinematic-ramp', duration: 60, tier: 1 },
-    { id: 'gm-wedding', name: 'Wedding Film', icon: Heart, desc: 'Slow ramps + gentle pacing',
-      pacing: 'wedding', style: 'cinematic-ramp', duration: 45, tier: 1 },
+    // — Moderate —
+    { id: 'gm-gentle-zoom', name: 'Gentle Zoom', icon: Camera, desc: 'Soft Ken Burns zooms, slow pace',
+      pacing: 'filmscore', style: 'cinematic', duration: 60, tier: 1 },
+    { id: 'gm-wedding', name: 'Wedding Film', icon: Heart, desc: 'Slow zooms + gentle speed ramps',
+      pacing: 'wedding', style: 'cinematic', duration: 45, tier: 1 },
     { id: 'gm-montage-mix', name: 'Montage Mix', icon: Clapperboard, desc: 'Mixed cuts, tasteful rubber-band',
-      pacing: 'montage', style: 'cinematic-ramp', duration: 30, tier: 1 },
-    { id: 'gm-travel-diary', name: 'Travel Diary', icon: Globe, desc: 'Dreamy pacing + warm tones',
-      pacing: 'vlog', style: 'pendulum-drift', duration: 30, tier: 1 },
+      pacing: 'montage', style: 'cinematic', duration: 30, tier: 1 },
+    { id: 'gm-travel-diary', name: 'Travel Diary', icon: Globe, desc: 'Dreamy zooms + warm pacing',
+      pacing: 'vlog', style: 'dreamy', duration: 30, tier: 1 },
     { id: 'gm-golden-hour', name: 'Golden Hour', icon: Sparkles, desc: 'Sunset vibes, slow reveals',
-      pacing: 'filmscore', style: 'pendulum-drift', duration: 45, tier: 1 },
+      pacing: 'filmscore', style: 'dreamy', duration: 45, tier: 1 },
     { id: 'gm-noir', name: 'Film Noir', icon: Film, desc: 'Dark drama, slow crawl zooms',
-      pacing: 'filmscore', style: 'cinematic-ramp', duration: 90, tier: 1 },
-    { id: 'gm-music-video', name: 'Music Video', icon: Music, desc: 'Beat-locked energy + boomerangs',
-      pacing: 'social', style: 'beat-locked', duration: 30, tier: 2 },
+      pacing: 'filmscore', style: 'film-noir', duration: 90, tier: 1 },
+    // — High Energy —
+    { id: 'gm-music-video', name: 'Music Video', icon: Music, desc: 'Beat-locked zooms + boomerangs',
+      pacing: 'social', style: 'music-video', duration: 30, tier: 2 },
     { id: 'gm-action-trailer', name: 'Action Trailer', icon: Flame, desc: 'Hard ramps + triple-shot energy',
-      pacing: 'epic', style: 'stutter-punch', duration: 60, tier: 2 },
-    { id: 'gm-instagram', name: 'Reels Banger', icon: Video, desc: 'Snappy speed drops + boomerangs',
-      pacing: 'social', style: 'beat-locked', duration: 15, tier: 2 },
+      pacing: 'epic', style: 'action-reel', duration: 60, tier: 2 },
+    { id: 'gm-instagram', name: 'Reels Banger', icon: Video, desc: 'Snappy zoom drops + boomerangs',
+      pacing: 'social', style: 'instagram', duration: 15, tier: 2 },
     { id: 'gm-hyperlapse', name: 'Hyperlapse Rush', icon: Camera, desc: 'Relentless flow + pulse drops',
-      pacing: 'hyperlapse', style: 'stutter-punch', duration: 20, tier: 2 },
+      pacing: 'hyperlapse', style: 'pulse-drop', duration: 20, tier: 2 },
     { id: 'gm-gym-pump', name: 'Gym Pump', icon: Dumbbell, desc: 'Athletic ramps + beat punches',
-      pacing: 'gym', style: 'stutter-punch', duration: 20, tier: 2 },
+      pacing: 'gym', style: 'sports-hype', duration: 20, tier: 2 },
     { id: 'gm-concert', name: 'Concert Edit', icon: Music, desc: 'Beat-locked zoom + boomerangs',
-      pacing: 'kinetic', style: 'beat-locked', duration: 30, tier: 2 },
+      pacing: 'kinetic', style: 'concert-live', duration: 30, tier: 2 },
     { id: 'gm-sports', name: 'Sports Hype', icon: Dumbbell, desc: 'Speed ramps + triple-shot intercuts',
-      pacing: 'social', style: 'stutter-punch', duration: 15, tier: 2 },
-    { id: 'gm-beat-bounce', name: 'Beat Bounce', icon: ArrowLeftRight, desc: 'Viral IG bounce — shot swap on beats',
-      pacing: 'social', style: 'beat-locked', duration: 15, tier: 2 },
+      pacing: 'social', style: 'sports-hype', duration: 15, tier: 2 },
+    // — Maximum Chaos —
     { id: 'gm-tiktok', name: 'TikTok Viral', icon: Zap, desc: 'Full chaos, every effect stacked',
-      pacing: 'kinetic', style: 'chaos-engine', duration: 10, tier: 3 },
+      pacing: 'kinetic', style: 'tiktok', duration: 10, tier: 3 },
     { id: 'gm-whiplash', name: 'Whiplash', icon: Flame, desc: 'Extreme speed contrast, zero mercy',
-      pacing: 'kinetic', style: 'whiplash-pro', duration: 15, tier: 3 },
+      pacing: 'kinetic', style: 'whiplash', duration: 15, tier: 3 },
     { id: 'gm-stutter-storm', name: 'Stutter Storm', icon: Sparkles, desc: 'Rapid micro-boomerangs everywhere',
-      pacing: 'kinetic', style: 'stutter-punch', duration: 10, tier: 3 },
+      pacing: 'kinetic', style: 'stutter-cut', duration: 10, tier: 3 },
     { id: 'gm-sensory-overload', name: 'Sensory Overload', icon: Zap, desc: 'All effects + hyperlapse pacing',
-      pacing: 'hyperlapse', style: 'chaos-engine', duration: 15, tier: 3 },
+      pacing: 'hyperlapse', style: 'tiktok', duration: 15, tier: 3 },
     { id: 'gm-glitch-out', name: 'Glitch Out', icon: Flame, desc: 'Stutter + whiplash + reverse chaos',
-      pacing: 'kinetic', style: 'whiplash-pro', duration: 12, tier: 3 },
+      pacing: 'kinetic', style: 'horror-tension', duration: 12, tier: 3 },
 ];
 
 interface SliderProps {
@@ -497,12 +540,12 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
         }
     };
 
-    const VIBE_MAP: Record<string, { pacing: string; style: string; hook: 'none' | 'snap-speed' | 'pattern-interrupt' | 'speed-freeze' | 'auto'; retention: boolean; loop: boolean; texture: 'none' | 'grain' | 'vintage' | 'chromatic' | 'motion-blur'; transitionsEnabled: boolean; transitionPreset: string }> = {
+    const VIBE_MAP: Record<string, { pacing: string; style: string; hook: 'none' | 'snap-zoom' | 'pattern-interrupt' | 'speed-freeze' | 'auto'; retention: boolean; loop: boolean; texture: 'none' | 'grain' | 'vintage' | 'chromatic' | 'motion-blur'; transitionsEnabled: boolean; transitionPreset: string }> = {
         'clean': { pacing: 'montage', style: 'none', hook: 'none', retention: false, loop: false, texture: 'none', transitionsEnabled: false, transitionPreset: 'hard-cuts' },
-        'cinematic': { pacing: 'filmscore', style: 'cinematic-ramp', hook: 'speed-freeze', retention: false, loop: false, texture: 'grain', transitionsEnabled: true, transitionPreset: 'cinematic' },
-        'high-energy': { pacing: 'social', style: 'beat-locked', hook: 'snap-speed', retention: false, loop: false, texture: 'none', transitionsEnabled: true, transitionPreset: 'whip-pan' },
-        'chaos': { pacing: 'kinetic', style: 'chaos-engine', hook: 'pattern-interrupt', retention: true, loop: true, texture: 'chromatic', transitionsEnabled: true, transitionPreset: 'viral' },
-        'viral': { pacing: 'social', style: 'snap-viral', hook: 'auto', retention: true, loop: true, texture: 'none', transitionsEnabled: true, transitionPreset: 'snap-cut' },
+        'cinematic': { pacing: 'filmscore', style: 'cinematic', hook: 'speed-freeze', retention: false, loop: false, texture: 'grain', transitionsEnabled: true, transitionPreset: 'cinematic' },
+        'high-energy': { pacing: 'social', style: 'music-video', hook: 'snap-zoom', retention: false, loop: false, texture: 'none', transitionsEnabled: true, transitionPreset: 'whip-pan' },
+        'chaos': { pacing: 'kinetic', style: 'retention-max', hook: 'pattern-interrupt', retention: true, loop: true, texture: 'chromatic', transitionsEnabled: true, transitionPreset: 'viral' },
+        'viral': { pacing: 'social', style: 'viral-hook', hook: 'auto', retention: true, loop: true, texture: 'none', transitionsEnabled: true, transitionPreset: 'snap-cut' },
     };
 
     const handleVibeGenerate = () => {
@@ -1402,17 +1445,29 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     </label>
                 </div>
 
+                {/* Cinematic Speed */}
                 <div className="space-y-3">
                     <label className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
                         <Clock size={12} className="text-blue-400" /> Cinematic Speed
                     </label>
-                    <div className="grid grid-cols-5 gap-2">
+                    <div className="grid grid-cols-4 gap-2">
                         {[
                             { id: 'none', label: 'Normal (1.0x)', desc: 'No speed modification' },
-                            { id: 'dramatic', label: 'Dramatic Build', desc: 'Start slow, accelerate' },
+                            { id: 'slowmo', label: 'Slow-Mo (0.5x)', desc: 'All clips at half speed' },
+                            { id: 'fast', label: 'Fast (1.5x)', desc: 'All clips at 1.5x' },
+                            { id: 'timelapse', label: 'Time-lapse (2.5x)', desc: 'All clips at 2.5x' },
+                            { id: 'hyperfast', label: 'Hyper (4.0x)', desc: 'All clips at 4x' },
+                            { id: 'mixed-slow', label: 'Mixed Slow', desc: 'Random slow-mo sprinkled in' },
+                            { id: 'mixed-fast', label: 'Mixed Fast', desc: 'Random speed-ups' },
                             { id: 'mixed-all', label: 'Mixed Action', desc: 'Random mix of slow/fast' },
+                            { id: 'dramatic', label: 'Dramatic Build', desc: 'Start slow, accelerate' },
+                            { id: 'dramatic-reverse', label: 'Reverse Build', desc: 'Start fast, decelerate' },
+                            { id: 'ramped', label: 'Speed Ramp', desc: 'Fast→Slow→Fast wave' },
+                            { id: 'ramped-inverse', label: 'Inverse Ramp', desc: 'Slow→Fast→Slow wave' },
+                            { id: 'slowmo-fast', label: 'Slow + Bursts', desc: 'Base 0.5x + random 2x' },
+                            { id: 'fast-slowmo', label: 'Fast + Drops', desc: 'Base 1.5x + random 0.3x' },
                             { id: 'pulse', label: 'Pulse', desc: 'Alternating slow-fast' },
-                            { id: 'random', label: 'Random', desc: 'Surprise speed policy' },
+                            { id: 'breathe', label: 'Breathe', desc: 'Gentle 0.7x–1.3x wave' },
                         ].map(opt => (
                             <button key={opt.id} onClick={() => update({ slowmoPolicy: opt.id as any })}
                                 className={clsx("p-2.5 rounded-lg border text-left transition-all",
@@ -1420,30 +1475,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                         ? "bg-blue-600/20 border-blue-500/40 shadow-[0_0_12px_rgba(59,130,246,0.15)]"
                                         : "bg-white/5 border-white/5 hover:bg-white/10")}>
                                 <div className={clsx("text-[10px] font-black uppercase", settings.slowmoPolicy === opt.id ? "text-blue-200" : "text-white/70")}>{opt.label}</div>
-                                <div className="text-[9px] text-white/30">{opt.desc}</div>
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                <div className="space-y-3">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
-                        <Activity size={12} className="text-emerald-400" /> Cut Rhythm
-                    </label>
-                    <div className="grid grid-cols-5 gap-2">
-                        {[
-                            { id: 'accelerando', label: 'Accelerando', desc: 'Cuts get shorter over time' },
-                            { id: 'breathing', label: 'Breathing Room', desc: '4 fast cuts + 1 breather' },
-                            { id: 'cascade', label: 'Cascade', desc: 'Long → rapid descent → landing' },
-                            { id: 'climax-arc', label: 'Climax Arc', desc: 'Slow → fastest at mid → slow' },
-                            { id: 'random', label: 'Random', desc: 'Surprise rhythm each clip' },
-                        ].map(opt => (
-                            <button key={opt.id} onClick={() => update({ rhythmPattern: opt.id as any })}
-                                className={clsx("p-2.5 rounded-lg border text-left transition-all",
-                                    settings.rhythmPattern === opt.id
-                                        ? "bg-emerald-600/20 border-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.15)]"
-                                        : "bg-white/5 border-white/5 hover:bg-white/10")}>
-                                <div className={clsx("text-[10px] font-black uppercase", settings.rhythmPattern === opt.id ? "text-emerald-200" : "text-white/70")}>{opt.label}</div>
                                 <div className="text-[9px] text-white/30">{opt.desc}</div>
                             </button>
                         ))}
@@ -1565,16 +1596,10 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                 <div className="flex flex-wrap gap-1.5">
                                     {[
                                         { id: 'rubber-band-standard' as EditingStyleOption, label: 'Rubber Band', color: 'purple' },
-                                        { id: 'rubber-band' as EditingStyleOption, label: 'Zoom Bounce', color: 'cyan' },
-                                        { id: 'rubber-band-speed' as EditingStyleOption, label: 'Zoom + Speed', color: 'amber' },
+                                        { id: 'rubber-band-zoom' as EditingStyleOption, label: 'Zoom Bounce', color: 'cyan' },
+                                        { id: 'rubber-band-zoom-speed' as EditingStyleOption, label: 'Zoom + Speed', color: 'amber' },
                                         { id: 'multi-boomerang' as EditingStyleOption, label: 'Boomerang', color: 'emerald' },
                                         { id: 'triple-shot' as EditingStyleOption, label: 'Triple-Shot', color: 'rose' },
-                                        { id: 'snap-burst' as EditingStyleOption, label: 'Snap Burst', color: 'orange' },
-                                        { id: 'pendulum-sway' as EditingStyleOption, label: 'Pendulum Sway', color: 'sky' },
-                                        { id: 'hyper-cut' as EditingStyleOption, label: 'Hyper Cut', color: 'red' },
-                                        { id: 'bear-chaos' as EditingStyleOption, label: 'Bear Chaos', color: 'yellow' },
-                                        { id: 'pattern-interrupt' as EditingStyleOption, label: 'Pattern Interrupt', color: 'pink' },
-                                        { id: 'beat-bounce' as EditingStyleOption, label: 'Beat Bounce', color: 'violet' },
                                     ].map(style => {
                                         const active = settings.editingStyles.includes(style.id);
                                         return (
