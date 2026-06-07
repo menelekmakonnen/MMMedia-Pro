@@ -61,6 +61,19 @@ export interface TrailerSettings {
     templateBeatDivisor?: number;
     // Boomerang
     boomerangAll?: boolean; // apply boomerang to ALL clips
+    // Visual Effects (applied to all generated clips)
+    globalEffects?: Array<{ effectId: string; params: Record<string, number | string | boolean> }>;
+    globalColorGrading?: import('./colorGrading').ColorGrading;
+    globalFlipH?: boolean;
+    globalFlipV?: boolean;
+    globalSharpen?: number;
+    globalBlurAmount?: number;
+    globalChromaKey?: { enabled: boolean; color: string; similarity: number; blend: number };
+    globalStabilize?: { enabled: boolean; smoothing: number };
+    globalAudioEffects?: import('./audioEffects').AudioEffects;
+    // Transition override for this trailer (uses defaultTransition from userStore if not set)
+    transitionOverride?: string;
+    transitionDuration?: number;
 }
 
 export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
@@ -335,6 +348,15 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         origin: 'auto',
         locked: false,
         sourceOrientation: file.orientation || 'horizontal',
+        ...(s.globalEffects?.length ? { parametricEffects: s.globalEffects } : {}),
+        ...(s.globalColorGrading ? { colorGrading: s.globalColorGrading } : {}),
+        ...(s.globalFlipH ? { flipH: true } : {}),
+        ...(s.globalFlipV ? { flipV: true } : {}),
+        ...(s.globalSharpen ? { sharpen: s.globalSharpen } : {}),
+        ...(s.globalBlurAmount ? { blurAmount: s.globalBlurAmount } : {}),
+        ...(s.globalChromaKey?.enabled ? { chromaKey: s.globalChromaKey } : {}),
+        ...(s.globalStabilize?.enabled ? { stabilize: s.globalStabilize } : {}),
+        ...(s.globalAudioEffects ? { audioEffects: s.globalAudioEffects } : {}),
     });
 
     // Helper: finalize a clip sequence with orientation-aware zoom + transitions

@@ -1,9 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useMediaStore } from '../../store/mediaStore';
+import { useUserStore } from '../../store/userStore';
 import { TrailerSettings, DEFAULT_TRAILER_SETTINGS } from '../../lib/trailerGenerator';
-import { Wand2, Clock, Zap, Video, Scissors, PlayCircle, Music, Upload, Play, Pause, Trash2, Loader2, Sparkles, Smartphone, Monitor, Square, ArrowLeftRight, Layers } from 'lucide-react';
+import { Wand2, Clock, Zap, Video, Scissors, PlayCircle, Music, Upload, Play, Pause, Trash2, Loader2, Sparkles, Smartphone, Monitor, Square, ArrowLeftRight, Layers, ChevronDown, ChevronRight, Palette, SlidersHorizontal, Volume2, Plus, X, FlipHorizontal, FlipVertical, Paintbrush, Shield, Eye } from 'lucide-react';
 import { analyzeAudio, AudioAnalysisResult, SegmentType as _SegmentType } from '../../lib/audioAnalysis';
+import { TRANSITION_REGISTRY, getTransitionsByCategory, CATEGORY_LABELS, type TransitionCategory } from '../../lib/transitions';
+import { EFFECT_REGISTRY, getEffectsByCategory, getDefaultParams, getEffectById } from '../../lib/effectRegistry';
+import { DEFAULT_COLOR_GRADING, type ColorGrading } from '../../lib/colorGrading';
+import { DEFAULT_AUDIO_EFFECTS, type AudioEffects } from '../../lib/audioEffects';
 import clsx from 'clsx';
 
 interface SliderProps {
@@ -76,6 +81,17 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
     const waveformWrapperRef = useRef<HTMLDivElement>(null);
 
     const [customSpeedEnabled, setCustomSpeedEnabled] = useState(false);
+
+    // Section expand/collapse state
+    const [showTransitions, setShowTransitions] = useState(false);
+    const [showEffects, setShowEffects] = useState(false);
+    const [showColorGrading, setShowColorGrading] = useState(false);
+    const [showQuickTools, setShowQuickTools] = useState(false);
+    const [showAudioFx, setShowAudioFx] = useState(false);
+    const [showEffectPicker, setShowEffectPicker] = useState(false);
+
+    // Transition state from userStore
+    const { defaultTransition, setDefaultTransition } = useUserStore();
 
     // Restore persisted audio URL on mount
     const audioRestoredRef = useRef(false);
@@ -832,7 +848,380 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     </div>
                 </div>
 
+                {/* ─── Transition Style ─── */}
+                <div className="border border-indigo-500/10 rounded-xl bg-gradient-to-br from-indigo-900/10 to-blue-900/5 overflow-hidden">
+                    <button onClick={() => setShowTransitions(!showTransitions)}
+                        className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors">
+                        <div className="flex items-center gap-2">
+                            <SlidersHorizontal size={14} className="text-indigo-400" />
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-200/70">Transition Style</span>
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono">{defaultTransition}</span>
+                        </div>
+                        {showTransitions ? <ChevronDown size={14} className="text-white/30" /> : <ChevronRight size={14} className="text-white/30" />}
+                    </button>
+                    {showTransitions && (
+                        <div className="px-4 pb-4 space-y-3">
+                            <div className="space-y-2">
+                                {(Object.keys(getTransitionsByCategory()) as TransitionCategory[]).map(cat => {
+                                    const items = getTransitionsByCategory()[cat];
+                                    return (
+                                        <div key={cat}>
+                                            <div className="text-[9px] font-bold uppercase tracking-wider text-white/25 mb-1">{CATEGORY_LABELS[cat]}</div>
+                                            <div className="flex flex-wrap gap-1">
+                                                {items.map(t => (
+                                                    <button key={t.id}
+                                                        onClick={() => setDefaultTransition(t.id)}
+                                                        className={clsx("px-2 py-1 rounded text-[9px] font-bold border transition-all",
+                                                            defaultTransition === t.id
+                                                                ? "bg-indigo-600/30 border-indigo-500/50 text-indigo-200 shadow-[0_0_8px_rgba(99,102,241,0.2)]"
+                                                                : "bg-white/5 border-white/5 text-white/40 hover:text-white/70 hover:bg-white/10")}>
+                                                        {t.name}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <SliderControl label="Transition Duration" icon={Clock}
+                                value={settings.transitionDuration ?? 0.5}
+                                min={0.1} max={2.0} step={0.1} unit="s"
+                                onChange={(v) => update({ transitionDuration: v })} />
+                        </div>
+                    )}
+                </div>
 
+                {/* ─── Visual Effects ─── */}
+                <div className="border border-purple-500/10 rounded-xl bg-gradient-to-br from-purple-900/10 to-fuchsia-900/5 overflow-hidden">
+                    <button onClick={() => setShowEffects(!showEffects)}
+                        className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors">
+                        <div className="flex items-center gap-2">
+                            <Palette size={14} className="text-purple-400" />
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-purple-200/70">Visual Effects</span>
+                            {(settings.globalEffects?.length ?? 0) > 0 && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-purple-500/30 text-purple-200 font-bold">{settings.globalEffects!.length}</span>
+                            )}
+                        </div>
+                        {showEffects ? <ChevronDown size={14} className="text-white/30" /> : <ChevronRight size={14} className="text-white/30" />}
+                    </button>
+                    {showEffects && (
+                        <div className="px-4 pb-4 space-y-3">
+                            <div className="relative">
+                                <button onClick={() => setShowEffectPicker(!showEffectPicker)}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 text-[10px] font-bold transition-colors">
+                                    <Plus size={12} /> Add Effect
+                                </button>
+                                {showEffectPicker && (
+                                    <div className="absolute z-50 mt-1 left-0 min-w-[220px] bg-black/95 border border-white/10 rounded-lg shadow-2xl backdrop-blur-xl overflow-hidden max-h-64 overflow-y-auto">
+                                        {Object.entries(getEffectsByCategory()).map(([cat, effects]) => (
+                                            <div key={cat}>
+                                                <div className="px-3 py-1 text-[9px] font-bold uppercase tracking-wider text-white/25 bg-white/5">{cat}</div>
+                                                {effects.map(fx => (
+                                                    <button key={fx.id}
+                                                        onClick={() => {
+                                                            const current = settings.globalEffects || [];
+                                                            update({ globalEffects: [...current, { effectId: fx.id, params: getDefaultParams(fx.id) }] });
+                                                            setShowEffectPicker(false);
+                                                        }}
+                                                        className="w-full px-3 py-2 text-left text-xs text-white/70 hover:text-white hover:bg-white/10 transition-colors">
+                                                        {fx.name}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                            {(settings.globalEffects || []).map((applied, idx) => {
+                                const fx = getEffectById(applied.effectId);
+                                if (!fx) return null;
+                                return (
+                                    <div key={idx} className="border border-white/5 rounded-lg bg-white/5 p-3 space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[10px] font-bold text-white">{fx.name}</span>
+                                                <span className="text-[8px] px-1 py-0.5 rounded bg-purple-500/20 text-purple-300 uppercase">{fx.category}</span>
+                                            </div>
+                                            <button onClick={() => {
+                                                const list = [...(settings.globalEffects || [])];
+                                                list.splice(idx, 1);
+                                                update({ globalEffects: list });
+                                            }} className="p-1 hover:bg-red-500/20 rounded text-white/20 hover:text-red-400 transition-colors">
+                                                <X size={12} />
+                                            </button>
+                                        </div>
+                                        {fx.parameters.map(param => {
+                                            if (param.type === 'toggle') {
+                                                return (
+                                                    <label key={param.key} className="flex items-center justify-between text-[10px] text-white/50">
+                                                        <span>{param.label}</span>
+                                                        <input type="checkbox" checked={!!applied.params[param.key]}
+                                                            onChange={(e) => {
+                                                                const list = [...(settings.globalEffects || [])];
+                                                                list[idx] = { ...list[idx], params: { ...list[idx].params, [param.key]: e.target.checked } };
+                                                                update({ globalEffects: list });
+                                                            }}
+                                                            className="accent-purple-500" />
+                                                    </label>
+                                                );
+                                            }
+                                            if (param.type === 'select') {
+                                                return (
+                                                    <label key={param.key} className="flex items-center justify-between text-[10px] text-white/50">
+                                                        <span>{param.label}</span>
+                                                        <select value={String(applied.params[param.key] ?? param.default)}
+                                                            onChange={(e) => {
+                                                                const list = [...(settings.globalEffects || [])];
+                                                                list[idx] = { ...list[idx], params: { ...list[idx].params, [param.key]: e.target.value } };
+                                                                update({ globalEffects: list });
+                                                            }}
+                                                            className="bg-black/50 border border-white/10 rounded px-2 py-0.5 text-[10px] text-white/70">
+                                                            {/* Options derived from min/max or known presets */}
+                                                            {param.key === 'preset' && ['none','vintage','cross_process','linear_contrast','medium_contrast'].map(p => (
+                                                                <option key={p} value={p}>{p}</option>
+                                                            ))}
+                                                        </select>
+                                                    </label>
+                                                );
+                                            }
+                                            return (
+                                                <SliderControl key={param.key} label={param.label} icon={SlidersHorizontal}
+                                                    value={Number(applied.params[param.key] ?? param.default)}
+                                                    min={param.min ?? 0} max={param.max ?? 100} step={param.step ?? 1}
+                                                    unit={param.unit || ''}
+                                                    onChange={(v) => {
+                                                        const list = [...(settings.globalEffects || [])];
+                                                        list[idx] = { ...list[idx], params: { ...list[idx].params, [param.key]: v } };
+                                                        update({ globalEffects: list });
+                                                    }} />
+                                            );
+                                        })}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+
+                {/* ─── Color Grading ─── */}
+                <div className="border border-amber-500/10 rounded-xl bg-gradient-to-br from-amber-900/10 to-orange-900/5 overflow-hidden">
+                    <button onClick={() => setShowColorGrading(!showColorGrading)}
+                        className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors">
+                        <div className="flex items-center gap-2">
+                            <Paintbrush size={14} className="text-amber-400" />
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-200/70">Color Grading</span>
+                            {settings.globalColorGrading && <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">Active</span>}
+                        </div>
+                        {showColorGrading ? <ChevronDown size={14} className="text-white/30" /> : <ChevronRight size={14} className="text-white/30" />}
+                    </button>
+                    {showColorGrading && (
+                        <div className="px-4 pb-4 space-y-3">
+                            <div className="flex items-center justify-between">
+                                <label className="flex items-center gap-2 text-[10px] text-white/50">
+                                    <input type="checkbox" checked={!!settings.globalColorGrading}
+                                        onChange={(e) => update({ globalColorGrading: e.target.checked ? { ...DEFAULT_COLOR_GRADING } : undefined })}
+                                        className="accent-amber-500" />
+                                    Enable Color Grading
+                                </label>
+                                {settings.globalColorGrading && (
+                                    <button onClick={() => update({ globalColorGrading: { ...DEFAULT_COLOR_GRADING } })}
+                                        className="text-[9px] text-amber-400/50 hover:text-amber-400 transition-colors">Reset</button>
+                                )}
+                            </div>
+                            {settings.globalColorGrading && (
+                                <div className="space-y-2">
+                                    <SliderControl label="Temperature" icon={Paintbrush}
+                                        value={settings.globalColorGrading.temperature}
+                                        min={-100} max={100} step={5} unit=""
+                                        onChange={(v) => update({ globalColorGrading: { ...settings.globalColorGrading!, temperature: v } })} />
+                                    <SliderControl label="Tint" icon={Paintbrush}
+                                        value={settings.globalColorGrading.tint}
+                                        min={-100} max={100} step={5} unit=""
+                                        onChange={(v) => update({ globalColorGrading: { ...settings.globalColorGrading!, tint: v } })} />
+                                    <SliderControl label="Exposure" icon={Paintbrush}
+                                        value={settings.globalColorGrading.exposure}
+                                        min={-2} max={2} step={0.1} unit=""
+                                        onChange={(v) => update({ globalColorGrading: { ...settings.globalColorGrading!, exposure: v } })} />
+                                    <SliderControl label="Contrast" icon={Paintbrush}
+                                        value={settings.globalColorGrading.contrast}
+                                        min={0.5} max={2} step={0.05} unit=""
+                                        onChange={(v) => update({ globalColorGrading: { ...settings.globalColorGrading!, contrast: v } })} />
+                                    <SliderControl label="Saturation" icon={Paintbrush}
+                                        value={settings.globalColorGrading.saturation}
+                                        min={0} max={2} step={0.05} unit=""
+                                        onChange={(v) => update({ globalColorGrading: { ...settings.globalColorGrading!, saturation: v } })} />
+                                    <SliderControl label="Highlights" icon={Paintbrush}
+                                        value={settings.globalColorGrading.highlights}
+                                        min={-100} max={100} step={5} unit=""
+                                        onChange={(v) => update({ globalColorGrading: { ...settings.globalColorGrading!, highlights: v } })} />
+                                    <SliderControl label="Shadows" icon={Paintbrush}
+                                        value={settings.globalColorGrading.shadows}
+                                        min={-100} max={100} step={5} unit=""
+                                        onChange={(v) => update({ globalColorGrading: { ...settings.globalColorGrading!, shadows: v } })} />
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                {/* ─── Quick Tools ─── */}
+                <div className="border border-emerald-500/10 rounded-xl bg-gradient-to-br from-emerald-900/10 to-green-900/5 overflow-hidden">
+                    <button onClick={() => setShowQuickTools(!showQuickTools)}
+                        className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors">
+                        <div className="flex items-center gap-2">
+                            <Shield size={14} className="text-emerald-400" />
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-200/70">Quick Tools</span>
+                            {(settings.globalFlipH || settings.globalFlipV || (settings.globalSharpen ?? 0) > 0 || (settings.globalBlurAmount ?? 0) > 0 || settings.globalChromaKey?.enabled || settings.globalStabilize?.enabled) && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">Active</span>
+                            )}
+                        </div>
+                        {showQuickTools ? <ChevronDown size={14} className="text-white/30" /> : <ChevronRight size={14} className="text-white/30" />}
+                    </button>
+                    {showQuickTools && (
+                        <div className="px-4 pb-4 space-y-3">
+                            <div className="flex gap-4">
+                                <label className="flex items-center gap-2 text-[10px] text-white/50 cursor-pointer">
+                                    <input type="checkbox" checked={!!settings.globalFlipH}
+                                        onChange={(e) => update({ globalFlipH: e.target.checked })}
+                                        className="accent-emerald-500" />
+                                    <FlipHorizontal size={12} /> Flip H
+                                </label>
+                                <label className="flex items-center gap-2 text-[10px] text-white/50 cursor-pointer">
+                                    <input type="checkbox" checked={!!settings.globalFlipV}
+                                        onChange={(e) => update({ globalFlipV: e.target.checked })}
+                                        className="accent-emerald-500" />
+                                    <FlipVertical size={12} /> Flip V
+                                </label>
+                            </div>
+                            <SliderControl label="Sharpen" icon={Eye}
+                                value={settings.globalSharpen ?? 0}
+                                min={0} max={3} step={0.1} unit=""
+                                onChange={(v) => update({ globalSharpen: v || undefined })} />
+                            <SliderControl label="Blur" icon={Eye}
+                                value={settings.globalBlurAmount ?? 0}
+                                min={0} max={20} step={0.5} unit="px"
+                                onChange={(v) => update({ globalBlurAmount: v || undefined })} />
+
+                            {/* Chroma Key */}
+                            <div className="border-t border-white/5 pt-3 space-y-2">
+                                <label className="flex items-center gap-2 text-[10px] text-white/50 cursor-pointer">
+                                    <input type="checkbox" checked={!!settings.globalChromaKey?.enabled}
+                                        onChange={(e) => update({ globalChromaKey: { color: '#00ff00', similarity: 0.3, blend: 0.1, enabled: e.target.checked, ...settings.globalChromaKey, enabled: e.target.checked } })}
+                                        className="accent-emerald-500" />
+                                    Chroma Key (Green Screen)
+                                </label>
+                                {settings.globalChromaKey?.enabled && (
+                                    <div className="space-y-2 pl-4">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[9px] text-white/30">Color</span>
+                                            <input type="color" value={settings.globalChromaKey.color || '#00ff00'}
+                                                onChange={(e) => update({ globalChromaKey: { ...settings.globalChromaKey!, color: e.target.value } })}
+                                                className="w-6 h-6 rounded border border-white/10 bg-transparent cursor-pointer" />
+                                        </div>
+                                        <SliderControl label="Similarity" icon={Eye}
+                                            value={settings.globalChromaKey.similarity}
+                                            min={0.01} max={1} step={0.01} unit=""
+                                            onChange={(v) => update({ globalChromaKey: { ...settings.globalChromaKey!, similarity: v } })} />
+                                        <SliderControl label="Blend" icon={Eye}
+                                            value={settings.globalChromaKey.blend}
+                                            min={0} max={1} step={0.01} unit=""
+                                            onChange={(v) => update({ globalChromaKey: { ...settings.globalChromaKey!, blend: v } })} />
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Stabilization */}
+                            <div className="border-t border-white/5 pt-3 space-y-2">
+                                <label className="flex items-center gap-2 text-[10px] text-white/50 cursor-pointer">
+                                    <input type="checkbox" checked={!!settings.globalStabilize?.enabled}
+                                        onChange={(e) => update({ globalStabilize: { smoothing: 10, ...settings.globalStabilize, enabled: e.target.checked } })}
+                                        className="accent-emerald-500" />
+                                    Video Stabilization
+                                </label>
+                                {settings.globalStabilize?.enabled && (
+                                    <SliderControl label="Smoothing" icon={SlidersHorizontal}
+                                        value={settings.globalStabilize.smoothing}
+                                        min={1} max={60} step={1} unit=""
+                                        onChange={(v) => update({ globalStabilize: { ...settings.globalStabilize!, smoothing: v } })} />
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* ─── Audio FX ─── */}
+                <div className="border border-sky-500/10 rounded-xl bg-gradient-to-br from-sky-900/10 to-blue-900/5 overflow-hidden">
+                    <button onClick={() => setShowAudioFx(!showAudioFx)}
+                        className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors">
+                        <div className="flex items-center gap-2">
+                            <Volume2 size={14} className="text-sky-400" />
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-sky-200/70">Audio FX</span>
+                            {settings.globalAudioEffects && <span className="text-[9px] px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300">Active</span>}
+                        </div>
+                        {showAudioFx ? <ChevronDown size={14} className="text-white/30" /> : <ChevronRight size={14} className="text-white/30" />}
+                    </button>
+                    {showAudioFx && (
+                        <div className="px-4 pb-4 space-y-3">
+                            <div className="flex items-center justify-between">
+                                <label className="flex items-center gap-2 text-[10px] text-white/50">
+                                    <input type="checkbox" checked={!!settings.globalAudioEffects}
+                                        onChange={(e) => update({ globalAudioEffects: e.target.checked ? { ...DEFAULT_AUDIO_EFFECTS } : undefined })}
+                                        className="accent-sky-500" />
+                                    Enable Audio FX
+                                </label>
+                                {settings.globalAudioEffects && (
+                                    <button onClick={() => update({ globalAudioEffects: { ...DEFAULT_AUDIO_EFFECTS } })}
+                                        className="text-[9px] text-sky-400/50 hover:text-sky-400 transition-colors">Reset</button>
+                                )}
+                            </div>
+                            {settings.globalAudioEffects && (
+                                <div className="space-y-2">
+                                    <div className="text-[9px] font-bold uppercase tracking-wider text-white/25">Equalizer</div>
+                                    <SliderControl label="Low (100Hz)" icon={Volume2}
+                                        value={settings.globalAudioEffects.eqLow}
+                                        min={-20} max={20} step={1} unit="dB"
+                                        onChange={(v) => update({ globalAudioEffects: { ...settings.globalAudioEffects!, eqLow: v } })} />
+                                    <SliderControl label="Mid (1kHz)" icon={Volume2}
+                                        value={settings.globalAudioEffects.eqMid}
+                                        min={-20} max={20} step={1} unit="dB"
+                                        onChange={(v) => update({ globalAudioEffects: { ...settings.globalAudioEffects!, eqMid: v } })} />
+                                    <SliderControl label="High (8kHz)" icon={Volume2}
+                                        value={settings.globalAudioEffects.eqHigh}
+                                        min={-20} max={20} step={1} unit="dB"
+                                        onChange={(v) => update({ globalAudioEffects: { ...settings.globalAudioEffects!, eqHigh: v } })} />
+
+                                    <div className="text-[9px] font-bold uppercase tracking-wider text-white/25 pt-2">Noise & Dynamics</div>
+                                    <SliderControl label="Noise Reduction" icon={Volume2}
+                                        value={settings.globalAudioEffects.noiseReduction}
+                                        min={0} max={97} step={1} unit=""
+                                        onChange={(v) => update({ globalAudioEffects: { ...settings.globalAudioEffects!, noiseReduction: v } })} />
+                                    <label className="flex items-center gap-2 text-[10px] text-white/50">
+                                        <input type="checkbox" checked={settings.globalAudioEffects.loudnessNorm}
+                                            onChange={(e) => update({ globalAudioEffects: { ...settings.globalAudioEffects!, loudnessNorm: e.target.checked } })}
+                                            className="accent-sky-500" />
+                                        Loudness Normalization (EBU R128)
+                                    </label>
+                                    <label className="flex items-center gap-2 text-[10px] text-white/50">
+                                        <input type="checkbox" checked={settings.globalAudioEffects.compressor}
+                                            onChange={(e) => update({ globalAudioEffects: { ...settings.globalAudioEffects!, compressor: e.target.checked } })}
+                                            className="accent-sky-500" />
+                                        Compressor
+                                    </label>
+
+                                    <div className="text-[9px] font-bold uppercase tracking-wider text-white/25 pt-2">Fades</div>
+                                    <SliderControl label="Fade In" icon={Volume2}
+                                        value={settings.globalAudioEffects.fadeInDuration}
+                                        min={0} max={5} step={0.1} unit="s"
+                                        onChange={(v) => update({ globalAudioEffects: { ...settings.globalAudioEffects!, fadeInDuration: v } })} />
+                                    <SliderControl label="Fade Out" icon={Volume2}
+                                        value={settings.globalAudioEffects.fadeOutDuration}
+                                        min={0} max={5} step={0.1} unit="s"
+                                        onChange={(v) => update({ globalAudioEffects: { ...settings.globalAudioEffects!, fadeOutDuration: v } })} />
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
 
 
                 {/* Generate Button */}
