@@ -4,7 +4,7 @@ import { persist } from 'zustand/middleware';
 export type ThemeName = 'purple' | 'neon' | 'ocean' | 'hacker';
 export type SidebarPosition = 'left' | 'right';
 export type TimecodeFormat = 'timecode' | 'frames';
-export type TransitionStrategy = 'cut' | 'cross-dissolve' | 'fade-to-black';
+export type TransitionStrategy = string;  // Any xfade name from transitions registry, or 'cut'
 export type ViewMode = 'grid' | 'list';
 
 interface UserState {

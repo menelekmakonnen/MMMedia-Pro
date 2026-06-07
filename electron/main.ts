@@ -899,7 +899,7 @@ ipcMain.handle('export-project', async (event, { filePath, clips: rawClips, sett
 // ══════════════════════════════════════════════════════════════════════════════
 // EXPORT PIPELINE — Monolithic Architecture (Single-Pass Filter Graph)
 // All clips are stitched together in one FFmpeg invocation. Implements real
-// xfade/acrossfade transitions (cross-dissolve, fade-to-black), audio mixing,
+// xfade/acrossfade transitions (any FFmpeg xfade type from transitions registry), audio mixing,
 // optional NVENC GPU encoding, and direct process spawning (no PowerShell).
 // Faster for small-medium timelines. May OOM on very large projects.
 // ══════════════════════════════════════════════════════════════════════════════
@@ -983,8 +983,8 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
             log(`Output: ${outW}x${outH} ${outCodec} @ ${outBitrate > 0 ? outBitrate + 'kbps' : 'CRF'} | export ${exportFps}fps (project ${projectFps}fps) | audio ${outAudioBitrate}k`);
 
             // Transition strategy (from the timeline). 'cut' = hard cut (concat),
-            // 'cross-dissolve' = xfade fade, 'fade-to-black' = xfade fadeblack.
-            const transitionStrategy: 'cut' | 'cross-dissolve' | 'fade-to-black' = settings?.transitionStrategy || 'cut';
+            // any other value = xfade type name passed directly to FFmpeg.
+            const transitionStrategy: string = settings?.transitionStrategy || 'cut';
             const requestedTransitionDur = typeof settings?.transitionDurationSec === 'number' ? settings.transitionDurationSec : 0.5;
 
             // ── 3. BUILD FILTER GRAPH ──
@@ -1179,9 +1179,9 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
             const wantsTransition = transitionStrategy !== 'cut' && videoInputCount >= 2 && xfadeDur >= (1 / fps);
 
             if (wantsTransition) {
-                const xfadeType = transitionStrategy === 'fade-to-black' ? 'fadeblack' : 'fade';
+                const xfadeType = transitionStrategy; // The strategy IS the xfade type name directly
                 const D = parseFloat(xfadeDur.toFixed(4));
-                log(`Stitching with ${transitionStrategy} (xfade=${xfadeType}, d=${D}s) across ${videoInputCount} clips`);
+                log(`Stitching with xfade=${xfadeType} (d=${D}s) across ${videoInputCount} clips`);
 
                 // xfade is strict about input format/fps/timebase — normalize each
                 // prepared video stream before feeding the transition chain.

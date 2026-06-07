@@ -6,6 +6,8 @@ import { useProjectStore } from './projectStore';
 import { MediaFile } from './mediaStore';
 import { v4 as uuidv4 } from 'uuid';
 import { Clip as BaseClip, GridClip, GridCell } from '../types';
+import type { TextOverlay } from '../lib/textOverlay';
+import type { AudioEffects } from '../lib/audioEffects';
 import { useUserStore } from './userStore';
 
 import { analyzeAudio } from '../lib/audioAnalysis';
@@ -102,6 +104,15 @@ interface ClipStore {
     // Phase 18: Sequence Actions
     magnetizeClips: () => void;
     reorderClips: (fromIndex: number, toIndex: number) => void;
+
+    // Text Overlays
+    addTextOverlay: (clipId: string, overlay: TextOverlay) => void;
+    removeTextOverlay: (clipId: string, overlayId: string) => void;
+    updateTextOverlay: (clipId: string, overlayId: string, updates: Partial<TextOverlay>) => void;
+
+    // Audio Effects
+    setAudioEffects: (clipId: string, effects: AudioEffects) => void;
+    resetAudioEffects: (clipId: string) => void;
 
     // Persistence
     clearPersistedClips: () => void;
@@ -1093,6 +1104,49 @@ export const useClipStore = create<ClipStore>()(
         trackVolumes: { ...s.trackVolumes, [trackId]: Math.max(0, Math.min(100, volume)) },
     })),
     getTrackVolume: (trackId) => get().trackVolumes[trackId] ?? 100,
+
+    // ── Text Overlay Actions ───────────────────────────────────────────
+    addTextOverlay: (clipId, overlay) => set((state) => ({
+        clips: state.clips.map((c) => {
+            if (c.id !== clipId) return c;
+            const existing = (c as any).textOverlays || [];
+            return { ...c, textOverlays: [...existing, overlay] };
+        }),
+    })),
+
+    removeTextOverlay: (clipId, overlayId) => set((state) => ({
+        clips: state.clips.map((c) => {
+            if (c.id !== clipId) return c;
+            const existing = ((c as any).textOverlays || []) as TextOverlay[];
+            return { ...c, textOverlays: existing.filter((o) => o.id !== overlayId) };
+        }),
+    })),
+
+    updateTextOverlay: (clipId, overlayId, updates) => set((state) => ({
+        clips: state.clips.map((c) => {
+            if (c.id !== clipId) return c;
+            const existing = ((c as any).textOverlays || []) as TextOverlay[];
+            return {
+                ...c,
+                textOverlays: existing.map((o) =>
+                    o.id === overlayId ? { ...o, ...updates } : o
+                ),
+            };
+        }),
+    })),
+
+    // ── Audio Effects Actions ──────────────────────────────────────────
+    setAudioEffects: (clipId, effects) => set((state) => ({
+        clips: state.clips.map((c) =>
+            c.id === clipId ? { ...c, audioEffects: effects } : c
+        ),
+    })),
+
+    resetAudioEffects: (clipId) => set((state) => ({
+        clips: state.clips.map((c) =>
+            c.id === clipId ? { ...c, audioEffects: undefined } : c
+        ),
+    })),
 
     // Persistence
     clearPersistedClips: () => {

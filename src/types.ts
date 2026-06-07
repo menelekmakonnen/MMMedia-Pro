@@ -1,3 +1,6 @@
+import type { TextOverlay } from './lib/textOverlay';
+import type { AudioEffects } from './lib/audioEffects';
+
 // Project Settings Types
 export type ResolutionPreset = '9:16' | '16:9' | '1:1' | '4:3' | '21:9';
 export type BackgroundFillMode = 'blur' | 'black';
@@ -109,8 +112,43 @@ export interface Clip {
     // Boomerang (damped-bounce forward↔reverse effect)
     boomerang?: boolean;
 
+    // Parametric effects (new system — each with adjustable params)
+    parametricEffects?: Array<{
+        effectId: string;
+        params: Record<string, number | string | boolean>;
+    }>;
+
+    // Color grading
+    colorGrading?: import('./lib/colorGrading').ColorGrading;
+
+    // Quick transform tools
+    flipH?: boolean;
+    flipV?: boolean;
+    sharpen?: number;       // 0 = off, 0.5-3.0 = strength
+    blurAmount?: number;    // 0 = off, 0.5-20 = sigma
+
+    // Chroma key (green screen removal)
+    chromaKey?: {
+        enabled: boolean;
+        color: string;      // hex color (e.g. '#00ff00')
+        similarity: number; // 0.01-1.0
+        blend: number;      // 0.0-1.0
+    };
+
+    // Video stabilization
+    stabilize?: {
+        enabled: boolean;
+        smoothing: number;  // 1-60, default 10
+    };
+
     // Linkage
     mediaLibraryId?: string; // ID of the MediaFile this clip was created from
+
+    // Text Overlays (rendered via FFmpeg drawtext during export)
+    textOverlays?: TextOverlay[];
+
+    // Audio Effects (EQ, compression, noise reduction, etc.)
+    audioEffects?: AudioEffects;
 }
 
 export interface GridCell {

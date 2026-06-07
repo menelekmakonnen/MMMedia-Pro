@@ -6,6 +6,10 @@
 // ══════════════════════════════════════════════════════════════════════════════
 
 import { resolveEffectFilter, cssToFfmpeg } from './effectCompiler';
+import { buildDrawtextFilter } from '../src/lib/textOverlay';
+import { buildAudioEffectsFilter } from '../src/lib/audioEffects';
+import { resolveParametricEffect, buildColorGradingFilter, isDefaultGrading } from './parametricEffects';
+import type { ColorGrading } from './parametricEffects';
 
 // ── Data Types ──────────────────────────────────────────────────────────────
 
@@ -38,6 +42,28 @@ export interface ClipExportData {
     zoomOrigin?: 'center' | 'top' | 'bottom' | 'left' | 'right';
     /** Static zoom level percentage (if no animated zoom) */
     zoomLevel?: number;
+    /** Audio effects configuration */
+    audioEffects?: any;
+    /** Text overlay configurations */
+    textOverlays?: any[];
+
+    // ── New parametric & grading fields ──────────────────────────────────
+    /** Parametric effects (new adjustable-param system) */
+    parametricEffects?: Array<{ effectId: string; params: Record<string, number | string | boolean> }>;
+    /** Color grading settings */
+    colorGrading?: ColorGrading;
+    /** Flip horizontally */
+    flipH?: boolean;
+    /** Flip vertically */
+    flipV?: boolean;
+    /** Sharpen amount (0 = off, 0.5-3.0 = strength) */
+    sharpen?: number;
+    /** Gaussian blur sigma (0 = off, 0.5-20) */
+    blurAmount?: number;
+    /** Chroma key (green screen removal) */
+    chromaKey?: { enabled: boolean; color: string; similarity: number; blend: number };
+    /** Video stabilization */
+    stabilize?: { enabled: boolean; smoothing: number };
 }
 
 export interface ExportSettings {
@@ -225,6 +251,14 @@ export function buildVideoFilter(
         filters.push('reverse');
     }
 
+    // 2b. Flip H/V (before rotation so orientation is intuitive)
+    if (clip.flipH) {
+        filters.push('hflip');
+    }
+    if (clip.flipV) {
+        filters.push('vflip');
+    }
+
     // 3. Rotation
     const rot = clip.rotation || 0;
     if (rot === 90) {
@@ -249,18 +283,60 @@ export function buildVideoFilter(
     filters.push(`pad=${outW}:${outH}:(ow-iw)/2:(oh-ih)/2`);
     filters.push('setsar=1');
 
-    // 6. Effects
+    // 6. Chroma key (after scale/pad, before color grading)
+    if (clip.chromaKey && clip.chromaKey.enabled) {
+        const hex = clip.chromaKey.color.replace('#', '');
+        const sim = clip.chromaKey.similarity.toFixed(4);
+        const blend = clip.chromaKey.blend.toFixed(4);
+        filters.push(`chromakey=color=0x${hex}:similarity=${sim}:blend=${blend}`);
+    }
+
+    // 7. Color grading (after chroma key, before effects)
+    if (clip.colorGrading && !isDefaultGrading(clip.colorGrading)) {
+        const cgFilter = buildColorGradingFilter(clip.colorGrading);
+        if (cgFilter) {
+            filters.push(cgFilter);
+        }
+    }
+
+    // 8. Legacy effects (effectIds + CSS)
     const effectFilters = buildEffectFilters(clip);
     if (effectFilters) {
         filters.push(effectFilters);
     }
 
-    // 7. Speed adjustment via setpts
+    // 6b. Text Overlays (after effects, before speed)
+    if (clip.textOverlays && clip.textOverlays.length > 0) {
+        for (const overlay of clip.textOverlays) {
+            const dt = buildDrawtextFilter(overlay, outputDurSec, outW, outH);
+            if (dt) filters.push(dt);
+        }
+    }
+
+    // 9. Parametric effects (new system)
+    if (clip.parametricEffects && clip.parametricEffects.length > 0) {
+        for (const pe of clip.parametricEffects) {
+            const peFilter = resolveParametricEffect(pe.effectId, pe.params);
+            if (peFilter) {
+                filters.push(peFilter);
+            }
+        }
+    }
+
+    // 10. Quick sharpen / blur (before speed)
+    if (clip.sharpen && clip.sharpen > 0) {
+        filters.push(`unsharp=5:5:${clip.sharpen.toFixed(4)}:5:5:0`);
+    }
+    if (clip.blurAmount && clip.blurAmount > 0) {
+        filters.push(`gblur=sigma=${clip.blurAmount.toFixed(4)}`);
+    }
+
+    // 11. Speed adjustment via setpts
     if (speed !== 1.0) {
         filters.push(`setpts=${(1 / speed).toFixed(4)}*PTS`);
     }
 
-    // 8. FPS
+    // 12. FPS
     filters.push(`fps=fps=${fps}`);
 
     return filters.join(',');
@@ -342,6 +418,14 @@ export function buildAudioFilter(
         const atempoChain = buildAtempoChain(speed);
         if (atempoChain) {
             filters.push(atempoChain);
+        }
+    }
+
+    // 3b. Audio effects (before volume)
+    if (clip.audioEffects) {
+        const audioEffectsChain = buildAudioEffectsFilter(clip.audioEffects, clipDur / speed);
+        if (audioEffectsChain) {
+            filters.push(audioEffectsChain);
         }
     }
 

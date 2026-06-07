@@ -1,0 +1,388 @@
+// ══════════════════════════════════════════════════════════════════════════════
+// effectRegistry.ts — Parametric Effects Registry
+// Defines all adjustable effects with their parameter schemas and FFmpeg
+// filter templates. Used by both the renderer (UI) and electron (export).
+// ══════════════════════════════════════════════════════════════════════════════
+
+export interface EffectParameter {
+    key: string;
+    label: string;
+    type: 'slider' | 'color' | 'select' | 'toggle';
+    min?: number;
+    max?: number;
+    step?: number;
+    default: number | string | boolean;
+    unit?: string;  // '%', 'px', '°', 'K', etc.
+    options?: string[];  // For 'select' type
+}
+
+export interface ParametricEffect {
+    id: string;
+    name: string;
+    category: 'color' | 'style' | 'blur' | 'distortion' | 'sharpen';
+    description: string;
+    parameters: EffectParameter[];
+    /** FFmpeg template with {{paramKey}} placeholders */
+    ffmpegTemplate: string;
+    /** CSS preview approximation (optional) */
+    cssPreview?: string;
+    /** Whether real-time preview is possible */
+    realtimePreview: boolean;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EFFECT DEFINITIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+export const EFFECT_REGISTRY: ParametricEffect[] = [
+    // ── Color ────────────────────────────────────────────────────────────────
+    {
+        id: 'color_temperature',
+        name: 'Color Temperature',
+        category: 'color',
+        description: 'Adjust the color temperature of the image from cool (blue) to warm (orange).',
+        parameters: [
+            { key: 'temp', label: 'Temperature', type: 'slider', min: 2000, max: 10000, step: 100, default: 6500, unit: 'K' },
+        ],
+        ffmpegTemplate: 'colortemperature=temperature={{temp}}',
+        cssPreview: 'sepia({{_tempCss}}%)',
+        realtimePreview: true,
+    },
+    {
+        id: 'color_balance',
+        name: 'Color Balance',
+        category: 'color',
+        description: 'Fine-tune shadow, midtone, and highlight color balance per RGB channel.',
+        parameters: [
+            { key: 'rs', label: 'Shadows Red', type: 'slider', min: -1, max: 1, step: 0.05, default: 0 },
+            { key: 'gs', label: 'Shadows Green', type: 'slider', min: -1, max: 1, step: 0.05, default: 0 },
+            { key: 'bs', label: 'Shadows Blue', type: 'slider', min: -1, max: 1, step: 0.05, default: 0 },
+            { key: 'rm', label: 'Midtones Red', type: 'slider', min: -1, max: 1, step: 0.05, default: 0 },
+            { key: 'gm', label: 'Midtones Green', type: 'slider', min: -1, max: 1, step: 0.05, default: 0 },
+            { key: 'bm', label: 'Midtones Blue', type: 'slider', min: -1, max: 1, step: 0.05, default: 0 },
+            { key: 'rh', label: 'Highlights Red', type: 'slider', min: -1, max: 1, step: 0.05, default: 0 },
+            { key: 'gh', label: 'Highlights Green', type: 'slider', min: -1, max: 1, step: 0.05, default: 0 },
+            { key: 'bh', label: 'Highlights Blue', type: 'slider', min: -1, max: 1, step: 0.05, default: 0 },
+        ],
+        ffmpegTemplate: 'colorbalance=rs={{rs}}:gs={{gs}}:bs={{bs}}:rm={{rm}}:gm={{gm}}:bm={{bm}}:rh={{rh}}:gh={{gh}}:bh={{bh}}',
+        realtimePreview: true,
+    },
+    {
+        id: 'color_curves',
+        name: 'Color Curves',
+        category: 'color',
+        description: 'Apply preset color curves for creative grading.',
+        parameters: [
+            {
+                key: 'preset', label: 'Preset', type: 'select', default: 'none',
+                options: ['none', 'vintage', 'cross_process', 'linear_contrast', 'medium_contrast'],
+            },
+        ],
+        ffmpegTemplate: 'curves=preset={{preset}}',
+        realtimePreview: true,
+    },
+    {
+        id: 'levels',
+        name: 'Levels',
+        category: 'color',
+        description: 'Adjust input black/white points and gamma for tonal control.',
+        parameters: [
+            { key: 'min', label: 'Input Min', type: 'slider', min: 0, max: 255, step: 1, default: 0 },
+            { key: 'max', label: 'Input Max', type: 'slider', min: 0, max: 255, step: 1, default: 255 },
+            { key: 'gamma', label: 'Gamma', type: 'slider', min: 0.1, max: 3.0, step: 0.05, default: 1.0 },
+        ],
+        ffmpegTemplate: 'levels=rmin={{min}}:gmin={{min}}:bmin={{min}}:rmax={{max}}:gmax={{max}}:bmax={{max}}',
+        realtimePreview: true,
+    },
+
+    // ── Style ────────────────────────────────────────────────────────────────
+    {
+        id: 'film_grain',
+        name: 'Film Grain',
+        category: 'style',
+        description: 'Add organic film grain noise for a cinematic texture.',
+        parameters: [
+            { key: 'intensity', label: 'Intensity', type: 'slider', min: 0, max: 60, step: 1, default: 15 },
+            { key: 'animated', label: 'Animated', type: 'toggle', default: true },
+        ],
+        ffmpegTemplate: 'noise=alls={{intensity}}:allf={{_noiseFlag}}',
+        realtimePreview: false,
+    },
+    {
+        id: 'vignette',
+        name: 'Vignette',
+        category: 'style',
+        description: 'Darken the edges of the frame for a focused look.',
+        parameters: [
+            { key: 'angle', label: 'Angle', type: 'slider', min: 0.524, max: 1.571, step: 0.01, default: 0.785, unit: 'rad' },
+        ],
+        ffmpegTemplate: 'vignette=angle={{angle}}',
+        cssPreview: 'none',
+        realtimePreview: true,
+    },
+    {
+        id: 'chromatic_aberration',
+        name: 'Chromatic Aberration',
+        category: 'style',
+        description: 'Shift red and blue channels horizontally for a lens fringe effect.',
+        parameters: [
+            { key: 'rx', label: 'Red Shift', type: 'slider', min: -15, max: 15, step: 1, default: 3, unit: 'px' },
+            { key: 'bx', label: 'Blue Shift', type: 'slider', min: -15, max: 15, step: 1, default: -3, unit: 'px' },
+        ],
+        ffmpegTemplate: 'rgbashift=rh={{rx}}:bh={{bx}}',
+        realtimePreview: false,
+    },
+    {
+        id: 'posterize',
+        name: 'Posterize',
+        category: 'style',
+        description: 'Reduce the number of color levels for a poster-like look.',
+        parameters: [
+            { key: 'bits', label: 'Bits', type: 'slider', min: 2, max: 8, step: 1, default: 4 },
+        ],
+        ffmpegTemplate: 'posterize={{bits}}',
+        realtimePreview: true,
+    },
+    {
+        id: 'duotone',
+        name: 'Duotone',
+        category: 'style',
+        description: 'Desaturate the image and tint the highlights with a chosen color.',
+        parameters: [
+            { key: 'r', label: 'Tint Red', type: 'slider', min: -1, max: 1, step: 0.05, default: 0.3 },
+            { key: 'g', label: 'Tint Green', type: 'slider', min: -1, max: 1, step: 0.05, default: 0 },
+            { key: 'b', label: 'Tint Blue', type: 'slider', min: -1, max: 1, step: 0.05, default: 0.5 },
+        ],
+        ffmpegTemplate: 'hue=s=0,colorbalance=rh={{r}}:gh={{g}}:bh={{b}}',
+        realtimePreview: true,
+    },
+    {
+        id: 'sepia_advanced',
+        name: 'Sepia (Advanced)',
+        category: 'style',
+        description: 'Apply a warm sepia tone with adjustable intensity.',
+        parameters: [
+            { key: 'intensity', label: 'Intensity', type: 'slider', min: 0, max: 100, step: 1, default: 50, unit: '%' },
+        ],
+        // Resolved dynamically — uses colorchannelmixer matrix blended with identity
+        ffmpegTemplate: '{{_sepiaFilter}}',
+        realtimePreview: true,
+    },
+
+    // ── Blur ─────────────────────────────────────────────────────────────────
+    {
+        id: 'gaussian_blur',
+        name: 'Gaussian Blur',
+        category: 'blur',
+        description: 'Apply a smooth Gaussian blur to the image.',
+        parameters: [
+            { key: 'sigma', label: 'Sigma', type: 'slider', min: 0.5, max: 20, step: 0.5, default: 3, unit: 'px' },
+        ],
+        ffmpegTemplate: 'gblur=sigma={{sigma}}',
+        cssPreview: 'blur({{sigma}}px)',
+        realtimePreview: true,
+    },
+    {
+        id: 'box_blur',
+        name: 'Box Blur',
+        category: 'blur',
+        description: 'Apply a fast box blur (uniform averaging).',
+        parameters: [
+            { key: 'radius', label: 'Radius', type: 'slider', min: 1, max: 20, step: 1, default: 3, unit: 'px' },
+        ],
+        ffmpegTemplate: 'boxblur={{radius}}:{{radius}}',
+        cssPreview: 'blur({{radius}}px)',
+        realtimePreview: true,
+    },
+
+    // ── Sharpen ──────────────────────────────────────────────────────────────
+    {
+        id: 'sharpen',
+        name: 'Sharpen',
+        category: 'sharpen',
+        description: 'Sharpen image details using unsharp masking (5×5 kernel).',
+        parameters: [
+            { key: 'amount', label: 'Amount', type: 'slider', min: 0.5, max: 3.0, step: 0.1, default: 1.5 },
+        ],
+        ffmpegTemplate: 'unsharp=5:5:{{amount}}:5:5:0',
+        realtimePreview: true,
+    },
+    {
+        id: 'clarity',
+        name: 'Clarity',
+        category: 'sharpen',
+        description: 'Enhance midtone contrast and detail using a wider unsharp kernel (7×7).',
+        parameters: [
+            { key: 'amount', label: 'Amount', type: 'slider', min: 0.5, max: 2.0, step: 0.1, default: 1.0 },
+        ],
+        ffmpegTemplate: 'unsharp=7:7:{{amount}}:7:7:0',
+        realtimePreview: true,
+    },
+
+    // ── Distortion ───────────────────────────────────────────────────────────
+    {
+        id: 'lens_distortion',
+        name: 'Lens Distortion',
+        category: 'distortion',
+        description: 'Apply barrel/pincushion lens correction.',
+        parameters: [
+            { key: 'k1', label: 'K1 (Barrel)', type: 'slider', min: -1, max: 1, step: 0.05, default: 0 },
+            { key: 'k2', label: 'K2 (Pincushion)', type: 'slider', min: -1, max: 1, step: 0.05, default: 0 },
+        ],
+        ffmpegTemplate: 'lenscorrection=k1={{k1}}:k2={{k2}}',
+        realtimePreview: false,
+    },
+    {
+        id: 'mirror_h',
+        name: 'Mirror Horizontal',
+        category: 'distortion',
+        description: 'Flip the image horizontally (left ↔ right).',
+        parameters: [
+            { key: 'enabled', label: 'Enabled', type: 'toggle', default: true },
+        ],
+        ffmpegTemplate: 'hflip',
+        realtimePreview: true,
+    },
+    {
+        id: 'mirror_v',
+        name: 'Mirror Vertical',
+        category: 'distortion',
+        description: 'Flip the image vertically (top ↔ bottom).',
+        parameters: [
+            { key: 'enabled', label: 'Enabled', type: 'toggle', default: true },
+        ],
+        ffmpegTemplate: 'vflip',
+        realtimePreview: true,
+    },
+];
+
+// ══════════════════════════════════════════════════════════════════════════════
+// LOOKUP HELPERS
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** Internal index for fast lookups by ID */
+const _effectById = new Map<string, ParametricEffect>();
+for (const effect of EFFECT_REGISTRY) {
+    _effectById.set(effect.id, effect);
+}
+
+// ── Sepia blending matrices (reused from effectCompiler.ts) ─────────────────
+const IDENTITY_MATRIX = {
+    rr: 1, rg: 0, rb: 0,
+    gr: 0, gg: 1, gb: 0,
+    br: 0, bg: 0, bb: 1,
+};
+const SEPIA_MATRIX = {
+    rr: 0.393, rg: 0.769, rb: 0.189,
+    gr: 0.349, gg: 0.686, gb: 0.168,
+    br: 0.272, bg: 0.534, bb: 0.131,
+};
+
+function buildSepiaFilter(intensity: number): string {
+    const t = Math.max(0, Math.min(100, intensity)) / 100;
+    const rr = IDENTITY_MATRIX.rr * (1 - t) + SEPIA_MATRIX.rr * t;
+    const rg = IDENTITY_MATRIX.rg * (1 - t) + SEPIA_MATRIX.rg * t;
+    const rb = IDENTITY_MATRIX.rb * (1 - t) + SEPIA_MATRIX.rb * t;
+    const gr = IDENTITY_MATRIX.gr * (1 - t) + SEPIA_MATRIX.gr * t;
+    const gg = IDENTITY_MATRIX.gg * (1 - t) + SEPIA_MATRIX.gg * t;
+    const gb = IDENTITY_MATRIX.gb * (1 - t) + SEPIA_MATRIX.gb * t;
+    const br = IDENTITY_MATRIX.br * (1 - t) + SEPIA_MATRIX.br * t;
+    const bg = IDENTITY_MATRIX.bg * (1 - t) + SEPIA_MATRIX.bg * t;
+    const bb = IDENTITY_MATRIX.bb * (1 - t) + SEPIA_MATRIX.bb * t;
+    return `colorchannelmixer=${rr.toFixed(3)}:${rg.toFixed(3)}:${rb.toFixed(3)}:0:${gr.toFixed(3)}:${gg.toFixed(3)}:${gb.toFixed(3)}:0:${br.toFixed(3)}:${bg.toFixed(3)}:${bb.toFixed(3)}:0`;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PUBLIC API
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Resolve a parametric effect to its FFmpeg filter string with all
+ * {{placeholders}} substituted by the provided parameter values.
+ *
+ * Handles special-case effects like sepia_advanced and film_grain that
+ * require computed sub-expressions.
+ *
+ * @param effectId - The effect identifier (e.g. 'color_temperature')
+ * @param params   - Map of parameter key → value overrides
+ * @returns Fully resolved FFmpeg filter string, or '' if effect not found
+ */
+export function resolveParametricEffect(
+    effectId: string,
+    params: Record<string, number | string | boolean>
+): string {
+    const effect = _effectById.get(effectId);
+    if (!effect) return '';
+
+    // Build a complete params map with defaults filled in
+    const resolved: Record<string, number | string | boolean> = {};
+    for (const p of effect.parameters) {
+        resolved[p.key] = params[p.key] !== undefined ? params[p.key] : p.default;
+    }
+
+    // ── Special-case: toggle effects that do nothing when disabled ────────
+    if (effectId === 'mirror_h' || effectId === 'mirror_v') {
+        if (!resolved['enabled']) return '';
+    }
+
+    // ── Special-case: film_grain noise flag ───────────────────────────────
+    if (effectId === 'film_grain') {
+        (resolved as any)['_noiseFlag'] = resolved['animated'] ? 't+u' : 'u';
+    }
+
+    // ── Special-case: sepia_advanced — fully dynamic template ────────────
+    if (effectId === 'sepia_advanced') {
+        return buildSepiaFilter(Number(resolved['intensity']));
+    }
+
+    // ── Special-case: color_curves "none" preset → skip filter ───────────
+    if (effectId === 'color_curves' && resolved['preset'] === 'none') {
+        return '';
+    }
+
+    // Substitute {{key}} placeholders in the template
+    let filter = effect.ffmpegTemplate;
+    for (const [key, value] of Object.entries(resolved)) {
+        const placeholder = `{{${key}}}`;
+        if (filter.includes(placeholder)) {
+            filter = filter.split(placeholder).join(String(value));
+        }
+    }
+
+    return filter;
+}
+
+/**
+ * Get all effects grouped by category.
+ */
+export function getEffectsByCategory(): Record<string, ParametricEffect[]> {
+    const grouped: Record<string, ParametricEffect[]> = {};
+    for (const effect of EFFECT_REGISTRY) {
+        if (!grouped[effect.category]) {
+            grouped[effect.category] = [];
+        }
+        grouped[effect.category].push(effect);
+    }
+    return grouped;
+}
+
+/**
+ * Get the default parameter values for a given effect.
+ * Returns an empty object if the effect is not found.
+ */
+export function getDefaultParams(effectId: string): Record<string, number | string | boolean> {
+    const effect = _effectById.get(effectId);
+    if (!effect) return {};
+    const defaults: Record<string, number | string | boolean> = {};
+    for (const p of effect.parameters) {
+        defaults[p.key] = p.default;
+    }
+    return defaults;
+}
+
+/**
+ * Look up a single parametric effect definition by ID.
+ */
+export function getEffectById(effectId: string): ParametricEffect | undefined {
+    return _effectById.get(effectId);
+}
