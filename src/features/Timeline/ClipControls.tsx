@@ -1,8 +1,12 @@
-import React, { useState } from 'react';
-import { Copy, Trash2, Shuffle, Pin, PinOff, Volume2, VolumeX, Sparkles, ArrowRightLeft, Palette, Lock, Unlock, ArrowUpCircle, ArrowDownCircle, Repeat2 } from 'lucide-react';
+import React, { useState, useCallback } from 'react';
+import { Copy, Trash2, Shuffle, Pin, PinOff, Volume2, VolumeX, Sparkles, ArrowRightLeft, Palette, Lock, Unlock, ArrowUpCircle, ArrowDownCircle, Repeat2, ChevronDown, ChevronRight, Layers, Paintbrush, Type, Music, Wrench } from 'lucide-react';
 import { useClipStore } from '../../store/clipStore';
 import { SpeedControl } from '../../components/SpeedControl';
 import { AssetPicker } from '../../components/AssetPicker';
+import { EffectsPanel } from './EffectsPanel';
+import { ColorGradingPanel } from './ColorGradingPanel';
+import { TextOverlayPanel } from './TextOverlayPanel';
+import { AudioEffectsPanel } from './AudioEffectsPanel';
 
 interface ClipControlsProps {
     clipId: string;
@@ -14,7 +18,12 @@ export const ClipControls: React.FC<ClipControlsProps> = ({ clipId, variant = 's
     const clip = clips.find((c) => c.id === clipId);
     const [showAssetPicker, setShowAssetPicker] = useState(false);
 
+    // Expandable section state
+    const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
 
+    const toggleSection = useCallback((section: string) => {
+        setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
+    }, []);
 
     if (!clip) return null;
 
@@ -23,6 +32,21 @@ export const ClipControls: React.FC<ClipControlsProps> = ({ clipId, variant = 's
     const volume = clip.volume ?? 100;
     const isMuted = clip.isMuted || false;
     const speed = clip.speed ?? 1.0;
+
+    // Quick Tools values
+    const flipH = clip.flipH ?? false;
+    const flipV = clip.flipV ?? false;
+    const sharpenVal = clip.sharpen ?? 0;
+    const blurVal = clip.blurAmount ?? 0;
+    const chromaKey = clip.chromaKey ?? { enabled: false, color: '#00ff00', similarity: 0.4, blend: 0.1 };
+    const stabilize = clip.stabilize ?? { enabled: false, smoothing: 10 };
+
+    const updateClip = useCallback(
+        (updates: Record<string, any>) => {
+            useClipStore.getState().updateClip(clipId, updates);
+        },
+        [clipId]
+    );
 
     return (
         <>
@@ -147,6 +171,241 @@ export const ClipControls: React.FC<ClipControlsProps> = ({ clipId, variant = 's
                             size="sm"
                         />
                     </>
+                )}
+            </div>
+
+            {/* ═══ Expandable Sections ═══════════════════════════════════════ */}
+
+            {/* Effects */}
+            <div className="border-t border-white/5">
+                <button
+                    onClick={() => toggleSection('effects')}
+                    className="flex items-center gap-2 w-full px-3 py-2 hover:bg-white/5 transition-colors"
+                >
+                    {expandedSections.effects
+                        ? <ChevronDown size={12} className="text-white/30" />
+                        : <ChevronRight size={12} className="text-white/30" />
+                    }
+                    <Layers size={13} className="text-purple-400/70" />
+                    <span className="text-xs font-medium text-white/60">Effects</span>
+                    {(clip.parametricEffects?.length ?? 0) > 0 && (
+                        <span className="ml-auto text-[10px] bg-purple-500/20 text-purple-300 px-1.5 rounded-full">
+                            {clip.parametricEffects!.length}
+                        </span>
+                    )}
+                </button>
+                {expandedSections.effects && (
+                    <div className="px-3 pb-3">
+                        <EffectsPanel clipId={clip.id} />
+                    </div>
+                )}
+            </div>
+
+            {/* Color Grading */}
+            <div className="border-t border-white/5">
+                <button
+                    onClick={() => toggleSection('colorGrading')}
+                    className="flex items-center gap-2 w-full px-3 py-2 hover:bg-white/5 transition-colors"
+                >
+                    {expandedSections.colorGrading
+                        ? <ChevronDown size={12} className="text-white/30" />
+                        : <ChevronRight size={12} className="text-white/30" />
+                    }
+                    <Paintbrush size={13} className="text-orange-400/70" />
+                    <span className="text-xs font-medium text-white/60">Color Grading</span>
+                </button>
+                {expandedSections.colorGrading && (
+                    <div className="px-3 pb-3">
+                        <ColorGradingPanel clipId={clip.id} />
+                    </div>
+                )}
+            </div>
+
+            {/* Text Overlays */}
+            <div className="border-t border-white/5">
+                <button
+                    onClick={() => toggleSection('textOverlays')}
+                    className="flex items-center gap-2 w-full px-3 py-2 hover:bg-white/5 transition-colors"
+                >
+                    {expandedSections.textOverlays
+                        ? <ChevronDown size={12} className="text-white/30" />
+                        : <ChevronRight size={12} className="text-white/30" />
+                    }
+                    <Type size={13} className="text-emerald-400/70" />
+                    <span className="text-xs font-medium text-white/60">Text Overlays</span>
+                    {(clip.textOverlays?.length ?? 0) > 0 && (
+                        <span className="ml-auto text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 rounded-full">
+                            {clip.textOverlays!.length}
+                        </span>
+                    )}
+                </button>
+                {expandedSections.textOverlays && (
+                    <div className="px-3 pb-3">
+                        <TextOverlayPanel clipId={clip.id} />
+                    </div>
+                )}
+            </div>
+
+            {/* Audio Effects */}
+            <div className="border-t border-white/5">
+                <button
+                    onClick={() => toggleSection('audioEffects')}
+                    className="flex items-center gap-2 w-full px-3 py-2 hover:bg-white/5 transition-colors"
+                >
+                    {expandedSections.audioEffects
+                        ? <ChevronDown size={12} className="text-white/30" />
+                        : <ChevronRight size={12} className="text-white/30" />
+                    }
+                    <Music size={13} className="text-sky-400/70" />
+                    <span className="text-xs font-medium text-white/60">Audio Effects</span>
+                </button>
+                {expandedSections.audioEffects && (
+                    <div className="px-3 pb-3">
+                        <AudioEffectsPanel clipId={clip.id} />
+                    </div>
+                )}
+            </div>
+
+            {/* Quick Tools */}
+            <div className="border-t border-white/5">
+                <button
+                    onClick={() => toggleSection('quickTools')}
+                    className="flex items-center gap-2 w-full px-3 py-2 hover:bg-white/5 transition-colors"
+                >
+                    {expandedSections.quickTools
+                        ? <ChevronDown size={12} className="text-white/30" />
+                        : <ChevronRight size={12} className="text-white/30" />
+                    }
+                    <Wrench size={13} className="text-white/40" />
+                    <span className="text-xs font-medium text-white/60">Quick Tools</span>
+                </button>
+                {expandedSections.quickTools && (
+                    <div className="px-3 pb-3 space-y-2">
+                        {/* Flip Toggles */}
+                        <div className="flex items-center gap-4">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <button
+                                    onClick={() => updateClip({ flipH: !flipH })}
+                                    className={`w-8 h-4 rounded-full transition-colors relative ${flipH ? 'bg-purple-500' : 'bg-white/15'}`}
+                                >
+                                    <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${flipH ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                                </button>
+                                <span className="text-xs text-white/50">Flip H</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                                <button
+                                    onClick={() => updateClip({ flipV: !flipV })}
+                                    className={`w-8 h-4 rounded-full transition-colors relative ${flipV ? 'bg-purple-500' : 'bg-white/15'}`}
+                                >
+                                    <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${flipV ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                                </button>
+                                <span className="text-xs text-white/50">Flip V</span>
+                            </label>
+                        </div>
+
+                        {/* Sharpen */}
+                        <div className="flex items-center gap-2">
+                            <label className="text-xs text-white/50 w-20 shrink-0">Sharpen</label>
+                            <input
+                                type="range"
+                                min="0" max="3" step="0.1"
+                                value={sharpenVal}
+                                onChange={(e) => updateClip({ sharpen: parseFloat(e.target.value) })}
+                                onDoubleClick={() => updateClip({ sharpen: 0 })}
+                                className="flex-1 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                            />
+                            <span className="text-xs text-white/40 w-8 text-right tabular-nums">{sharpenVal.toFixed(1)}</span>
+                        </div>
+
+                        {/* Blur */}
+                        <div className="flex items-center gap-2">
+                            <label className="text-xs text-white/50 w-20 shrink-0">Blur</label>
+                            <input
+                                type="range"
+                                min="0" max="20" step="0.5"
+                                value={blurVal}
+                                onChange={(e) => updateClip({ blurAmount: parseFloat(e.target.value) })}
+                                onDoubleClick={() => updateClip({ blurAmount: 0 })}
+                                className="flex-1 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                            />
+                            <span className="text-xs text-white/40 w-8 text-right tabular-nums">{blurVal.toFixed(1)}</span>
+                        </div>
+
+                        {/* ── Chroma Key ────────────────────────────────────── */}
+                        <div className="pt-1 border-t border-white/5">
+                            <div className="flex items-center justify-between pb-1">
+                                <span className="text-[10px] uppercase tracking-wider text-white/30 font-semibold">Chroma Key</span>
+                                <button
+                                    onClick={() => updateClip({ chromaKey: { ...chromaKey, enabled: !chromaKey.enabled } })}
+                                    className={`w-8 h-4 rounded-full transition-colors relative ${chromaKey.enabled ? 'bg-green-500' : 'bg-white/15'}`}
+                                >
+                                    <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${chromaKey.enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                                </button>
+                            </div>
+                            {chromaKey.enabled && (
+                                <div className="space-y-1 pl-1">
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-xs text-white/50 w-20 shrink-0">Color</label>
+                                        <input
+                                            type="color"
+                                            value={chromaKey.color}
+                                            onChange={(e) => updateClip({ chromaKey: { ...chromaKey, color: e.target.value } })}
+                                            className="w-6 h-6 rounded border border-white/10 cursor-pointer bg-transparent"
+                                        />
+                                        <span className="text-xs text-white/40">{chromaKey.color}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-xs text-white/50 w-20 shrink-0">Similarity</label>
+                                        <input
+                                            type="range"
+                                            min="0.01" max="1.0" step="0.01"
+                                            value={chromaKey.similarity}
+                                            onChange={(e) => updateClip({ chromaKey: { ...chromaKey, similarity: parseFloat(e.target.value) } })}
+                                            className="flex-1 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-green-500"
+                                        />
+                                        <span className="text-xs text-white/40 w-8 text-right tabular-nums">{chromaKey.similarity.toFixed(2)}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <label className="text-xs text-white/50 w-20 shrink-0">Blend</label>
+                                        <input
+                                            type="range"
+                                            min="0" max="1" step="0.01"
+                                            value={chromaKey.blend}
+                                            onChange={(e) => updateClip({ chromaKey: { ...chromaKey, blend: parseFloat(e.target.value) } })}
+                                            className="flex-1 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-green-500"
+                                        />
+                                        <span className="text-xs text-white/40 w-8 text-right tabular-nums">{chromaKey.blend.toFixed(2)}</span>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* ── Stabilization ─────────────────────────────────── */}
+                        <div className="pt-1 border-t border-white/5">
+                            <div className="flex items-center justify-between pb-1">
+                                <span className="text-[10px] uppercase tracking-wider text-white/30 font-semibold">Stabilization</span>
+                                <button
+                                    onClick={() => updateClip({ stabilize: { ...stabilize, enabled: !stabilize.enabled } })}
+                                    className={`w-8 h-4 rounded-full transition-colors relative ${stabilize.enabled ? 'bg-blue-500' : 'bg-white/15'}`}
+                                >
+                                    <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${stabilize.enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                                </button>
+                            </div>
+                            {stabilize.enabled && (
+                                <div className="flex items-center gap-2 pl-1">
+                                    <label className="text-xs text-white/50 w-20 shrink-0">Smoothing</label>
+                                    <input
+                                        type="range"
+                                        min="1" max="60"
+                                        value={stabilize.smoothing}
+                                        onChange={(e) => updateClip({ stabilize: { ...stabilize, smoothing: parseInt(e.target.value) } })}
+                                        className="flex-1 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                                    />
+                                    <span className="text-xs text-white/40 w-8 text-right tabular-nums">{stabilize.smoothing}</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 )}
             </div>
         </>
