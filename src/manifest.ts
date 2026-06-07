@@ -39,10 +39,23 @@ export interface ManifestClip {
     locked?: boolean;
     origin?: 'auto' | 'manual';
 
+    // Zoom / Transform
+    zoomLevel?: number;
+    zoomStart?: number;
+    zoomEnd?: number;
+    zoomOrigin?: string;
+    sourceOrientation?: string;
+    rotation?: number;
+
+    // Per-clip flags
+    isMuted?: boolean;
+    isPinned?: boolean;
+
+    // Audio
+    bpm?: number;
+
     // Assets
     effects?: string[];
-    speedRampId?: string;
-    transitionOut?: { type: string, duration: number };
 
     // Metadata for matching
     metadata?: {
@@ -144,7 +157,15 @@ export function createManifestFromState(
             locked: clip.locked,
             origin: clip.origin,
             effects: clip.effectIds,
-            speedRampId: clip.speedRampId,
+            zoomLevel: clip.zoomLevel,
+            zoomStart: clip.zoomStart,
+            zoomEnd: clip.zoomEnd,
+            zoomOrigin: clip.zoomOrigin,
+            sourceOrientation: clip.sourceOrientation,
+            rotation: clip.rotation,
+            isMuted: clip.isMuted,
+            bpm: clip.bpm,
+            isPinned: clip.isPinned,
             metadata: {
                 width: clip.metadata?.width,
                 height: clip.metadata?.height,

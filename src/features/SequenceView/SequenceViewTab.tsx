@@ -7,7 +7,7 @@ import { useUserStore } from '../../store/userStore';
 import { GridPlayer } from '../../components/GridPlayer';
 import { GridClip } from '../../types';
 import { DEFAULT_FPS } from '../../lib/time';
-import { getClipTransitionStyle } from '../../lib/transitions';
+
 import clsx from 'clsx';
 
 const DEFAULT_SCALE = 0.5; // Pixels per frame
@@ -34,6 +34,8 @@ export const SequenceViewTab: React.FC = () => {
     const dragOrigEndFrameRef = useRef(0);
     const [currentGlobalFrame, setCurrentGlobalFrame] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
+    const [showVolumeBar, setShowVolumeBar] = useState(false);
+    const volumeBarTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Double-buffered video refs (TrailerPlayer-style smooth playback)
     const videoARef = useRef<HTMLVideoElement>(null);
@@ -326,7 +328,7 @@ export const SequenceViewTab: React.FC = () => {
 
     // Compute transition style for active clip
     const clipLocalFrame = activeVisualClip ? currentGlobalFrame - activeVisualClip.startFrame : 0;
-    const transitionStyle = activeVisualClip ? getClipTransitionStyle(activeVisualClip, Math.max(0, clipLocalFrame)) : { transform: '', opacity: 1, zIndex: 20 };
+    const transitionStyle = { transform: '', opacity: 1, zIndex: 20 };
 
     // Vertical video: use object-cover when zoomed
     const activeOrientation = activeVisualClip?.sourceOrientation || 'horizontal';
@@ -385,6 +387,17 @@ export const SequenceViewTab: React.FC = () => {
                                 maxWidth: '100%'
                             }}
                             onClick={handlePlayPause}
+                            onWheel={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const delta = e.deltaY > 0 ? -0.05 : 0.05;
+                                const newVol = Math.max(0, Math.min(1, masterVolume + delta));
+                                setMasterVolume(newVol);
+                                if (isMasterMuted && newVol > 0) setIsMasterMuted(false);
+                                setShowVolumeBar(true);
+                                if (volumeBarTimeoutRef.current) clearTimeout(volumeBarTimeoutRef.current);
+                                volumeBarTimeoutRef.current = setTimeout(() => setShowVolumeBar(false), 1500);
+                            }}
                         >
                             {isGrid && activeVisualClip ? (
                                 <GridPlayer
@@ -416,6 +429,21 @@ export const SequenceViewTab: React.FC = () => {
                                 </>
                             ) : (
                                 <div className="text-white/30 text-sm">No clip at playhead</div>
+                            )}
+                            {/* Volume Overlay Bar */}
+                            {showVolumeBar && (
+                                <div className="absolute top-3 right-3 z-30 flex flex-col items-center gap-1 bg-black/60 backdrop-blur-md rounded-lg px-2 py-2 border border-white/10 transition-opacity duration-300"
+                                    style={{ opacity: showVolumeBar ? 1 : 0 }}>
+                                    <div className="text-[9px] font-bold text-white/70 uppercase tracking-wider">Vol</div>
+                                    <div className="relative w-1.5 h-16 bg-white/10 rounded-full overflow-hidden">
+                                        <div className="absolute bottom-0 w-full rounded-full transition-all duration-150"
+                                            style={{
+                                                height: `${Math.round((isMasterMuted ? 0 : masterVolume) * 100)}%`,
+                                                background: masterVolume > 0.7 ? '#ef4444' : masterVolume > 0.4 ? '#eab308' : '#22c55e'
+                                            }} />
+                                    </div>
+                                    <div className="text-[10px] font-mono text-white/80">{Math.round((isMasterMuted ? 0 : masterVolume) * 100)}</div>
+                                </div>
                             )}
                         </div>
                         {/* ── A2+ Background Audio (DOM-attached, same security context as <video>) ── */}

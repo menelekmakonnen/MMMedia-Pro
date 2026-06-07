@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Trash2, Shuffle, Pin, PinOff, Volume2, VolumeX, Sparkles, ArrowRightLeft, Palette, Lock, Unlock, ArrowUpCircle, ArrowDownCircle, Wand2 } from 'lucide-react';
+import { Copy, Trash2, Shuffle, Pin, PinOff, Volume2, VolumeX, Sparkles, ArrowRightLeft, Palette, Lock, Unlock, ArrowUpCircle, ArrowDownCircle, Repeat2 } from 'lucide-react';
 import { useClipStore } from '../../store/clipStore';
 import { SpeedControl } from '../../components/SpeedControl';
 import { AssetPicker } from '../../components/AssetPicker';
@@ -13,12 +13,8 @@ export const ClipControls: React.FC<ClipControlsProps> = ({ clipId, variant = 's
     const { clips, duplicateClip, deleteClip, randomizeSegment, pinClip, lockClip, setClipVolume, setClipMuted, setClipSpeed, moveClip } = useClipStore();
     const clip = clips.find((c) => c.id === clipId);
     const [showAssetPicker, setShowAssetPicker] = useState(false);
-    const [showStyleMenu, setShowStyleMenu] = useState(false);
 
-    const applyStyle = (styleName: 'rubber-band-standard' | 'rubber-band-zoom' | 'rubber-band-zoom-speed' | 'rubber-band-extreme' | 'multi-boomerang' | 'triple-shot' | 'rubber-band' | 'rubber-band-speed') => {
-        useClipStore.getState().applyEditingStyle(clipId, styleName);
-        setShowStyleMenu(false);
-    };
+
 
     if (!clip) return null;
 
@@ -86,32 +82,21 @@ export const ClipControls: React.FC<ClipControlsProps> = ({ clipId, variant = 's
                 <button
                     onClick={() => setShowAssetPicker(true)}
                     className="p-1.5 hover:bg-primary/20 rounded transition-colors"
-                    title="Apply Speed Ramps & Effects"
+                    title="Apply Effects"
                 >
                     <Palette size={16} className="text-primary" />
                 </button>
 
-                <div className="relative">
-                    <button
-                        onClick={() => setShowStyleMenu(!showStyleMenu)}
-                        className={`p-1.5 rounded transition-colors flex items-center gap-1 ${showStyleMenu ? 'bg-indigo-500/30' : 'hover:bg-indigo-500/20'}`}
-                        title="Apply Custom Editing Style"
-                    >
-                        <Wand2 size={16} className="text-indigo-400" />
-                    </button>
-                    
-                    {showStyleMenu && (
-                        <div className="absolute top-full left-0 mt-1 w-48 bg-black/80 backdrop-blur-md border border-white/10 rounded-xl shadow-xl z-50 overflow-hidden py-1">
-                            <div className="px-3 py-2 text-[10px] font-black text-white/40 uppercase tracking-widest bg-black/40">Custom Styles</div>
-                            <button onClick={() => applyStyle('rubber-band-standard')} className="w-full text-left px-3 py-2 text-xs font-bold text-white/80 hover:bg-white/10 transition-colors">Rubber Band (Standard)</button>
-                            <button onClick={() => applyStyle('rubber-band-zoom')} className="w-full text-left px-3 py-2 text-xs font-bold text-white/80 hover:bg-white/10 transition-colors">Rubber Band (Zoom Only)</button>
-                            <button onClick={() => applyStyle('rubber-band-zoom-speed')} className="w-full text-left px-3 py-2 text-xs font-bold text-white/80 hover:bg-white/10 transition-colors">Zoom + Speed Ramp</button>
-                            <button onClick={() => applyStyle('rubber-band-extreme')} className="w-full text-left px-3 py-2 text-xs font-bold text-white/80 hover:bg-white/10 transition-colors">Rubber Band (Extreme)</button>
-                            <button onClick={() => applyStyle('multi-boomerang')} className="w-full text-left px-3 py-2 text-xs font-bold text-white/80 hover:bg-white/10 transition-colors border-t border-white/5 mt-0.5 pt-2">Multi-Boomerang</button>
-                            <button onClick={() => applyStyle('triple-shot')} className="w-full text-left px-3 py-2 text-xs font-bold text-white/80 hover:bg-white/10 transition-colors">Triple-Shot (A→B→A)</button>
-                        </div>
-                    )}
-                </div>
+                {/* Boomerang Toggle */}
+                <button
+                    onClick={() => useClipStore.getState().toggleBoomerang(clipId)}
+                    className={`p-1.5 hover:bg-white/10 rounded transition-colors ${clip.boomerang ? 'bg-cyan-500/20' : ''}`}
+                    title={clip.boomerang ? 'Boomerang enabled' : 'Enable Boomerang'}
+                >
+                    <Repeat2 size={16} className={clip.boomerang ? 'text-cyan-400' : 'text-white/60'} />
+                </button>
+
+
 
                 <button
                     onClick={() => pinClip(clipId, !isPinned)}

@@ -181,7 +181,6 @@ async function processLoadedContent(content: string): Promise<boolean> {
             locked: mc.locked || false,
             origin: mc.origin || 'manual',
             effectIds: mc.effects,
-            speedRampId: mc.speedRampId,
             isFolded: false, // Runtime state reset
             isPinned: false
         }));

@@ -1,8 +1,0 @@
-{
-    "id": "trans_gen_2",
-    "name": "Generated Time Warp 2",
-    "type": "transition",
-    "description": "Auto-generated transition 2",
-    "duration": 0.7,
-    "style": "fade"
-}

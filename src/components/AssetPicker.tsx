@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Zap, Palette, X } from 'lucide-react';
+import { Palette, X } from 'lucide-react';
 import { useAssetStore } from '../store/assetStore';
 import { useClipStore } from '../store/clipStore';
 
@@ -9,24 +9,16 @@ interface AssetPickerProps {
 }
 
 export const AssetPicker: React.FC<AssetPickerProps> = ({ clipId, onClose }) => {
-    const { speedRamps, effects } = useAssetStore();
+    const { effects } = useAssetStore();
     const { updateClip } = useClipStore();
-    const [activeTab, setActiveTab] = useState<'speed' | 'effects'>('speed');
-
-    const applySpeedRamp = (rampId: string) => {
-        updateClip(clipId, { speedRampId: rampId });
-        console.log(`[AssetPicker] Applied speed ramp ${rampId} to clip ${clipId}`);
-    };
 
     const applyEffect = (effectId: string) => {
         const clip = useClipStore.getState().clips.find(c => c.id === clipId);
         const currentEffects = clip?.effectIds || [];
 
         if (currentEffects.includes(effectId)) {
-            // Remove if already applied
             updateClip(clipId, { effectIds: currentEffects.filter(id => id !== effectId) });
         } else {
-            // Add effect
             updateClip(clipId, { effectIds: [...currentEffects, effectId] });
         }
         console.log(`[AssetPicker] Toggled effect ${effectId} on clip ${clipId}`);
@@ -34,7 +26,6 @@ export const AssetPicker: React.FC<AssetPickerProps> = ({ clipId, onClose }) => 
 
     const clip = useClipStore.getState().clips.find(c => c.id === clipId);
     const appliedEffects = clip?.effectIds || [];
-    const appliedRamp = clip?.speedRampId;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
@@ -50,56 +41,8 @@ export const AssetPicker: React.FC<AssetPickerProps> = ({ clipId, onClose }) => 
                     </button>
                 </div>
 
-                {/* Tabs */}
-                <div className="flex border-b border-white/10">
-                    <button
-                        onClick={() => setActiveTab('speed')}
-                        className={`flex-1 py-3 px-4 flex items-center justify-center gap-2 transition-colors ${activeTab === 'speed'
-                            ? 'bg-primary/20 text-primary border-b-2 border-primary'
-                            : 'text-white/40 hover:text-white/60'
-                            }`}
-                    >
-                        <Zap size={18} />
-                        Speed Ramps
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('effects')}
-                        className={`flex-1 py-3 px-4 flex items-center justify-center gap-2 transition-colors ${activeTab === 'effects'
-                            ? 'bg-primary/20 text-primary border-b-2 border-primary'
-                            : 'text-white/40 hover:text-white/60'
-                            }`}
-                    >
-                        <Palette size={18} />
-                        Effects
-                    </button>
-                </div>
-
-                {/* Content */}
                 <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-                    {activeTab === 'speed' ? (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            {speedRamps.map(ramp => (
-                                <button
-                                    key={ramp.id}
-                                    onClick={() => applySpeedRamp(ramp.id)}
-                                    className={`p-4 rounded-lg border transition-all text-left ${appliedRamp === ramp.id
-                                        ? 'bg-primary/20 border-primary/60 shadow-lg shadow-primary/20'
-                                        : 'bg-white/5 border-white/10 hover:border-primary/40 hover:bg-white/10'
-                                        }`}
-                                >
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <Zap size={16} className={appliedRamp === ramp.id ? 'text-primary' : 'text-white/40'} />
-                                        <h3 className="font-semibold text-white">{ramp.name}</h3>
-                                    </div>
-                                    <p className="text-sm text-white/60">{ramp.description}</p>
-                                    {appliedRamp === ramp.id && (
-                                        <div className="mt-2 text-xs text-primary font-medium">✓ Applied</div>
-                                    )}
-                                </button>
-                            ))}
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {effects.map(effect => {
                                 const isApplied = appliedEffects.includes(effect.id);
                                 return (
@@ -122,8 +65,7 @@ export const AssetPicker: React.FC<AssetPickerProps> = ({ clipId, onClose }) => 
                                     </button>
                                 );
                             })}
-                        </div>
-                    )}
+                    </div>
                 </div>
 
                 {/* Footer */}

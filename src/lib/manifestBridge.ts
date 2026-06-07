@@ -23,6 +23,18 @@ export const generateManifest = (): Manifest => {
         speed: clip.speed,
         volume: clip.volume,
         reversed: clip.reversed,
+        locked: clip.locked,
+        origin: clip.origin,
+        effects: clip.effectIds,
+        zoomLevel: clip.zoomLevel,
+        zoomStart: clip.zoomStart,
+        zoomEnd: clip.zoomEnd,
+        zoomOrigin: clip.zoomOrigin,
+        sourceOrientation: clip.sourceOrientation,
+        rotation: clip.rotation,
+        isMuted: clip.isMuted,
+        bpm: clip.bpm,
+        isPinned: clip.isPinned,
         ...(clip.type === 'grid' && {
             gridFormat: (clip as any).gridFormat,
             numCells: (clip as any).numCells,
@@ -55,7 +67,7 @@ export const generateManifest = (): Manifest => {
             name: settings.name,
             resolution: settings.resolution,
             fps: settings.fps,
-            seed: "default-seed", // TODO: Add seed to project settings
+            seed: settings.seed || undefined,
             schemaVersion: MANIFEST_VERSION
         },
         clips: manifestClips
@@ -72,7 +84,8 @@ export const loadManifestToStore = (manifest: Manifest) => {
     // 1. Update Settings
     updateSettings({
         name: manifest.project.name,
-        fps: manifest.project.fps
+        fps: manifest.project.fps,
+        ...(manifest.project.seed ? { seed: manifest.project.seed } : {})
     });
 
     // Resolution matching logic - match based on aspect ratio
@@ -96,9 +109,20 @@ export const loadManifestToStore = (manifest: Manifest) => {
         trimEndFrame: mClip.sourceOut,
         track: mClip.track,
         speed: mClip.speed || 1.0,
-        volume: mClip.volume ?? 1.0,
+        volume: mClip.volume ?? 100,
         reversed: mClip.reversed || false,
-        locked: false,
+        locked: mClip.locked || false,
+        origin: mClip.origin,
+        effectIds: mClip.effects,
+        zoomLevel: mClip.zoomLevel,
+        zoomStart: mClip.zoomStart,
+        zoomEnd: mClip.zoomEnd,
+        zoomOrigin: mClip.zoomOrigin,
+        sourceOrientation: mClip.sourceOrientation,
+        rotation: mClip.rotation,
+        isMuted: mClip.isMuted,
+        isPinned: false, // Runtime state, always reset
+        isFolded: false, // Runtime state,
         ...(mClip.type === 'grid' && {
             gridFormat: mClip.gridFormat || 'horizontal',
             numCells: mClip.numCells || 2,
@@ -120,7 +144,7 @@ export const loadManifestToStore = (manifest: Manifest) => {
                     trimStartFrame: cell.clip.sourceIn,
                     trimEndFrame: cell.clip.sourceOut,
                     speed: cell.clip.speed || 1.0,
-                    volume: cell.clip.volume ?? 1.0,
+                    volume: cell.clip.volume ?? 100,
                     reversed: false,
                     locked: false
                 } : null
@@ -130,3 +154,18 @@ export const loadManifestToStore = (manifest: Manifest) => {
 
     setClips(restoredClips);
 };
+
+/**
+ * Helper to download the manifest as a JSON file in the browser
+ */
+export function downloadManifest(manifest: Manifest) {
+    const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${manifest.project.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.mmm.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}

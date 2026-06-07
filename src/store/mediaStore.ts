@@ -163,7 +163,7 @@ export const useMediaStore = create<MediaState>()(
             addRecentFolder: (path, fileCount) => set((state) => {
                 const name = path.split(/[\\/]/).pop() || path;
                 const existing = state.recentFolders.filter(f => f.path !== path);
-                return { recentFolders: [{ path, name, addedAt: Date.now(), fileCount }, ...existing].slice(0, 10) };
+                return { recentFolders: [{ path, name, addedAt: Date.now(), fileCount }, ...existing] };
             }),
 
             removeRecentFolder: (path) => set((state) => ({
@@ -173,7 +173,7 @@ export const useMediaStore = create<MediaState>()(
             addRecentAudio: (path) => set((state) => {
                 const name = path.split(/[\\/]/).pop() || path;
                 const existing = state.recentAudioFiles.filter(f => f.path !== path);
-                return { recentAudioFiles: [{ path, name, addedAt: Date.now() }, ...existing].slice(0, 10) };
+                return { recentAudioFiles: [{ path, name, addedAt: Date.now() }, ...existing] };
             }),
 
             removeRecentAudio: (path) => set((state) => ({

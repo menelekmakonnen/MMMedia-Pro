@@ -62,6 +62,7 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
         orientation, setOrientation,
         selectedFps, setSelectedFps,
         renderEngine: storeEngine, setRenderEngine,
+        useGpu, setUseGpu,
     } = useExportSettingsStore();
 
     const activeEngine = renderEngineProp ?? storeEngine;
@@ -99,12 +100,10 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
         const vc = clips.filter(c => c.type !== 'audio');
         const ac = clips.filter(c => c.type === 'audio');
         const effects = new Set(vc.flatMap(c => c.effectIds || []));
-        const textures = new Set(vc.map(c => c.visualTexture).filter(Boolean));
-        const transitions = new Set(vc.map(c => c.transitionEnter).flat().filter(Boolean));
         const hasZoom = vc.some(c => c.zoomLevel && c.zoomLevel > 100);
         const hasRotation = vc.some(c => !!c.rotation);
         const speeds = new Set(vc.map(c => c.speed).filter(s => s !== 1));
-        return { vc: vc.length, ac: ac.length, effects: [...effects], textures: [...textures], transitions: [...transitions], hasZoom, hasRotation, speeds: [...speeds] };
+        return { vc: vc.length, ac: ac.length, effects: [...effects], hasZoom, hasRotation, speeds: [...speeds] };
     }, [clips]);
 
     // ── Animated SVG Engine Icons ──
@@ -180,13 +179,7 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
                         <div className="border-t border-white/5 pt-3">
                             <div className="text-[9px] font-black uppercase tracking-widest text-primary-300/40 mb-2">Generation Style</div>
                             <div className="space-y-1.5 text-[10px]">
-                                {godMode.vibe && <div className="flex justify-between"><span className="text-white/30">Vibe</span><span className="text-violet-300 font-bold">{godMode.vibe}</span></div>}
-                                {godMode.selectedPresetId && <div className="flex justify-between"><span className="text-white/30">Preset</span><span className="text-amber-300 font-bold">{godMode.selectedPresetId}</span></div>}
                                 {godMode.pacingTemplate && <div className="flex justify-between"><span className="text-white/30">Pacing</span><span className="text-cyan-300 font-bold">{godMode.pacingTemplate}</span></div>}
-                                {godMode.styleTemplate && <div className="flex justify-between"><span className="text-white/30">Style</span><span className="text-pink-300 font-bold">{godMode.styleTemplate}</span></div>}
-                                <div className="flex justify-between"><span className="text-white/30">Transitions</span><span className="text-white/60 font-bold">{godMode.transitionsEnabled ? godMode.transitionPreset : 'Off'}</span></div>
-                                {godMode.hookStyle !== 'none' && <div className="flex justify-between"><span className="text-white/30">Hook</span><span className="text-emerald-300 font-bold">{godMode.hookStyle}</span></div>}
-                                {godMode.visualTexture !== 'none' && <div className="flex justify-between"><span className="text-white/30">Texture</span><span className="text-orange-300 font-bold">{godMode.visualTexture}</span></div>}
                             </div>
                         </div>
 
@@ -197,18 +190,7 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
                                 <div className="flex flex-wrap gap-1">{editingDetails.effects.map(e => <span key={e} className="px-1.5 py-0.5 bg-accent/10 text-accent/70 rounded text-[8px] font-bold border border-accent/10">{e}</span>)}</div>
                             </div>
                         )}
-                        {editingDetails.textures.length > 0 && (
-                            <div className="border-t border-white/5 pt-3">
-                                <div className="text-[9px] font-black uppercase tracking-widest text-orange-400/40 mb-2 flex items-center gap-1"><Palette size={10} /> Textures</div>
-                                <div className="flex flex-wrap gap-1">{editingDetails.textures.map(t => <span key={t} className="px-1.5 py-0.5 bg-orange-500/10 text-orange-300/70 rounded text-[8px] font-bold border border-orange-500/10">{String(t)}</span>)}</div>
-                            </div>
-                        )}
-                        {editingDetails.transitions.length > 0 && (
-                            <div className="border-t border-white/5 pt-3">
-                                <div className="text-[9px] font-black uppercase tracking-widest text-cyan-400/40 mb-2">Transitions</div>
-                                <div className="flex flex-wrap gap-1">{editingDetails.transitions.map(t => <span key={String(t)} className="px-1.5 py-0.5 bg-cyan-500/10 text-cyan-300/70 rounded text-[8px] font-bold border border-cyan-500/10">{String(t)}</span>)}</div>
-                            </div>
-                        )}
+
                         {(editingDetails.hasZoom || editingDetails.hasRotation || editingDetails.speeds.length > 0) && (
                             <div className="border-t border-white/5 pt-3">
                                 <div className="text-[9px] font-black uppercase tracking-widest text-white/25 mb-2">Transforms</div>
@@ -482,15 +464,29 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
                     </div>
                     <div className="text-[9px] text-white/25 leading-relaxed">
                         {activeEngine === 'per-clip' && (
-                            <span>Renders each clip as a lossless intermediate, then concatenates. <span className="text-cyan-300/50 font-bold">Best for large timelines (50+ clips).</span> No transition support.</span>
+                            <span>Renders each clip as a lossless intermediate, then concatenates. <span className="text-cyan-300/50 font-bold">Best for large timelines (50+ clips).</span> Per-clip rendering with concat.</span>
                         )}
                         {activeEngine === 'monolithic' && (
-                            <span>Single-pass filter graph — all clips in one FFmpeg invocation. <span className="text-amber-300/50 font-bold">Faster, supports transitions, reliable audio.</span> May OOM on very large projects.</span>
+                            <span>Single-pass filter graph — all clips in one FFmpeg invocation. <span className="text-amber-300/50 font-bold">Faster, single-pass filter graph, reliable audio.</span> May OOM on very large projects.</span>
                         )}
                         {activeEngine === 'both' && (
                             <span>Renders with both engines simultaneously, producing two output files. <span className="text-violet-300/50 font-bold">Compare quality side-by-side.</span></span>
                         )}
                     </div>
+
+                    {/* GPU encode toggle */}
+                    <button
+                        onClick={() => setUseGpu(!useGpu)}
+                        className={clsx('w-full flex items-center justify-between px-3 py-2 rounded-lg border transition-all',
+                            useGpu ? 'bg-emerald-500/15 border-emerald-400/40' : 'bg-black/30 border-white/10 hover:bg-white/5')}>
+                        <span className="flex flex-col items-start">
+                            <span className={clsx('text-[10px] font-bold uppercase tracking-wide', useGpu ? 'text-emerald-300' : 'text-white/50')}>GPU encoding (NVENC)</span>
+                            <span className="text-[9px] text-white/25">Hardware H.264/HEVC — much faster. Falls back to CPU if unavailable.</span>
+                        </span>
+                        <span className={clsx('w-9 h-5 rounded-full p-0.5 transition-colors flex', useGpu ? 'bg-emerald-500/80 justify-end' : 'bg-white/15 justify-start')}>
+                            <span className="w-4 h-4 rounded-full bg-white shadow" />
+                        </span>
+                    </button>
                 </div>
 
                 {/* Audio settings */}

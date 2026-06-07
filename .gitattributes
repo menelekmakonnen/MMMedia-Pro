@@ -1,0 +1,26 @@
+# MMMedia Pro — line-ending normalization
+# Forces LF in the repository so a CRLF working tree no longer rewrites
+# every file in every diff. Run `git add --renormalize .` once after adding.
+
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+*.cmd   text eol=crlf
+
+# Binary assets — never touch
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.svg   text
+*.mp4   binary
+*.mov   binary
+*.mp3   binary
+*.wav   binary
+*.exe   binary
+*.ttf   binary
+*.woff  binary
+*.woff2 binary

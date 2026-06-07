@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { DEFAULT_FPS, secondsToFrames } from '../lib/time';
 import { SeededRandom, generateSeed } from '../lib/random';
 import { useProjectStore } from './projectStore';
@@ -6,7 +7,7 @@ import { MediaFile } from './mediaStore';
 import { v4 as uuidv4 } from 'uuid';
 import { Clip as BaseClip, GridClip, GridCell } from '../types';
 import { useUserStore } from './userStore';
-import type { EditingStyleOption } from '../lib/trailerGenerator';
+
 import { analyzeAudio } from '../lib/audioAnalysis';
 
 // Extend BaseClip with store-specific properties
@@ -28,6 +29,7 @@ interface ClipStore {
     // Per-track mute state: track 2 = Audio 1 (clip-linked), track 101+ = Audio 2 (added audio)
     trackMutes: Record<number, boolean>;
     trackVolumes: Record<number, number>;
+    _persistedProjectId: string | null;
 
     setClips: (clips: Clip[]) => void;
     addClip: (clip: Clip) => void;
@@ -63,6 +65,9 @@ interface ClipStore {
     setClipSpeed: (id: string, speed: number) => void;
     setGlobalPlaybackSpeed: (speed: number) => void;
 
+    // Boomerang
+    toggleBoomerang: (id: string) => void;
+
     // Folding
     setClipFolded: (id: string, folded: boolean) => void;
     setAllClipsFolded: (folded: boolean) => void;
@@ -97,14 +102,21 @@ interface ClipStore {
     // Phase 18: Sequence Actions
     magnetizeClips: () => void;
     reorderClips: (fromIndex: number, toIndex: number) => void;
-    applyEditingStyle: (clipId: string, styleName: EditingStyleOption) => void;
+
+    // Persistence
+    clearPersistedClips: () => void;
 
     // Automation
     regenerateTimeline: (sourceFiles: MediaFile[], seed: string) => void;
     detectBeats: (id: string, audioBuffer: AudioBuffer) => Promise<void>;
 }
 
-export const useClipStore = create<ClipStore>((set, get) => ({
+const isProtected = (c: { origin?: string; locked?: boolean; isPinned?: boolean }) =>
+    c.origin === 'manual' || c.locked || c.isPinned;
+
+export const useClipStore = create<ClipStore>()(
+    persist(
+        (set, get) => ({
     clips: [],
     selectedClipIds: [],
     selectedSegment: null,
@@ -113,8 +125,12 @@ export const useClipStore = create<ClipStore>((set, get) => ({
     transitionStrategy: useUserStore.getState().defaultTransition,
     trackMutes: {},
     trackVolumes: {},
+    _persistedProjectId: null,
 
-    setClips: (clips) => set({ clips }),
+    setClips: (clips) => {
+        const projectId = useProjectStore.getState().settings?.id || null;
+        set({ clips, _persistedProjectId: projectId });
+    },
     addClip: (clip) => set((state) => ({ clips: [...state.clips, clip] })),
 
     removeClip: (id) => set((state) => ({
@@ -123,7 +139,11 @@ export const useClipStore = create<ClipStore>((set, get) => ({
     })),
 
     updateClip: (id, updates) => set((state) => ({
-        clips: state.clips.map((c) => (c.id === id ? { ...c, ...updates } : c)),
+        clips: state.clips.map((c) => {
+            if (c.id !== id) return c;
+            const promoted = c.origin === 'auto' ? { origin: 'manual' as const } : {};
+            return { ...c, ...updates, ...promoted };
+        }),
     })),
 
     selectClip: (id) => set((state) => ({
@@ -158,6 +178,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
             ...clip,
             id: crypto.randomUUID(),
             filename: `${clip.filename} (copy)`,
+            origin: 'manual',
         };
         set((state) => ({ clips: [...state.clips, newClip] }));
     },
@@ -195,15 +216,9 @@ export const useClipStore = create<ClipStore>((set, get) => ({
             return;
         }
 
-        // Phase 2: Respect pinned state
-        if (clip.isPinned) {
-            console.warn('[ClipStore] Cannot randomize: clip is pinned', clip.id);
-            return;
-        }
-
-        // Phase 5: Respect locked clips (Manual clips SHOULD be randomizable if user clicks the button)
-        if (clip.locked) {
-            console.warn('[ClipStore] Cannot randomize: clip is locked', clip.id);
+        // Respect ownership protection
+        if (isProtected(clip)) {
+            console.warn('[ClipStore] Cannot randomize: clip is protected', clip.id);
             return;
         }
 
@@ -248,8 +263,8 @@ export const useClipStore = create<ClipStore>((set, get) => ({
         const clip = get().clips.find((c) => c.id === id);
         if (!clip || !clip.sourceDurationFrames) return;
 
-        // Respect ownership and locked state
-        if (clip.isPinned || clip.locked) return;
+        // Respect ownership protection
+        if (isProtected(clip)) return;
 
         const seed = useProjectStore.getState().settings.seed || generateSeed();
         const rng = new SeededRandom(seed + id + '_duration'); // Unique seed for duration variation
@@ -295,8 +310,8 @@ export const useClipStore = create<ClipStore>((set, get) => ({
         let newClips = clips.map(clip => ({ ...clip }));
 
         // Split clips into locked/pinned (fixed) vs fluxable (mutable)
-        const fixedClips = newClips.filter(c => c.isPinned || c.locked);
-        let mutableClips = newClips.filter(c => !c.isPinned && !c.locked);
+        const fixedClips = newClips.filter(c => isProtected(c));
+        let mutableClips = newClips.filter(c => !isProtected(c));
 
         // Calculate fixed duration already committed
         const fixedFrames = fixedClips.reduce((sum, c) => sum + ((c.trimEndFrame || 0) - (c.trimStartFrame || 0)), 0);
@@ -356,6 +371,8 @@ export const useClipStore = create<ClipStore>((set, get) => ({
             }
 
             // 3. Apply randomized start position based on exact calculated length
+            const seed = useProjectStore.getState().settings.seed || generateSeed();
+            const rng = new SeededRandom(seed + '_flux');
             mutableClips = mutableClips.map((clip, i) => {
                 const maxSource = maxSources[i];
                 const finalDuration = allocatedFrames[i];
@@ -364,7 +381,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
                 const safeDuration = Math.min(finalDuration, maxSource);
                 const maxStart = Math.max(0, maxSource - safeDuration);
 
-                const newStart = Math.floor(Math.random() * maxStart);
+                const newStart = Math.floor(rng.random() * maxStart);
                 const newEnd = newStart + safeDuration;
 
                 return {
@@ -378,6 +395,8 @@ export const useClipStore = create<ClipStore>((set, get) => ({
 
         } else {
             // ----- NO TARGET DURATION (Standard Chaotic Flux) -----
+            const seed = useProjectStore.getState().settings.seed || generateSeed();
+            const rng = new SeededRandom(seed + '_flux');
             mutableClips = mutableClips.map(clip => {
                 const effectiveMaxDuration = clip.sourceDurationFrames || Math.max(clip.endFrame, 1800);
 
@@ -388,9 +407,9 @@ export const useClipStore = create<ClipStore>((set, get) => ({
 
                 if (maxDuration <= minDuration) return clip;
 
-                const newDuration = Math.floor(Math.random() * (maxDuration - minDuration + 1)) + minDuration;
+                const newDuration = Math.floor(rng.random() * (maxDuration - minDuration + 1)) + minDuration;
                 const maxStart = Math.max(0, effectiveMaxDuration - newDuration);
-                const newStart = Math.floor(Math.random() * maxStart);
+                const newStart = Math.floor(rng.random() * maxStart);
                 const newEnd = newStart + newDuration;
 
                 return {
@@ -534,19 +553,21 @@ export const useClipStore = create<ClipStore>((set, get) => ({
         if (sourceIndex === -1) return;
 
         const sourceClip = clips[sourceIndex];
-        if (sourceClip.isPinned) {
-            console.warn('Cannot swap pinned clip'); // Add toast here later
+        if (isProtected(sourceClip)) {
+            console.warn('Cannot swap protected clip');
             return;
         }
 
-        // Find other unpinned clips
+        // Find other unprotected clips
         const validTargets = clips.map((c, i) => ({ c, i }))
-            .filter(({ c, i }) => !c.isPinned && i !== sourceIndex);
+            .filter(({ c, i }) => !isProtected(c) && i !== sourceIndex);
 
         if (validTargets.length === 0) return;
 
-        // Pick random target
-        const target = validTargets[Math.floor(Math.random() * validTargets.length)];
+        // Pick random target using SeededRandom
+        const seed = useProjectStore.getState().settings.seed || generateSeed();
+        const rng = new SeededRandom(seed + '_swap_' + id);
+        const target = validTargets[Math.floor(rng.random() * validTargets.length)];
 
         // Swap
         const newClips = [...clips];
@@ -580,6 +601,17 @@ export const useClipStore = create<ClipStore>((set, get) => ({
 
     setGlobalPlaybackSpeed: (globalPlaybackSpeed) => set({ globalPlaybackSpeed }),
 
+    // ── Boomerang ──────────────────────────────────────────────
+    toggleBoomerang: (id) => {
+        set((state) => ({
+            clips: state.clips.map(c =>
+                c.id === id ? { ...c, boomerang: !c.boomerang } : c
+            ),
+        }));
+    },
+
+
+
     setClipFolded: (id, isFolded) =>
         set((state) => ({
             clips: state.clips.map((clip) =>
@@ -600,10 +632,10 @@ export const useClipStore = create<ClipStore>((set, get) => ({
             path: '',
             filename: `Grid ${numCells}x`,
             startFrame: 0,
-            endFrame: 150, // Default 5s at 30fps
-            sourceDurationFrames: 150,
+            endFrame: 5 * DEFAULT_FPS, // Default 5s
+            sourceDurationFrames: 5 * DEFAULT_FPS,
             trimStartFrame: 0,
-            trimEndFrame: 150,
+            trimEndFrame: 5 * DEFAULT_FPS,
             track: 1,
             speed: 1,
             volume: 100,
@@ -657,7 +689,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
             const grid = state.clips[gridIndex] as GridClip;
             const newCells = [...grid.cells];
 
-            const fps = 30;
+            const fps = useProjectStore.getState().settings?.fps || DEFAULT_FPS;
             const gridDurationFrames = grid.endFrame - grid.startFrame || 150;
 
             const filesAvailable = files.map(f => ({
@@ -764,7 +796,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
         });
     },
 
-    // ── Grid Cell Mini-Timeline Actions ──
+    // â”€â”€ Grid Cell Mini-Timeline Actions â”€â”€
     addClipToGridCell: (gridId, cellId, clip) =>
         set((state) => ({
             clips: state.clips.map((c) => {
@@ -826,7 +858,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
         const grid = state.clips.find(c => c.id === gridId && c.type === 'grid') as GridClip;
         if (!grid) return state;
         const seed = useProjectStore.getState().settings.seed || generateSeed();
-        const rng = new SeededRandom(seed + cellId + Date.now());
+        const rng = new SeededRandom(seed + '_gridflux_' + cellId);
         return {
             clips: state.clips.map((c) => {
                 if (c.id !== gridId) return c;
@@ -962,238 +994,6 @@ export const useClipStore = create<ClipStore>((set, get) => ({
         });
     },
 
-    applyEditingStyle: (clipId, styleName) => {
-        const state = get();
-        const clipIndex = state.clips.findIndex(c => c.id === clipId);
-        if (clipIndex === -1) return;
-        const originalClip = state.clips[clipIndex];
-        
-        // Ensure we are working with a video clip
-        if (originalClip.type !== 'video' && originalClip.type !== 'image') return;
-
-        // Base properties to copy
-        const baseClip = {
-            ...originalClip,
-            isPinned: false,
-            locked: false,
-            effectIds: [],
-        };
-
-        const newClips: Clip[] = [];
-        let currentStartFrame = originalClip.startFrame;
-
-        // Macro Logic
-        if (styleName === 'rubber-band-standard') {
-            const availSourceFrames = originalClip.trimEndFrame - originalClip.trimStartFrame;
-            
-            // Slice 1: Forward Fast (first 15% of source)
-            const s1SourceLen = Math.floor(availSourceFrames * 0.15);
-            const s1Speed = 2.0;
-            const s1Dur = Math.floor(s1SourceLen / s1Speed);
-            newClips.push({
-                ...baseClip, id: uuidv4(),
-                trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + s1SourceLen,
-                startFrame: currentStartFrame, endFrame: currentStartFrame + s1Dur, speed: s1Speed, reversed: false
-            });
-            currentStartFrame += s1Dur;
-
-            // Slice 2: Forward Slow (next 35% of source)
-            const s2SourceLen = Math.floor(availSourceFrames * 0.35);
-            const s2Speed = 0.3;
-            const s2Dur = Math.floor(s2SourceLen / s2Speed);
-            newClips.push({
-                ...baseClip, id: uuidv4(),
-                trimStartFrame: originalClip.trimStartFrame + s1SourceLen, trimEndFrame: originalClip.trimStartFrame + s1SourceLen + s2SourceLen,
-                startFrame: currentStartFrame, endFrame: currentStartFrame + s2Dur, speed: s2Speed, reversed: false
-            });
-            currentStartFrame += s2Dur;
-
-            // Slice 3: Reverse Slow (returning the 35% of source)
-            newClips.push({
-                ...baseClip, id: uuidv4(),
-                trimStartFrame: originalClip.trimStartFrame + s1SourceLen, trimEndFrame: originalClip.trimStartFrame + s1SourceLen + s2SourceLen,
-                startFrame: currentStartFrame, endFrame: currentStartFrame + s2Dur, speed: s2Speed, reversed: true
-            });
-            currentStartFrame += s2Dur;
-
-            // Slice 4: Reverse Fast (returning the 15% of source)
-            newClips.push({
-                ...baseClip, id: uuidv4(),
-                trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + s1SourceLen,
-                startFrame: currentStartFrame, endFrame: currentStartFrame + s1Dur, speed: s1Speed, reversed: true
-            });
-            currentStartFrame += s1Dur;
-
-        } else if (styleName === 'rubber-band') {
-            const availSrc = originalClip.trimEndFrame - originalClip.trimStartFrame;
-            const halfSrc = Math.floor(availSrc / 2);
-            const sDur = Math.floor((originalClip.endFrame - originalClip.startFrame) / 2);
-            
-            // Forward half: zoom in, play forward from trim start
-            newClips.push({
-                ...baseClip, id: uuidv4(),
-                trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + halfSrc,
-                startFrame: currentStartFrame, endFrame: currentStartFrame + sDur, 
-            });
-            currentStartFrame += sDur;
-
-            // Reverse half: zoom out, play reversed from same source range
-            newClips.push({
-                ...baseClip, id: uuidv4(),
-                trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + halfSrc,
-                startFrame: currentStartFrame, endFrame: currentStartFrame + sDur, 
-            });
-            currentStartFrame += sDur;
-
-        } else if (styleName === 'rubber-band-extreme') {
-            const availSourceFrames = originalClip.trimEndFrame - originalClip.trimStartFrame;
-            
-            const s1SourceLen = Math.floor(availSourceFrames * 0.15);
-            const s1Speed = 2.0;
-            const s1Dur = Math.floor(s1SourceLen / s1Speed);
-            newClips.push({
-                ...baseClip, id: uuidv4(),
-                trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + s1SourceLen,
-                startFrame: currentStartFrame, endFrame: currentStartFrame + s1Dur, speed: s1Speed, reversed: false,
-            });
-            currentStartFrame += s1Dur;
-
-            const s2SourceLen = Math.floor(availSourceFrames * 0.35);
-            const s2Speed = 0.3;
-            const s2Dur = Math.floor(s2SourceLen / s2Speed);
-            newClips.push({
-                ...baseClip, id: uuidv4(),
-                trimStartFrame: originalClip.trimStartFrame + s1SourceLen, trimEndFrame: originalClip.trimStartFrame + s1SourceLen + s2SourceLen,
-                startFrame: currentStartFrame, endFrame: currentStartFrame + s2Dur, speed: s2Speed, reversed: false,
-            });
-            currentStartFrame += s2Dur;
-
-            newClips.push({
-                ...baseClip, id: uuidv4(),
-                trimStartFrame: originalClip.trimStartFrame + s1SourceLen, trimEndFrame: originalClip.trimStartFrame + s1SourceLen + s2SourceLen,
-                startFrame: currentStartFrame, endFrame: currentStartFrame + s2Dur, speed: s2Speed, reversed: true,
-            });
-            currentStartFrame += s2Dur;
-
-            newClips.push({
-                ...baseClip, id: uuidv4(),
-                trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + s1SourceLen,
-                startFrame: currentStartFrame, endFrame: currentStartFrame + s1Dur, speed: s1Speed, reversed: true,
-            });
-            currentStartFrame += s1Dur;
-
-        } else if (styleName === 'multi-boomerang') {
-            // 4 slices: forward-reverse-forward-reverse with advancing source windows
-            const slices = 4;
-            const availSrc = originalClip.trimEndFrame - originalClip.trimStartFrame;
-            const sliceSrcLen = Math.floor(availSrc / 2); // Each slice uses half the source
-            const sDur = Math.floor((originalClip.endFrame - originalClip.startFrame) / slices);
-            
-            // Slice 1: Forward from start
-            newClips.push({
-                ...baseClip, id: uuidv4(),
-                trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + sliceSrcLen,
-                startFrame: currentStartFrame, endFrame: currentStartFrame + sDur, reversed: false
-            });
-            currentStartFrame += sDur;
-            // Slice 2: Reverse same segment
-            newClips.push({
-                ...baseClip, id: uuidv4(),
-                trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + sliceSrcLen,
-                startFrame: currentStartFrame, endFrame: currentStartFrame + sDur, reversed: true
-            });
-            currentStartFrame += sDur;
-            // Slice 3: Forward from second half
-            newClips.push({
-                ...baseClip, id: uuidv4(),
-                trimStartFrame: originalClip.trimStartFrame + sliceSrcLen, trimEndFrame: originalClip.trimEndFrame,
-                startFrame: currentStartFrame, endFrame: currentStartFrame + sDur, reversed: false
-            });
-            currentStartFrame += sDur;
-            // Slice 4: Reverse second half
-            newClips.push({
-                ...baseClip, id: uuidv4(),
-                trimStartFrame: originalClip.trimStartFrame + sliceSrcLen, trimEndFrame: originalClip.trimEndFrame,
-                startFrame: currentStartFrame, endFrame: currentStartFrame + sDur, reversed: true
-            });
-            currentStartFrame += sDur;
-
-        } else if (styleName === 'rubber-band-speed') {
-            const availSourceFrames = originalClip.trimEndFrame - originalClip.trimStartFrame;
-            const s1SourceLen = Math.floor(availSourceFrames * 0.15);
-            const s1Speed = 2.0;
-            const s1Dur = Math.floor(s1SourceLen / s1Speed);
-            newClips.push({
-                ...baseClip, id: uuidv4(),
-                trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + s1SourceLen,
-                startFrame: currentStartFrame, endFrame: currentStartFrame + s1Dur, speed: s1Speed, reversed: false,
-            });
-            currentStartFrame += s1Dur;
-
-            const s2SourceLen = Math.floor(availSourceFrames * 0.35);
-            const s2Speed = 0.3;
-            const s2Dur = Math.floor(s2SourceLen / s2Speed);
-            newClips.push({
-                ...baseClip, id: uuidv4(),
-                trimStartFrame: originalClip.trimStartFrame + s1SourceLen, trimEndFrame: originalClip.trimStartFrame + s1SourceLen + s2SourceLen,
-                startFrame: currentStartFrame, endFrame: currentStartFrame + s2Dur, speed: s2Speed, reversed: false,
-            });
-            currentStartFrame += s2Dur;
-
-            newClips.push({
-                ...baseClip, id: uuidv4(),
-                trimStartFrame: originalClip.trimStartFrame + s1SourceLen, trimEndFrame: originalClip.trimStartFrame + s1SourceLen + s2SourceLen,
-                startFrame: currentStartFrame, endFrame: currentStartFrame + s2Dur, speed: s2Speed, reversed: true,
-            });
-            currentStartFrame += s2Dur;
-
-            newClips.push({
-                ...baseClip, id: uuidv4(),
-                trimStartFrame: originalClip.trimStartFrame, trimEndFrame: originalClip.trimStartFrame + s1SourceLen,
-                startFrame: currentStartFrame, endFrame: currentStartFrame + s1Dur, speed: s1Speed, reversed: true,
-            });
-            currentStartFrame += s1Dur;
-
-        } else if (styleName === 'triple-shot') {
-            // A -> B -> A pattern: uses the NEXT clip in timeline as B
-            const allClips = state.clips.filter(c => c.track === originalClip.track);
-            const currentIdx = allClips.findIndex(c => c.id === clipId);
-            const nextClip = currentIdx >= 0 && currentIdx < allClips.length - 1 ? allClips[currentIdx + 1] : null;
-
-            const aDur = originalClip.endFrame - originalClip.startFrame;
-            newClips.push({ ...baseClip, id: uuidv4(), startFrame: currentStartFrame, endFrame: currentStartFrame + aDur, reversed: false });
-            currentStartFrame += aDur;
-
-            if (nextClip) {
-                const bDur = nextClip.endFrame - nextClip.startFrame;
-                newClips.push({
-                    ...nextClip, id: uuidv4(), isPinned: false, locked: false,
-                    startFrame: currentStartFrame, endFrame: currentStartFrame + bDur, reversed: false
-                });
-                currentStartFrame += bDur;
-            }
-
-            newClips.push({ ...baseClip, id: uuidv4(), startFrame: currentStartFrame, endFrame: currentStartFrame + aDur, reversed: true });
-            currentStartFrame += aDur;
-        }
-
-        // Shift subsequent clips on the SAME track to prevent overlap or gaps
-        const shiftAmount = currentStartFrame - originalClip.endFrame;
-
-        set((currentState) => {
-            const updatedClips = currentState.clips.filter(c => c.id !== originalClip.id).map(c => {
-                if (c.track === originalClip.track && c.startFrame >= originalClip.endFrame) {
-                    return { ...c, startFrame: c.startFrame + shiftAmount, endFrame: c.endFrame + shiftAmount };
-                }
-                return c;
-            });
-
-            return {
-                clips: [...updatedClips, ...newClips].sort((a, b) => a.startFrame - b.startFrame),
-                selectedClipIds: [newClips[0].id]
-            };
-        });
-    },
 
     regenerateTimeline: (sourceFiles, seed) => {
         set((state) => {
@@ -1215,7 +1015,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
                 if (!sourceFile) continue;
 
                 // Determine clip duration
-                const fps = 30;
+                const fps = useProjectStore.getState().settings?.fps || DEFAULT_FPS;
                 const sourceDurationFrames = Math.floor(sourceFile.duration * fps);
                 const minFrames = 2 * fps;
 
@@ -1283,7 +1083,7 @@ export const useClipStore = create<ClipStore>((set, get) => ({
                     } : c
                 ),
             }));
-            console.log('[ClipStore] Beat analysis complete — BPM:', result.bpm, 'Beats:', result.beats.length);
+            console.log('[ClipStore] Beat analysis complete â€” BPM:', result.bpm, 'Beats:', result.beats.length);
         } catch (error) {
             console.error('[ClipStore] Audio analysis failed:', error);
         }
@@ -1293,4 +1093,54 @@ export const useClipStore = create<ClipStore>((set, get) => ({
         trackVolumes: { ...s.trackVolumes, [trackId]: Math.max(0, Math.min(100, volume)) },
     })),
     getTrackVolume: (trackId) => get().trackVolumes[trackId] ?? 100,
-}));
+
+    // Persistence
+    clearPersistedClips: () => {
+        set({ clips: [], _persistedProjectId: null });
+        try { localStorage.removeItem('mmmedia-clip-storage'); } catch {}
+    },
+}),
+        {
+            name: 'mmmedia-clip-storage',
+            storage: createJSONStorage(() => localStorage),
+            partialize: (state) => ({
+                clips: state.clips,
+                _persistedProjectId: state._persistedProjectId,
+                trackMutes: state.trackMutes,
+                trackVolumes: state.trackVolumes,
+                transitionStrategy: state.transitionStrategy,
+                // EXCLUDE transient state:
+                // selectedClipIds, selectedSegment, globalMute, globalPlaybackSpeed
+            }),
+            onRehydrateStorage: () => (rehydrated, error) => {
+                if (error) {
+                    console.warn('[ClipStore] Rehydration failed:', error);
+                    return;
+                }
+                if (rehydrated) {
+                    // Smart restore logic
+                    const projectStore = useProjectStore.getState();
+                    const currentProjectId = projectStore.settings?.id;
+                    const persistedProjectId = rehydrated._persistedProjectId;
+
+                    // (C) Auto-clear if project changed
+                    if (persistedProjectId && currentProjectId !== persistedProjectId) {
+                        console.log('[ClipStore] Project changed, clearing persisted clips');
+                        rehydrated.clearPersistedClips();
+                        return;
+                    }
+
+                    // (A) Validate paths — mark clips as needing validation
+                    if (rehydrated.clips && rehydrated.clips.length > 0) {
+                        const validatedClips = rehydrated.clips.map((clip: Clip) => ({
+                            ...clip,
+                            _needsValidation: true,
+                        }));
+                        rehydrated.setClips(validatedClips);
+                        console.log(`[ClipStore] Restored ${validatedClips.length} clips (pending path validation)`);
+                    }
+                }
+            },
+        }
+    )
+);

@@ -13,6 +13,7 @@ interface ExportSettingsState {
     lastExportPath: string | null;
     activeTab: 'mp4' | 'premiere' | 'ame';
     renderEngine: RenderEngine;
+    useGpu: boolean;
     isExporting: boolean;
 
     // Actions
@@ -23,6 +24,7 @@ interface ExportSettingsState {
     setLastExportPath: (path: string | null) => void;
     setActiveTab: (tab: 'mp4' | 'premiere' | 'ame') => void;
     setRenderEngine: (engine: RenderEngine) => void;
+    setUseGpu: (v: boolean) => void;
     setIsExporting: (v: boolean) => void;
 }
 
@@ -36,6 +38,7 @@ export const useExportSettingsStore = create<ExportSettingsState>()(
             lastExportPath: null,
             activeTab: 'mp4',
             renderEngine: 'per-clip',
+            useGpu: false,
             isExporting: false,
 
             setSelectedPresetId: (selectedPresetId) => set({ selectedPresetId }),
@@ -45,6 +48,7 @@ export const useExportSettingsStore = create<ExportSettingsState>()(
             setLastExportPath: (lastExportPath) => set({ lastExportPath }),
             setActiveTab: (activeTab) => set({ activeTab }),
             setRenderEngine: (renderEngine) => set({ renderEngine }),
+            setUseGpu: (useGpu) => set({ useGpu }),
             setIsExporting: (isExporting) => set({ isExporting }),
         }),
         {

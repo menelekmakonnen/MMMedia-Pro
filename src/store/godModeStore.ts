@@ -1,18 +1,15 @@
 import { create } from 'zustand';
 import { AudioAnalysisResult } from '../lib/audioAnalysis';
 import { TrailerSettings } from '../lib/trailerGenerator';
+import { VideoMode, TemplateId, getDefaultTemplatesForMode } from '../lib/editingModes';
 
 /**
  * Session-only GodMode store. Resets on reload.
- * Holds the vibe, duration, audio guide, and transition settings
- * chosen in the GodMode page — consumed by TrailerRouter/TrailerWizard.
- *
- * This is the single source of truth for GodMode state across
- * both the standalone GodModeTab and the TrailerWizard inline GodMode.
+ * Holds the duration and audio guide chosen in the GodMode page —
+ * consumed by TrailerRouter/TrailerWizard.
  */
 interface GodModeStore {
     enabled: boolean;
-    vibe: string | null;
     duration: number;
     advanced: boolean;
 
@@ -25,29 +22,29 @@ interface GodModeStore {
     audioTrimStart: number;
     audioTrimEnd: number;
 
-    // Transitions
-    transitionsEnabled: boolean;
-    transitionPreset: string;
-
     // Resolved preset reference
     selectedPresetId: string | null;
     pacingTemplate: string | null;
-    styleTemplate: string | null;
-
-    // Viral intelligence
-    hookStyle: 'none' | 'snap-speed' | 'pattern-interrupt' | 'speed-freeze' | 'auto';
-    retentionInterrupts: boolean;
-    loopMode: boolean;
-    visualTexture: 'none' | 'grain' | 'chromatic' | 'motion-blur' | 'vintage';
 
     // Auto-generate: when set, TrailerRouter will skip the wizard
     // and go straight to the player with these settings
     autoGenerate: boolean;
     lastGeneratedSettings: TrailerSettings | null;
 
+    // Video mode
+    videoMode: VideoMode;
+    selectedTemplates: TemplateId[];
+
+    // Advanced settings
+    beatSensitivity: number; // 0-1
+    cameraMotion: number; // 0-1
+    forceAllClips: boolean;
+    // Boomerang
+    boomerangMode: 'off' | 'drops' | 'all';
+
+
     // Actions
     setEnabled: (v: boolean) => void;
-    setVibe: (v: string | null) => void;
     setDuration: (v: number) => void;
     setAdvanced: (v: boolean) => void;
     setAudioGuide: (data: {
@@ -59,22 +56,22 @@ interface GodModeStore {
         audioTrimStart?: number;
         audioTrimEnd?: number;
     }) => void;
-    setTransitions: (data: { enabled?: boolean; preset?: string }) => void;
-    setPresetRef: (data: { presetId?: string | null; pacing?: string | null; style?: string | null }) => void;
-    setViralIntelligence: (data: {
-        hookStyle?: 'none' | 'snap-speed' | 'pattern-interrupt' | 'speed-freeze' | 'auto';
-        retentionInterrupts?: boolean;
-        loopMode?: boolean;
-        visualTexture?: 'none' | 'grain' | 'chromatic' | 'motion-blur' | 'vintage';
-    }) => void;
+    setPresetRef: (data: { presetId?: string | null; pacing?: string | null }) => void;
     setAutoGenerate: (settings: TrailerSettings | null) => void;
     clearAutoGenerate: () => void;
+    setVideoMode: (mode: VideoMode) => void;
+    setSelectedTemplates: (templates: TemplateId[]) => void;
+    toggleTemplate: (template: TemplateId) => void;
+    setBeatSensitivity: (v: number) => void;
+    setCameraMotion: (v: number) => void;
+    setForceAllClips: (v: boolean) => void;
+    setBoomerangMode: (v: 'off' | 'drops' | 'all') => void;
+
     reset: () => void;
 }
 
 const INITIAL_STATE = {
     enabled: false,
-    vibe: null as string | null,
     duration: 30,
     advanced: false,
     useAudioGuide: false,
@@ -84,24 +81,23 @@ const INITIAL_STATE = {
     audioAnalysis: null as AudioAnalysisResult | null,
     audioTrimStart: 0,
     audioTrimEnd: 30,
-    transitionsEnabled: true,
-    transitionPreset: 'hard-cuts',
     selectedPresetId: null as string | null,
     pacingTemplate: null as string | null,
-    styleTemplate: null as string | null,
-    hookStyle: 'none' as const,
-    retentionInterrupts: false,
-    loopMode: false,
-    visualTexture: 'none' as const,
     autoGenerate: false,
     lastGeneratedSettings: null as TrailerSettings | null,
+    videoMode: 'trailer' as VideoMode,
+    selectedTemplates: ['pulse', 'impact'] as TemplateId[],
+    beatSensitivity: 0.5,
+    cameraMotion: 0.5,
+    forceAllClips: false,
+    boomerangMode: 'off' as 'off' | 'drops' | 'all',
+
 };
 
 export const useGodModeStore = create<GodModeStore>((set) => ({
     ...INITIAL_STATE,
 
     setEnabled: (v) => set({ enabled: v }),
-    setVibe: (v) => set({ vibe: v }),
     setDuration: (v) => set({ duration: v }),
     setAdvanced: (v) => set({ advanced: v }),
 
@@ -115,22 +111,9 @@ export const useGodModeStore = create<GodModeStore>((set) => ({
         audioTrimEnd: data.audioTrimEnd ?? s.audioTrimEnd,
     })),
 
-    setTransitions: (data) => set((s) => ({
-        transitionsEnabled: data.enabled ?? s.transitionsEnabled,
-        transitionPreset: data.preset ?? s.transitionPreset,
-    })),
-
     setPresetRef: (data) => set((s) => ({
         selectedPresetId: data.presetId ?? s.selectedPresetId,
         pacingTemplate: data.pacing ?? s.pacingTemplate,
-        styleTemplate: data.style ?? s.styleTemplate,
-    })),
-
-    setViralIntelligence: (data) => set((s) => ({
-        hookStyle: data.hookStyle ?? s.hookStyle,
-        retentionInterrupts: data.retentionInterrupts ?? s.retentionInterrupts,
-        loopMode: data.loopMode ?? s.loopMode,
-        visualTexture: data.visualTexture ?? s.visualTexture,
     })),
 
     setAutoGenerate: (settings) => set({
@@ -141,6 +124,31 @@ export const useGodModeStore = create<GodModeStore>((set) => ({
     clearAutoGenerate: () => set({
         autoGenerate: false,
     }),
+
+    setVideoMode: (mode) => {
+        const defaults = getDefaultTemplatesForMode(mode);
+        set({ videoMode: mode, selectedTemplates: defaults });
+    },
+
+    setSelectedTemplates: (templates) => set({ selectedTemplates: templates }),
+
+    toggleTemplate: (template) => set((state) => {
+        const current = state.selectedTemplates;
+        if (current.includes(template)) {
+            // Remove (but keep at least 1)
+            if (current.length <= 1) return state;
+            return { selectedTemplates: current.filter(t => t !== template) };
+        }
+        // Add (max 3)
+        if (current.length >= 3) return state;
+        return { selectedTemplates: [...current, template] };
+    }),
+
+    setBeatSensitivity: (v) => set({ beatSensitivity: v }),
+    setCameraMotion: (v) => set({ cameraMotion: v }),
+    setForceAllClips: (v) => set({ forceAllClips: v }),
+    setBoomerangMode: (v) => set({ boomerangMode: v }),
+
 
     reset: () => set(INITIAL_STATE),
 }));

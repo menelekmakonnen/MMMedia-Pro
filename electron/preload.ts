@@ -4,22 +4,10 @@ console.log('[Preload] Script starting to load...');
 
 try {
     contextBridge.exposeInMainWorld('ipcRenderer', {
-        on(...args: Parameters<typeof ipcRenderer.on>) {
-            const [channel, listener] = args
-            return ipcRenderer.on(channel, (event, ...args) => listener(event, ...args))
-        },
-        off(...args: Parameters<typeof ipcRenderer.off>) {
-            const [channel, ...omit] = args
-            return ipcRenderer.off(channel, ...omit)
-        },
-        send(...args: Parameters<typeof ipcRenderer.send>) {
-            const [channel, ...omit] = args
-            return ipcRenderer.send(channel, ...omit)
-        },
-        invoke(...args: Parameters<typeof ipcRenderer.invoke>) {
-            const [channel, ...omit] = args
-            return ipcRenderer.invoke(channel, ...omit)
-        },
+
+        // Window controls
+        windowControl: (action: 'minimize' | 'maximize' | 'close') => ipcRenderer.send('window-control', action),
+        checkFileExists: (filePath: string) => ipcRenderer.invoke('check-file-exists', filePath),
 
         // File operations
         selectFiles: (type?: string) => ipcRenderer.invoke('select-files', type),
@@ -38,6 +26,7 @@ try {
         exportProject: (args: { filePath: string, clips: any[], settings: any, isIntermediate?: boolean }) => ipcRenderer.invoke('export-project', args),
         exportProjectMonolithic: (args: { filePath: string, clips: any[], settings: any, isIntermediate?: boolean }) => ipcRenderer.invoke('export-project-monolithic', args),
         randomRender: (args: { filePath: string, clips: any[], settings: any }) => ipcRenderer.invoke('random-render', args),
+        analyzeRenderParity: (args: { clips: any[], settings: any }) => ipcRenderer.invoke('analyze-render-parity', args),
         cancelExport: () => ipcRenderer.invoke('cancel-export'),
         pauseExport: () => ipcRenderer.invoke('pause-export'),
         resumeExport: () => ipcRenderer.invoke('resume-export'),

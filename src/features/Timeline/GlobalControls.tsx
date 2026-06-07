@@ -167,29 +167,8 @@ export const GlobalControls: React.FC<GlobalControlsProps> = ({
                             </div>
                         )}
 
-                        {/* Editing Styles Quick-Apply */}
-                        {sections.includes('actions') && isVertical && !slim && (
-                            <div className="w-full space-y-2 pt-2 border-t border-white/5">
-                                <span className="text-[9px] font-black text-white/25 uppercase tracking-widest">Style</span>
-                                <div className="grid grid-cols-2 gap-1.5">
-                                    {[
-                                        { style: 'rubber-band-standard' as const, label: 'Ramp', color: 'purple' },
-                                        { style: 'rubber-band-zoom' as const, label: 'Zoom', color: 'cyan' },
-                                        { style: 'multi-boomerang' as const, label: 'Boom', color: 'emerald' },
-                                        { style: 'triple-shot' as const, label: 'Triple', color: 'rose' },
-                                    ].map(s => (
-                                        <button key={s.style}
-                                            onClick={() => {
-                                                const sel = useClipStore.getState().selectedClipIds;
-                                                if (sel.length > 0) sel.forEach(id => useClipStore.getState().applyEditingStyle(id, s.style));
-                                            }}
-                                            className="px-2 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider bg-white/5 hover:bg-indigo-500/20 text-white/40 hover:text-indigo-300 border border-white/5 hover:border-indigo-500/30 transition-all active:scale-95"
-                                            title={`Apply ${s.label} to selected clips`}
-                                        >{s.label}</button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
+
+
 
                         {/* Right/Bottom Section: God Mode & Mute */}
                         {(sections.includes('mute') || sections.includes('actions')) && (

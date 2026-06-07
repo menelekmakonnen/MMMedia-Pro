@@ -11,6 +11,8 @@ export class SeededRandom {
 
     constructor(seed: string) {
         this.rng = seedrandom(seed);
+        // Bind so method works when passed as a property reference
+        this.random = this.random.bind(this);
     }
 
     /**

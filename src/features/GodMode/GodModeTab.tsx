@@ -1,126 +1,13 @@
 import React, { useState, useRef } from 'react';
-import { motion } from 'framer-motion';
-import { Crown, Clock, Zap, Music, Upload, Play, Pause, Trash2, Loader2, Sparkles, Film, ChevronDown, ChevronUp, Heart, Camera, Clapperboard, Podcast, Monitor, Globe, Dumbbell, Scissors, ArrowLeftRight, Flame, Video, Wand2, Settings2, Layers, SlidersHorizontal, ArrowRight } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Crown, Clock, Music, Upload, Play, Pause, Trash2, Loader2, Film, Wand2, ArrowRight, ChevronDown, ChevronUp, Sliders, ToggleLeft, ToggleRight, Repeat2 } from 'lucide-react';
 import { useViewStore } from '../../store/viewStore';
 import { useGodModeStore } from '../../store/godModeStore';
 import { useMediaStore } from '../../store/mediaStore';
-import { analyzeAudio, AudioAnalysisResult } from '../../lib/audioAnalysis';
-import { TrailerSettings, DEFAULT_TRAILER_SETTINGS, DEFAULT_STYLE_CONFIG, EditingStyleOption } from '../../lib/trailerGenerator';
+import { analyzeAudio } from '../../lib/audioAnalysis';
+import { TrailerSettings, DEFAULT_TRAILER_SETTINGS } from '../../lib/trailerGenerator';
+import { TEMPLATE_LIST, VIDEO_MODE_LIST, type TemplateId, type VideoMode } from '../../lib/editingModes';
 import clsx from 'clsx';
-
-const VIBES = [
-    { id: 'clean', emoji: '🧊', label: 'Clean', desc: 'Minimal, no effects' },
-    { id: 'cinematic', emoji: '🎬', label: 'Cinematic', desc: 'Elegant, film-grade' },
-    { id: 'high-energy', emoji: '⚡', label: 'High Energy', desc: 'Punchy, beat-locked' },
-    { id: 'chaos', emoji: '🔥', label: 'Maximum', desc: 'Full chaos mode' },
-    { id: 'viral', emoji: '📱', label: 'Viral', desc: 'Retention-optimized' },
-];
-
-const TIERS = [
-    { label: 'Simple', color: 'text-emerald-400' },
-    { label: 'Moderate', color: 'text-sky-400' },
-    { label: 'High Energy', color: 'text-amber-400' },
-    { label: 'Maximum Chaos', color: 'text-red-400' },
-] as const;
-
-const PRESETS = [
-    { id: 'gm-clean-cut', name: 'Clean Cut', icon: Scissors, desc: 'Precise hard cuts, no effects', tier: 0 },
-    { id: 'gm-slideshow', name: 'Elegant Hold', icon: Monitor, desc: 'Long cinematic holds', tier: 0 },
-    { id: 'gm-soft-story', name: 'Story Mode', icon: Podcast, desc: 'Vlog-paced narrative', tier: 0 },
-    { id: 'gm-quick-recap', name: 'Quick Recap', icon: Zap, desc: 'Snappy 15s summary', tier: 0 },
-    { id: 'gm-dynamic-intro', name: 'Dynamic Intro', icon: ArrowLeftRight, desc: 'Builds momentum', tier: 0 },
-    { id: 'gm-gentle-flow', name: 'Gentle Flow', icon: Camera, desc: 'Soft cinematic drifts', tier: 1 },
-    { id: 'gm-wedding', name: 'Wedding Film', icon: Heart, desc: 'Slow ramps + gentle pacing', tier: 1 },
-    { id: 'gm-montage-mix', name: 'Montage Mix', icon: Clapperboard, desc: 'Mixed cuts, tasteful', tier: 1 },
-    { id: 'gm-travel-diary', name: 'Travel Diary', icon: Globe, desc: 'Dreamy pacing + warm tones', tier: 1 },
-    { id: 'gm-golden-hour', name: 'Golden Hour', icon: Sparkles, desc: 'Sunset vibes, slow reveals', tier: 1 },
-    { id: 'gm-noir', name: 'Film Noir', icon: Film, desc: 'Dark drama, slow crawl', tier: 1 },
-    { id: 'gm-music-video', name: 'Music Video', icon: Music, desc: 'Beat-locked energy', tier: 2 },
-    { id: 'gm-action-trailer', name: 'Action Trailer', icon: Flame, desc: 'Hard ramps + triple-shot', tier: 2 },
-    { id: 'gm-instagram', name: 'Reels Banger', icon: Video, desc: 'Snappy drops + cuts', tier: 2 },
-    { id: 'gm-gym-pump', name: 'Gym Pump', icon: Dumbbell, desc: 'Athletic ramps + punches', tier: 2 },
-    { id: 'gm-concert', name: 'Concert Edit', icon: Music, desc: 'Beat-locked + boomerangs', tier: 2 },
-    { id: 'gm-beat-bounce', name: 'Beat Bounce', icon: ArrowLeftRight, desc: 'Viral IG bounce — shot swap on beats', tier: 2 },
-    { id: 'gm-tiktok', name: 'TikTok Viral', icon: Zap, desc: 'Full chaos, every effect', tier: 3 },
-    { id: 'gm-whiplash', name: 'Whiplash', icon: Flame, desc: 'Extreme speed contrast', tier: 3 },
-    { id: 'gm-stutter-storm', name: 'Stutter Storm', icon: Sparkles, desc: 'Rapid micro-boomerangs', tier: 3 },
-    { id: 'gm-sensory-overload', name: 'Sensory Overload', icon: Zap, desc: 'All effects stacked', tier: 3 },
-    { id: 'gm-glitch-out', name: 'Glitch Out', icon: Flame, desc: 'Stutter + whiplash chaos', tier: 3 },
-];
-
-const TRANSITION_PRESETS = ['cinematic', 'buttery', 'kinetic', 'whip-pan', 'snap-cut', 'viral', 'dramatic', 'all'];
-
-// ── PACING TEMPLATES (mirror of TrailerWizard's TEMPLATES) ──
-const PACING_MAP: Record<string, { shortestClip: number; longestClip: number; allowDuplicates: boolean }> = {
-    social: { shortestClip: 0.1, longestClip: 0.5, allowDuplicates: true },
-    kinetic: { shortestClip: 0.08, longestClip: 0.25, allowDuplicates: true },
-    epic: { shortestClip: 0.5, longestClip: 2.5, allowDuplicates: false },
-    gym: { shortestClip: 0.15, longestClip: 0.6, allowDuplicates: true },
-    wedding: { shortestClip: 1.0, longestClip: 4.0, allowDuplicates: false },
-    hyperlapse: { shortestClip: 0.1, longestClip: 0.35, allowDuplicates: true },
-    filmscore: { shortestClip: 2.0, longestClip: 5.0, allowDuplicates: false },
-    montage: { shortestClip: 0.3, longestClip: 1.5, allowDuplicates: true },
-    vlog: { shortestClip: 0.8, longestClip: 2.5, allowDuplicates: false },
-    dynamic: { shortestClip: 0.2, longestClip: 2.0, allowDuplicates: true },
-};
-
-// ── STYLE TEMPLATES (mirror of TrailerWizard's STYLE_TEMPLATES) ──
-const STYLE_MAP: Record<string, { mix: 'none' | 'light' | 'heavy' | 'every'; styles: EditingStyleOption[]; config: typeof DEFAULT_STYLE_CONFIG }> = {
-    'none': { mix: 'none', styles: [], config: DEFAULT_STYLE_CONFIG },
-    'music-video': { mix: 'heavy', styles: ['rubber-band-standard', 'multi-boomerang', 'rubber-band-speed'], config: { ...DEFAULT_STYLE_CONFIG, rampSlowSpeed: 0.2, boomerangSlices: 4, reversalChance: 0.95, burstMode: 'short' } },
-    'action-reel': { mix: 'heavy', styles: ['rubber-band-standard', 'triple-shot', 'rubber-band-speed'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.5, rampSlowSpeed: 0.15, fastPortion: 0.1, slowPortion: 0.4, reversalChance: 1.0, burstMode: 'short' } },
-    'cinematic': { mix: 'light', styles: ['rubber-band-standard'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.8, rampSlowSpeed: 0.4, fastPortion: 0.2, slowPortion: 0.5, reversalChance: 0.7, burstMode: 'long' } },
-    'instagram': { mix: 'every', styles: ['multi-boomerang', 'rubber-band-standard'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.3, boomerangSlices: 4, reversalChance: 0.9, burstMode: 'short' } },
-    'whiplash': { mix: 'every', styles: ['rubber-band-standard', 'rubber-band-speed', 'triple-shot'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 4.0, rampSlowSpeed: 0.1, fastPortion: 0.08, slowPortion: 0.45, reversalChance: 1.0, burstMode: 'short' } },
-    'dreamy': { mix: 'heavy', styles: ['rubber-band-standard'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.5, rampSlowSpeed: 0.15, fastPortion: 0.25, slowPortion: 0.5, reversalChance: 1.0, burstMode: 'long' } },
-    'film-noir': { mix: 'light', styles: ['rubber-band-standard'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.3, rampSlowSpeed: 0.2, fastPortion: 0.3, slowPortion: 0.5, reversalChance: 0.5, burstMode: 'long' } },
-    'pulse-drop': { mix: 'heavy', styles: ['rubber-band-speed', 'rubber-band-standard', 'multi-boomerang'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.1, fastPortion: 0.12, slowPortion: 0.35, reversalChance: 0.85, burstMode: 'short' } },
-    'stutter-cut': { mix: 'every', styles: ['multi-boomerang', 'triple-shot'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 2.5, rampSlowSpeed: 0.3, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' } },
-    'tiktok': { mix: 'every', styles: ['multi-boomerang', 'rubber-band-speed', 'triple-shot', 'rubber-band-standard'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.8, rampSlowSpeed: 0.15, fastPortion: 0.1, slowPortion: 0.3, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' } },
-    'sports-hype': { mix: 'heavy', styles: ['rubber-band-speed', 'triple-shot'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.5, rampSlowSpeed: 0.2, fastPortion: 0.15, slowPortion: 0.35, reversalChance: 0.95, burstMode: 'short' } },
-    'concert-live': { mix: 'every', styles: ['rubber-band-speed', 'multi-boomerang'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.2, rampSlowSpeed: 0.25, fastPortion: 0.12, slowPortion: 0.3, boomerangSlices: 4, reversalChance: 0.9, burstMode: 'short' } },
-    'beat-bounce': { mix: 'every', styles: ['beat-bounce'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 1.0, rampSlowSpeed: 0.4, fastPortion: 0.05, slowPortion: 0.15, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' } },
-    'horror-tension': { mix: 'heavy', styles: ['rubber-band-standard', 'triple-shot', 'multi-boomerang'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.0, rampSlowSpeed: 0.12, fastPortion: 0.08, slowPortion: 0.5, boomerangSlices: 3, reversalChance: 1.0, burstMode: 'short' } },
-    'viral-hook': { mix: 'every', styles: ['snap-burst', 'pattern-interrupt', 'hyper-cut'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.5, rampSlowSpeed: 0.15, boomerangSlices: 4, reversalChance: 0.9, burstMode: 'short' } },
-    'retention-max': { mix: 'every', styles: ['pattern-interrupt', 'snap-burst', 'multi-boomerang', 'hyper-cut'], config: { ...DEFAULT_STYLE_CONFIG, rampFastSpeed: 3.8, rampSlowSpeed: 0.1, boomerangSlices: 4, reversalChance: 1.0, burstMode: 'short' } },
-};
-
-// ── VIBE → SETTINGS MAP (mirrors TrailerWizard's VIBE_MAP) ──
-const VIBE_MAP: Record<string, { pacing: string; style: string; hook: 'none' | 'snap-speed' | 'pattern-interrupt' | 'speed-freeze' | 'auto'; retention: boolean; loop: boolean; texture: 'none' | 'grain' | 'vintage' | 'chromatic' | 'motion-blur'; transitionsEnabled: boolean; transitionPreset: string; rhythmPattern: string }> = {
-    'clean': { pacing: 'montage', style: 'none', hook: 'none', retention: false, loop: false, texture: 'none', transitionsEnabled: false, transitionPreset: 'hard-cuts', rhythmPattern: 'wave' },
-    'cinematic': { pacing: 'filmscore', style: 'cinematic', hook: 'speed-freeze', retention: false, loop: false, texture: 'grain', transitionsEnabled: true, transitionPreset: 'cinematic', rhythmPattern: 'fibonacci' },
-    'high-energy': { pacing: 'social', style: 'music-video', hook: 'speed-freeze', retention: false, loop: false, texture: 'none', transitionsEnabled: true, transitionPreset: 'whip-pan', rhythmPattern: 'breathing' },
-    'chaos': { pacing: 'kinetic', style: 'retention-max', hook: 'pattern-interrupt', retention: true, loop: true, texture: 'chromatic', transitionsEnabled: true, transitionPreset: 'viral', rhythmPattern: 'staccato-legato' },
-    'viral': { pacing: 'social', style: 'viral-hook', hook: 'auto', retention: true, loop: true, texture: 'none', transitionsEnabled: true, transitionPreset: 'snap-cut', rhythmPattern: 'heartbeat' },
-};
-
-// Preset IDs → pacing/style mapping (mirrors TrailerWizard's GODMODE_PRESETS)
-const PRESET_PACING_STYLE: Record<string, { pacing: string; style: string; duration: number }> = {
-    'gm-clean-cut': { pacing: 'montage', style: 'none', duration: 30 },
-    'gm-slideshow': { pacing: 'filmscore', style: 'none', duration: 60 },
-    'gm-soft-story': { pacing: 'vlog', style: 'none', duration: 45 },
-    'gm-quick-recap': { pacing: 'social', style: 'none', duration: 15 },
-    'gm-dynamic-intro': { pacing: 'dynamic', style: 'none', duration: 20 },
-    'gm-gentle-flow': { pacing: 'filmscore', style: 'cinematic', duration: 60 },
-    'gm-wedding': { pacing: 'wedding', style: 'cinematic', duration: 45 },
-    'gm-montage-mix': { pacing: 'montage', style: 'cinematic', duration: 30 },
-    'gm-travel-diary': { pacing: 'vlog', style: 'dreamy', duration: 30 },
-    'gm-golden-hour': { pacing: 'filmscore', style: 'dreamy', duration: 45 },
-    'gm-noir': { pacing: 'filmscore', style: 'film-noir', duration: 90 },
-    'gm-music-video': { pacing: 'social', style: 'music-video', duration: 30 },
-    'gm-action-trailer': { pacing: 'epic', style: 'action-reel', duration: 60 },
-    'gm-instagram': { pacing: 'social', style: 'instagram', duration: 15 },
-    'gm-hyperlapse': { pacing: 'hyperlapse', style: 'pulse-drop', duration: 20 },
-    'gm-gym-pump': { pacing: 'gym', style: 'sports-hype', duration: 20 },
-    'gm-concert': { pacing: 'kinetic', style: 'concert-live', duration: 30 },
-    'gm-beat-bounce': { pacing: 'social', style: 'beat-bounce', duration: 15 },
-    'gm-sports': { pacing: 'social', style: 'sports-hype', duration: 15 },
-    'gm-tiktok': { pacing: 'kinetic', style: 'tiktok', duration: 10 },
-    'gm-whiplash': { pacing: 'kinetic', style: 'whiplash', duration: 15 },
-    'gm-stutter-storm': { pacing: 'kinetic', style: 'stutter-cut', duration: 10 },
-    'gm-sensory-overload': { pacing: 'hyperlapse', style: 'tiktok', duration: 15 },
-    'gm-glitch-out': { pacing: 'kinetic', style: 'horror-tension', duration: 12 },
-};
 
 export const GodModeTab: React.FC = () => {
     const { setActiveTab } = useViewStore();
@@ -133,7 +20,12 @@ export const GodModeTab: React.FC = () => {
     const audioRef = useRef<HTMLAudioElement>(null);
     const [audioPlaying, setAudioPlaying] = useState(false);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
-    const [showAdvanced, setShowAdvanced] = useState(false);
+    const [advancedOpen, setAdvancedOpen] = useState(false);
+    const [customSpeedEnabled, setCustomSpeedEnabled] = useState(false);
+    const [selectedSpeed, setSelectedSpeed] = useState<'none' | 'slowmo' | 'fast' | 'hyper'>('none');
+    const [customSpeedValue, setCustomSpeedValue] = useState(1.0);
+
+    const isShowreel = gm.videoMode === 'showreel';
 
     const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -241,21 +133,22 @@ export const GodModeTab: React.FC = () => {
         else { audioRef.current.currentTime = gm.audioTrimStart; audioRef.current.play().catch(() => {}); setAudioPlaying(true); }
     };
 
-    // ── Helper: resolve full TrailerSettings from pacing/style keys ──
-    const resolveSettings = (pacingKey: string, styleKey: string, duration: number, overrides?: Partial<TrailerSettings>): TrailerSettings => {
-        const pacing = PACING_MAP[pacingKey] || PACING_MAP['montage'];
-        const style = STYLE_MAP[styleKey] || STYLE_MAP['none'];
-        return {
+    const handleGenerate = () => {
+        const effectiveDuration = gm.useAudioGuide
+            ? Math.round(gm.audioTrimEnd - gm.audioTrimStart)
+            : gm.duration;
+
+        const settings: Partial<TrailerSettings> & Record<string, any> = {
             ...DEFAULT_TRAILER_SETTINGS,
-            ...pacing,
-            targetDuration: duration,
-            editingStyleMix: style.mix,
-            editingStyles: style.styles,
-            styleConfig: style.config,
-            transitionsEnabled: gm.transitionsEnabled,
-            transitionPreset: gm.transitionPreset,
+            targetDuration: effectiveDuration,
             allowDuplicates: true,
-            useAllClips: true,
+            useAllClips: gm.forceAllClips,
+            templateIds: gm.selectedTemplates,
+            videoMode: gm.videoMode,
+            beatSensitivity: gm.beatSensitivity,
+            templateCameraMotion: gm.cameraMotion,
+            slowmoPolicy: customSpeedEnabled ? 'custom' : selectedSpeed,
+            customSpeed: customSpeedEnabled ? customSpeedValue : undefined,
             ...(gm.useAudioGuide && gm.audioUrl ? {
                 useAudioGuide: true,
                 audioFile: gm.audioFile,
@@ -265,39 +158,11 @@ export const GodModeTab: React.FC = () => {
                 audioTrimStart: gm.audioTrimStart,
                 audioTrimEnd: gm.audioTrimEnd,
             } : {}),
-            ...overrides,
+            // Boomerang
+            boomerangAll: gm.boomerangMode === 'all',
         };
-    };
 
-    const handleGoToTrailer = () => {
-        if (!gm.vibe) return;
-        const vibe = VIBE_MAP[gm.vibe];
-        if (!vibe) return;
-        const effectiveDuration = gm.useAudioGuide
-            ? Math.round(gm.audioTrimEnd - gm.audioTrimStart)
-            : gm.duration;
-        const settings = resolveSettings(vibe.pacing, vibe.style, effectiveDuration, {
-            hookStyle: vibe.hook,
-            retentionInterrupts: vibe.retention,
-            loopMode: vibe.loop,
-            visualTexture: vibe.texture,
-            transitionsEnabled: gm.transitionsEnabled ?? vibe.transitionsEnabled,
-            transitionPreset: gm.transitionPreset || vibe.transitionPreset,
-            rhythmPattern: vibe.rhythmPattern as any,
-        });
-        gm.setAutoGenerate(settings);
-        setActiveTab('trailer');
-    };
-
-    const handlePresetGenerate = (presetId: string) => {
-        const ref = PRESET_PACING_STYLE[presetId];
-        if (!ref) return;
-        const effectiveDuration = gm.useAudioGuide
-            ? Math.round(gm.audioTrimEnd - gm.audioTrimStart)
-            : ref.duration;
-        const settings = resolveSettings(ref.pacing, ref.style, effectiveDuration);
-        gm.setPresetRef({ presetId });
-        gm.setAutoGenerate(settings);
+        gm.setAutoGenerate(settings as TrailerSettings);
         setActiveTab('trailer');
     };
 
@@ -314,6 +179,73 @@ export const GodModeTab: React.FC = () => {
                         <p className="text-xs text-white/50">One-click epic edits — pick a genre and go.</p>
                     </div>
                     <div className="ml-auto text-xs text-white/30 font-mono">{videoCount} videos in pool</div>
+                </div>
+
+                {/* ── Video Mode Selector ── */}
+                <div className="border border-yellow-500/15 rounded-xl bg-gradient-to-br from-yellow-900/10 to-amber-900/5 p-5 space-y-3">
+                    <div className="text-xs font-bold uppercase tracking-wider text-yellow-200/70">
+                        What are you making?
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                        {VIDEO_MODE_LIST.map(mode => (
+                            <motion.button
+                                key={mode.id}
+                                whileHover={{ scale: 1.03 }}
+                                whileTap={{ scale: 0.96 }}
+                                onClick={() => gm.setVideoMode(mode.id as VideoMode)}
+                                className={clsx(
+                                    "flex items-center gap-2.5 px-3 py-3 rounded-xl text-left transition-all border backdrop-blur-sm",
+                                    gm.videoMode === mode.id
+                                        ? "bg-yellow-500/15 border-yellow-500/50 shadow-[0_0_20px_rgba(234,179,8,0.15)]"
+                                        : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20"
+                                )}
+                            >
+                                <span className="text-xl">{mode.icon}</span>
+                                <div>
+                                    <div className={clsx("text-xs font-black uppercase tracking-wide",
+                                        gm.videoMode === mode.id ? "text-yellow-200" : "text-white/70"
+                                    )}>{mode.name}</div>
+                                    <div className="text-[9px] text-white/30 leading-tight">{mode.description}</div>
+                                </div>
+                            </motion.button>
+                        ))}
+                    </div>
+                </div>
+
+                {/* ── Template Selector ── */}
+                <div className="border border-yellow-500/15 rounded-xl bg-gradient-to-br from-purple-900/10 to-violet-900/5 p-5 space-y-3">
+                    <div className="flex justify-between items-center">
+                        <span className="text-xs font-bold uppercase tracking-wider text-yellow-200/70">Templates</span>
+                        <span className="text-[10px] text-white/30 italic">mix up to 3</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        {TEMPLATE_LIST.map(tmpl => {
+                            const isSelected = gm.selectedTemplates.includes(tmpl.id as TemplateId);
+                            return (
+                                <motion.button
+                                    key={tmpl.id}
+                                    whileHover={{ scale: 1.05 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => gm.toggleTemplate(tmpl.id as TemplateId)}
+                                    className={clsx(
+                                        "flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-left transition-all border backdrop-blur-sm relative overflow-hidden",
+                                        isSelected
+                                            ? "bg-purple-500/15 border-purple-500/50 shadow-[0_0_15px_rgba(168,85,247,0.2)]"
+                                            : "bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20"
+                                    )}
+                                >
+                                    {isSelected && <div className="absolute inset-0 bg-gradient-to-tr from-purple-500/10 to-transparent pointer-events-none" />}
+                                    <span className="text-lg relative z-10">{tmpl.icon}</span>
+                                    <div className="relative z-10">
+                                        <div className={clsx("text-[11px] font-bold",
+                                            isSelected ? "text-purple-200" : "text-white/70"
+                                        )}>{tmpl.name}</div>
+                                        <div className="text-[9px] text-white/30">{tmpl.description}</div>
+                                    </div>
+                                </motion.button>
+                            );
+                        })}
+                    </div>
                 </div>
 
                 {/* ── Duration ── */}
@@ -337,160 +269,245 @@ export const GodModeTab: React.FC = () => {
                 </div>
 
                 {/* ── Music Selection ── */}
-                <div className="border border-yellow-500/10 rounded-xl bg-black/20 p-4 space-y-3">
-                    <div className="flex items-center gap-2">
-                        <Music size={14} className={gm.useAudioGuide ? "text-purple-400" : "text-white/40"} />
-                        <span className="text-xs font-bold text-yellow-100">Music Selection</span>
-                        {gm.useAudioGuide && <span className="text-[9px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded-full font-bold ml-auto">Active</span>}
-                        {gm.audioAnalysis && <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded-full font-bold">{gm.audioAnalysis.bpm} BPM</span>}
-                    </div>
-                    <p className="text-[9px] text-white/30">Add music before choosing a vibe for beat-synced generation.</p>
-                    <input type="file" ref={audioInputRef} accept="audio/*" className="hidden" onChange={handleAudioUpload} />
-                    {gm.audioUrl && <audio ref={audioRef} src={gm.audioUrl}
-                        onTimeUpdate={(e) => { if ((e.target as HTMLAudioElement).currentTime >= gm.audioTrimEnd) { (e.target as HTMLAudioElement).pause(); setAudioPlaying(false); }}} />}
-
-                    {!gm.useAudioGuide ? (
-                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                            onClick={() => audioInputRef.current?.click()}
-                            className="w-full flex justify-center items-center gap-2 py-2.5 border border-dashed border-yellow-500/20 rounded-lg hover:border-purple-500/50 hover:bg-purple-500/10 text-white/50 hover:text-white transition-colors text-[10px] font-bold">
-                            <Upload size={12} /> Select Audio File
-                        </motion.button>
-                    ) : (
-                        <div className="flex items-center justify-between bg-white/5 p-2.5 rounded-lg border border-white/10">
-                            <div className="flex items-center gap-2 overflow-hidden">
-                                <button onClick={toggleAudio} className="text-white hover:text-purple-400 transition-colors">
-                                    {audioPlaying ? <Pause size={14} /> : <Play size={14} />}
-                                </button>
-                                <span className="text-[10px] font-bold text-white truncate">{gm.audioFile}</span>
-                                {isAnalyzing && <Loader2 size={12} className="animate-spin text-purple-400" />}
-                            </div>
-                            <button onClick={handleRemoveAudio} className="p-1.5 bg-red-500/20 hover:bg-red-500/40 rounded text-red-400"><Trash2 size={12} /></button>
+                {isShowreel ? (
+                    <div className="border border-amber-500/15 rounded-xl bg-amber-900/10 p-4 space-y-2">
+                        <div className="flex items-center gap-2">
+                            <Music size={14} className="text-amber-400/60" />
+                            <span className="text-xs font-bold text-amber-200/60">Music</span>
+                            <span className="text-[9px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded-full font-bold ml-auto">Disabled</span>
                         </div>
-                    )}
-                    {gm.audioAnalysis && (
-                        <div className="grid grid-cols-4 gap-1.5">
-                            {[
-                                { label: 'BPM', value: `${gm.audioAnalysis.bpm}` },
-                                { label: 'Beats', value: `${gm.audioAnalysis.beats.length}` },
-                                { label: 'Segments', value: `${gm.audioAnalysis.segments.length}` },
-                                { label: 'Duration', value: `${gm.audioAnalysis.duration.toFixed(1)}s` },
-                            ].map(stat => (
-                                <div key={stat.label} className="bg-black/40 rounded-lg p-2 border border-white/5">
-                                    <div className="text-[8px] font-black uppercase text-white/30 tracking-widest">{stat.label}</div>
-                                    <div className="text-xs font-black text-white">{stat.value}</div>
+                        <p className="text-[10px] text-amber-200/40 leading-relaxed">
+                            🎭 Music disabled — showreels perform best without background music.
+                        </p>
+                    </div>
+                ) : (
+                    <div className="border border-yellow-500/10 rounded-xl bg-black/20 p-4 space-y-3">
+                        <div className="flex items-center gap-2">
+                            <Music size={14} className={gm.useAudioGuide ? "text-purple-400" : "text-white/40"} />
+                            <span className="text-xs font-bold text-yellow-100">Music Selection</span>
+                            {gm.useAudioGuide && <span className="text-[9px] bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded-full font-bold ml-auto">Active</span>}
+                            {gm.audioAnalysis && <span className="text-[9px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded-full font-bold">{gm.audioAnalysis.bpm} BPM</span>}
+                        </div>
+                        <p className="text-[9px] text-white/30">Add music for beat-synced generation.</p>
+                        <input type="file" ref={audioInputRef} accept="audio/*" className="hidden" onChange={handleAudioUpload} />
+                        {gm.audioUrl && <audio ref={audioRef} src={gm.audioUrl}
+                            onTimeUpdate={(e) => { if ((e.target as HTMLAudioElement).currentTime >= gm.audioTrimEnd) { (e.target as HTMLAudioElement).pause(); setAudioPlaying(false); }}} />}
+
+                        {!gm.useAudioGuide ? (
+                            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                                onClick={() => audioInputRef.current?.click()}
+                                className="w-full flex justify-center items-center gap-2 py-2.5 border border-dashed border-yellow-500/20 rounded-lg hover:border-purple-500/50 hover:bg-purple-500/10 text-white/50 hover:text-white transition-colors text-[10px] font-bold">
+                                <Upload size={12} /> Select Audio File
+                            </motion.button>
+                        ) : (
+                            <div className="flex items-center justify-between bg-white/5 p-2.5 rounded-lg border border-white/10">
+                                <div className="flex items-center gap-2 overflow-hidden">
+                                    <button onClick={toggleAudio} className="text-white hover:text-purple-400 transition-colors">
+                                        {audioPlaying ? <Pause size={14} /> : <Play size={14} />}
+                                    </button>
+                                    <span className="text-[10px] font-bold text-white truncate">{gm.audioFile}</span>
+                                    {isAnalyzing && <Loader2 size={12} className="animate-spin text-purple-400" />}
                                 </div>
-                            ))}
-                        </div>
-                    )}
-                    {gm.audioAnalysis && gm.audioTrimStart > 0 && (
-                        <div className="flex items-center gap-2 mt-1">
-                            <span className="text-[9px] bg-amber-500/20 text-amber-300 px-2 py-1 rounded-full font-bold border border-amber-500/20">
-                                ⚡ Best Segment
-                            </span>
-                            <span className="text-[10px] font-mono text-white/50">
-                                {Math.floor(gm.audioTrimStart / 60)}:{String(Math.floor(gm.audioTrimStart % 60)).padStart(2, '0')}
-                                {' → '}
-                                {Math.floor(gm.audioTrimEnd / 60)}:{String(Math.floor(gm.audioTrimEnd % 60)).padStart(2, '0')}
-                            </span>
-                            <span className="text-[9px] text-white/25">
-                                ({Math.round(gm.audioTrimEnd - gm.audioTrimStart)}s of {Math.round(gm.audioAnalysis.duration)}s)
-                            </span>
-                        </div>
-                    )}
-                </div>
-
-                {/* ── Vibe Picker ── */}
-                <div className="space-y-2">
-                    <div className="text-[9px] font-black uppercase tracking-widest text-yellow-300/60">What's the vibe?</div>
-                    <div className="grid grid-cols-5 gap-2">
-                        {VIBES.map(v => (
-                            <button key={v.id} onClick={() => gm.setVibe(v.id)}
-                                className={clsx("p-3 rounded-xl border text-center transition-all",
-                                    gm.vibe === v.id
-                                        ? "border-yellow-400 bg-yellow-500/20 shadow-lg shadow-yellow-500/10"
-                                        : "border-white/10 bg-black/30 hover:bg-white/5 hover:border-white/20")}>
-                                <div className="text-xl mb-1">{v.emoji}</div>
-                                <div className={clsx("text-[10px] font-black uppercase", gm.vibe === v.id ? "text-yellow-200" : "text-white/60")}>{v.label}</div>
-                                <div className="text-[8px] text-white/30 mt-0.5">{v.desc}</div>
-                            </button>
-                        ))}
+                                <button onClick={handleRemoveAudio} className="p-1.5 bg-red-500/20 hover:bg-red-500/40 rounded text-red-400"><Trash2 size={12} /></button>
+                            </div>
+                        )}
+                        {gm.audioAnalysis && (
+                            <div className="grid grid-cols-4 gap-1.5">
+                                {[
+                                    { label: 'BPM', value: `${gm.audioAnalysis.bpm}` },
+                                    { label: 'Beats', value: `${gm.audioAnalysis.beats.length}` },
+                                    { label: 'Segments', value: `${gm.audioAnalysis.segments.length}` },
+                                    { label: 'Duration', value: `${gm.audioAnalysis.duration.toFixed(1)}s` },
+                                ].map(stat => (
+                                    <div key={stat.label} className="bg-black/40 rounded-lg p-2 border border-white/5">
+                                        <div className="text-[8px] font-black uppercase text-white/30 tracking-widest">{stat.label}</div>
+                                        <div className="text-xs font-black text-white">{stat.value}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        {gm.audioAnalysis && gm.audioTrimStart > 0 && (
+                            <div className="flex items-center gap-2 mt-1">
+                                <span className="text-[9px] bg-amber-500/20 text-amber-300 px-2 py-1 rounded-full font-bold border border-amber-500/20">
+                                    ⚡ Best Segment
+                                </span>
+                                <span className="text-[10px] font-mono text-white/50">
+                                    {Math.floor(gm.audioTrimStart / 60)}:{String(Math.floor(gm.audioTrimStart % 60)).padStart(2, '0')}
+                                    {' → '}
+                                    {Math.floor(gm.audioTrimEnd / 60)}:{String(Math.floor(gm.audioTrimEnd % 60)).padStart(2, '0')}
+                                </span>
+                                <span className="text-[9px] text-white/25">
+                                    ({Math.round(gm.audioTrimEnd - gm.audioTrimStart)}s of {Math.round(gm.audioAnalysis.duration)}s)
+                                </span>
+                            </div>
+                        )}
                     </div>
-                </div>
-
-                {/* ── Generate Button ── */}
-                {gm.vibe && (
-                    <motion.button initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                        whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
-                        onClick={handleGoToTrailer} disabled={videoCount === 0}
-                        className="w-full py-4 rounded-xl bg-gradient-to-r from-yellow-500 to-amber-500 text-black font-black uppercase tracking-wider text-sm shadow-xl shadow-yellow-500/20 hover:shadow-yellow-500/40 transition-all disabled:opacity-40 disabled:grayscale">
-                        <Crown className="inline mr-2" size={16} />
-                        Generate {gm.vibe === 'viral' ? 'Viral' : gm.vibe === 'chaos' ? 'Chaotic' : gm.vibe === 'cinematic' ? 'Cinematic' : gm.vibe === 'high-energy' ? 'Energetic' : 'Clean'} Edit — {gm.duration}s
-                    </motion.button>
                 )}
 
-                {/* ── Transitions ── */}
-                <div className="border border-yellow-500/10 rounded-xl bg-black/20 p-3 space-y-3">
-                    <div className="flex items-center justify-between">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-yellow-100/60 flex items-center gap-2">
-                            <Layers size={12} className={gm.transitionsEnabled ? "text-pink-400" : "text-white/30"} /> Transitions
-                            {gm.transitionsEnabled && <span className="text-[9px] bg-pink-500/20 text-pink-300 px-1.5 py-0.5 rounded-full font-bold">On</span>}
-                        </label>
-                        <button onClick={() => gm.setTransitions({ enabled: !gm.transitionsEnabled })}
-                            className={clsx("w-10 h-5 rounded-full transition-colors relative", gm.transitionsEnabled ? "bg-pink-500" : "bg-black border border-white/20")}>
-                            <div className={clsx("w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform", gm.transitionsEnabled ? "translate-x-5" : "translate-x-0.5")} />
-                        </button>
-                    </div>
-                    {gm.transitionsEnabled && (
-                        <div className="flex flex-wrap gap-1.5">
-                            {TRANSITION_PRESETS.map(preset => (
-                                <button key={preset} onClick={() => gm.setTransitions({ preset })}
-                                    className={clsx("px-2 py-1 rounded-lg text-[9px] font-bold uppercase transition-all border",
-                                        gm.transitionPreset === preset ? "bg-pink-600/20 border-pink-500 text-pink-200" : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10")}>
-                                    {preset}
-                                </button>
-                            ))}
+                {/* ── Generate Button ── */}
+                <motion.button initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                    whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                    onClick={handleGenerate} disabled={videoCount === 0}
+                    className="w-full py-4 rounded-xl bg-gradient-to-r from-yellow-500 to-amber-500 text-black font-black uppercase tracking-wider text-sm shadow-xl shadow-yellow-500/20 hover:shadow-yellow-500/40 transition-all disabled:opacity-40 disabled:grayscale">
+                    <Crown className="inline mr-2" size={16} />
+                    ⚡ Generate Edit — {gm.duration}s
+                </motion.button>
+
+                {/* ── Advanced Settings (collapsible) ── */}
+                <div className="border border-white/5 rounded-xl overflow-hidden">
+                    <button
+                        onClick={() => setAdvancedOpen(!advancedOpen)}
+                        className="w-full flex items-center justify-between p-4 bg-black/20 hover:bg-white/5 transition-colors"
+                    >
+                        <div className="flex items-center gap-2">
+                            <Sliders size={14} className="text-white/40" />
+                            <span className="text-xs font-bold uppercase tracking-wider text-white/50">⚙️ Advanced</span>
                         </div>
-                    )}
-                </div>
+                        {advancedOpen ? <ChevronUp size={14} className="text-white/30" /> : <ChevronDown size={14} className="text-white/30" />}
+                    </button>
 
-                {/* ── Advanced Presets ── */}
-                <button onClick={() => setShowAdvanced(!showAdvanced)}
-                    className="flex items-center gap-2 text-[9px] font-bold text-white/30 hover:text-white/50 transition-colors uppercase tracking-wider">
-                    {showAdvanced ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                    {showAdvanced ? 'Hide' : 'Show'} Advanced Presets
-                </button>
-
-                {showAdvanced && TIERS.map((tier, tierIdx) => {
-                    const tierPresets = PRESETS.filter(p => p.tier === tierIdx);
-                    if (tierPresets.length === 0) return null;
-                    return (
-                        <div key={tier.label} className="space-y-2">
-                            <div className="flex items-center gap-2">
-                                <span className={clsx("text-[9px] font-black uppercase tracking-widest", tier.color)}>{tier.label}</span>
-                                <div className="flex-1 h-px bg-white/5" />
-                            </div>
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                                {tierPresets.map(preset => {
-                                    const Icon = preset.icon;
-                                    return (
-                                        <motion.button key={preset.id} whileHover={{ scale: 1.03, y: -2 }} whileTap={{ scale: 0.97 }}
-                                            onClick={() => handlePresetGenerate(preset.id)} disabled={videoCount === 0}
-                                            className={clsx("p-3 rounded-xl border text-left transition-all group disabled:opacity-40 disabled:grayscale",
-                                                tierIdx <= 1 ? "border-yellow-500/15 bg-gradient-to-br from-yellow-900/10 to-amber-900/5 hover:from-yellow-800/20"
-                                                : tierIdx === 2 ? "border-orange-500/20 bg-gradient-to-br from-orange-900/10 to-red-900/5 hover:from-orange-800/20"
-                                                : "border-red-500/25 bg-gradient-to-br from-red-900/15 to-pink-900/10 hover:from-red-800/25")}>
-                                            <div className="flex items-center gap-2 mb-1.5">
-                                                <Icon size={14} className="text-yellow-400 group-hover:text-yellow-300" />
-                                                <span className="text-[10px] font-black uppercase tracking-wider text-yellow-200">{preset.name}</span>
+                    <AnimatePresence>
+                        {advancedOpen && (
+                            <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.2 }}
+                                className="overflow-hidden"
+                            >
+                                <div className="p-5 space-y-5 border-t border-white/5">
+                                    {/* Cinematic Speed */}
+                                    <div className="space-y-3">
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
+                                            <Clock size={12} className="text-blue-400" /> Cinematic Speed
+                                        </label>
+                                        <div className="grid grid-cols-4 gap-2">
+                                            {[
+                                                { id: 'none', label: 'Normal', speed: '1x' },
+                                                { id: 'slowmo', label: 'Slow-Mo', speed: '0.5x' },
+                                                { id: 'fast', label: 'Fast', speed: '1.5x' },
+                                                { id: 'hyper', label: 'Hyper', speed: '4x' },
+                                            ].map(opt => (
+                                                <button key={opt.id} onClick={() => { setSelectedSpeed(opt.id as any); setCustomSpeedEnabled(false); }}
+                                                    className={clsx("p-2 rounded-lg border text-center transition-all",
+                                                        !customSpeedEnabled && selectedSpeed === opt.id
+                                                            ? "bg-blue-600/20 border-blue-500/40"
+                                                            : "bg-white/5 border-white/5 hover:bg-white/10")}>
+                                                    <div className={clsx("text-[10px] font-black uppercase",
+                                                        !customSpeedEnabled && selectedSpeed === opt.id ? "text-blue-200" : "text-white/60"
+                                                    )}>{opt.label}</div>
+                                                    <div className="text-[9px] text-white/30">{opt.speed}</div>
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <button onClick={() => setCustomSpeedEnabled(!customSpeedEnabled)}
+                                            className={clsx("px-3 py-1.5 rounded-lg border text-[10px] font-bold uppercase transition-all",
+                                                customSpeedEnabled ? "bg-blue-600/20 border-blue-500/40 text-blue-200" : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                            Custom Speed
+                                        </button>
+                                        {customSpeedEnabled && (
+                                            <div className="flex flex-col gap-1">
+                                                <input type="range" min={0.25} max={8} step={0.25} value={customSpeedValue}
+                                                    onChange={(e) => setCustomSpeedValue(parseFloat(e.target.value))}
+                                                    className="w-full accent-blue-500 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer" />
+                                                <div className="flex justify-between text-[9px] text-white/30 font-mono">
+                                                    <span>0.25x</span><span>8x</span>
+                                                </div>
                                             </div>
-                                            <span className="text-[9px] text-white/30 leading-tight">{preset.desc}</span>
-                                        </motion.button>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    );
-                })}
+                                        )}
+                                    </div>
+
+                                    {/* Beat Sensitivity */}
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between items-center text-xs font-bold uppercase tracking-wider text-white/70">
+                                            <span className="flex items-center gap-1.5 text-[10px]">🎵 Beat Sensitivity</span>
+                                            <span className="text-purple-400 font-mono text-[10px]">{gm.beatSensitivity.toFixed(1)}</span>
+                                        </div>
+                                        <input type="range" min={0} max={1} step={0.05} value={gm.beatSensitivity}
+                                            onChange={(e) => gm.setBeatSensitivity(parseFloat(e.target.value))}
+                                            className="w-full accent-purple-500 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer" />
+                                        <div className="flex justify-between text-[9px] text-white/30 font-mono">
+                                            <span>Loose</span><span>Tight</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Camera Motion */}
+                                    <div className="space-y-2">
+                                        <div className="flex justify-between items-center text-xs font-bold uppercase tracking-wider text-white/70">
+                                            <span className="flex items-center gap-1.5 text-[10px]">📷 Camera Motion</span>
+                                            <span className="text-teal-400 font-mono text-[10px]">{gm.cameraMotion.toFixed(1)}</span>
+                                        </div>
+                                        <input type="range" min={0} max={1} step={0.05} value={gm.cameraMotion}
+                                            onChange={(e) => gm.setCameraMotion(parseFloat(e.target.value))}
+                                            className="w-full accent-teal-500 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer" />
+                                        <div className="flex justify-between text-[9px] text-white/30 font-mono">
+                                            <span>Static</span><span>Dynamic</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Toggles */}
+                                    <div className="flex flex-col sm:flex-row gap-3">
+                                        <label className="flex flex-1 items-center justify-between p-3 rounded-xl border border-white/5 bg-white/5 cursor-pointer hover:bg-white/10 transition-colors">
+                                            <div className="flex flex-col gap-0.5">
+                                                <span className="text-[11px] font-bold text-white">Allow Duplicates</span>
+                                                <span className="text-[9px] text-white/30">Same clip can appear multiple times</span>
+                                            </div>
+                                            <div className="relative">
+                                                <input type="checkbox" className="sr-only" checked={true} readOnly />
+                                                <div className="w-8 h-4 rounded-full bg-purple-500">
+                                                    <div className="w-3.5 h-3.5 bg-white rounded-full absolute top-0.5 translate-x-4" />
+                                                </div>
+                                            </div>
+                                        </label>
+                                        <label className="flex flex-1 items-center justify-between p-3 rounded-xl border border-white/5 bg-white/5 cursor-pointer hover:bg-white/10 transition-colors">
+                                            <div className="flex flex-col gap-0.5">
+                                                <span className="text-[11px] font-bold text-white">Force All Clips</span>
+                                                <span className="text-[9px] text-white/30">Every file appears at least once</span>
+                                            </div>
+                                            <div className="relative">
+                                                <input type="checkbox" className="sr-only" checked={gm.forceAllClips}
+                                                    onChange={(e) => gm.setForceAllClips(e.target.checked)} />
+                                                <div className={clsx("w-8 h-4 rounded-full transition-colors", gm.forceAllClips ? "bg-emerald-500" : "bg-black border border-white/20")}>
+                                                    <div className={clsx("w-3.5 h-3.5 bg-white rounded-full absolute top-0.5 transition-transform", gm.forceAllClips ? "translate-x-4" : "translate-x-0.5")} />
+                                                </div>
+                                            </div>
+                                        </label>
+                                    </div>
+
+                                    {/* Boomerang */}
+                                    <div className="p-4 rounded-xl border border-cyan-500/10 bg-cyan-500/5 space-y-3">
+                                        <div className="flex items-center gap-2">
+                                            <Repeat2 size={14} className="text-cyan-400" />
+                                            <span className="text-[11px] font-bold text-cyan-200">Boomerang Effect</span>
+                                        </div>
+                                        <p className="text-[9px] text-white/40 leading-relaxed">
+                                            Damped-bounce forward↔reverse — clips snap back like a rubber band.
+                                        </p>
+                                        {/* Mode selector */}
+                                        <div className="grid grid-cols-3 gap-1.5">
+                                            {([['off', 'Off', '🚫'], ['drops', 'Drops Only', '🎯'], ['all', 'All Clips', '🔁']] as const).map(([mode, label, icon]) => (
+                                                <button
+                                                    key={mode}
+                                                    onClick={() => gm.setBoomerangMode(mode)}
+                                                    className={clsx(
+                                                        "px-2 py-2 rounded-lg text-[10px] font-bold transition-all border text-center",
+                                                        gm.boomerangMode === mode
+                                                            ? "bg-cyan-500/20 border-cyan-500/40 text-cyan-300 shadow-[0_0_12px_rgba(6,182,212,0.15)]"
+                                                            : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10"
+                                                    )}
+                                                >
+                                                    <span className="block text-sm mb-0.5">{icon}</span>
+                                                    {label}
+                                                </button>
+                                            ))}
+                                        </div>
+
+                                    </div>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
 
                 {/* ── Bottom Nav ── */}
                 <div className="border-t border-white/5 pt-4 flex items-center justify-between">

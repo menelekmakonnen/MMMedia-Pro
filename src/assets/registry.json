@@ -1,26 +1,4 @@
 {
-    "speedRamps": [
-        "ramp_flash_in",
-        "ramp_gen_10",
-        "ramp_gen_11",
-        "ramp_gen_12",
-        "ramp_gen_13",
-        "ramp_gen_14",
-        "ramp_gen_15",
-        "ramp_gen_16",
-        "ramp_gen_17",
-        "ramp_gen_18",
-        "ramp_gen_19",
-        "ramp_gen_20",
-        "ramp_gen_4",
-        "ramp_gen_5",
-        "ramp_gen_6",
-        "ramp_gen_7",
-        "ramp_gen_8",
-        "ramp_gen_9",
-        "sr_slow_mo_v1",
-        "sr_speed_up_v1"
-    ],
     "effects": [
         "fx_bw_contrast",
         "fx_cinematic_teal_v1",
@@ -42,19 +20,5 @@
         "fx_gen_9",
         "fx_neon_glow_v1",
         "fx_vintage_film_v1"
-    ],
-    "transitions": [
-        "trans_gen_1",
-        "trans_gen_10",
-        "trans_gen_11",
-        "trans_gen_12",
-        "trans_gen_2",
-        "trans_gen_3",
-        "trans_gen_4",
-        "trans_gen_5",
-        "trans_gen_6",
-        "trans_gen_7",
-        "trans_gen_8",
-        "trans_gen_9"
     ]
 }

@@ -202,7 +202,7 @@ export const SettingsTab: React.FC = () => {
                                                     const manifest = JSON.parse(res.content);
                                                     const { loadManifestToStore } = await import('../../lib/manifestBridge');
                                                     loadManifestToStore(manifest);
-                                                    toast.success("Manifest Imported Successfully! Found " + manifest.media.length + " clips.");
+                                                    toast.success("Manifest Imported Successfully! Found " + (manifest.clips?.length || 0) + " clips.");
                                                 } catch (e) {
                                                     toast.error("Failed to parse manifest: " + e);
                                                 }

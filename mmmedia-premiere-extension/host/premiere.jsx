@@ -96,9 +96,7 @@ $._mmmedia = {
 
         app.setExtensionCommandString("Building MMMedia Pro Composition", "Undo");
 
-        var settings = manifest.settings;
-        var mediaList = manifest.media || [];
-        var sequences = manifest.sequences || [];
+        var settings = manifest.project;
         var clips = manifest.clips || [];
 
         // 1. Create a Bin for imported media
@@ -115,17 +113,22 @@ $._mmmedia = {
             newBin = rootBin.createBin(binName);
         }
 
-        // 2. Import Media files and cache their ProjectItems
-        var mediaMap = {}; // Maps media UUID to Premiere ProjectItem
+        // 2. Import Media files from clip paths and cache their ProjectItems
+        var mediaMap = {}; // Maps file path to Premiere ProjectItem
         var importArray = [];
-        for (var i = 0; i < mediaList.length; i++) {
-            var m = mediaList[i];
-            var normPath = this.normalizePath(m.path);
+        var importPaths = []; // Track normalized paths for mapping
+        for (var i = 0; i < clips.length; i++) {
+            var normPath = this.normalizePath(clips[i].file);
+            // Deduplicate — don't import the same file twice
+            var alreadyQueued = false;
+            for (var d = 0; d < importPaths.length; d++) {
+                if (importPaths[d] === normPath) { alreadyQueued = true; break; }
+            }
+            if (alreadyQueued) continue;
             var f = new File(normPath);
             if (f.exists) {
                 importArray.push(f.fsName);
-            } else {
-                // Ignore missing file for now, perhaps log it
+                importPaths.push(normPath);
             }
         }
 
@@ -135,16 +138,8 @@ $._mmmedia = {
             for (var i = 0; i < newBin.children.numItems; i++) {
                 var pItem = newBin.children[i];
                 var sysPath = pItem.getMediaPath();
-                // Map back to our manifest media object
-                for (var j = 0; j < mediaList.length; j++) {
-                    var m = mediaList[j];
-                    var normListPath = this.normalizePath(m.path);
-                    var normSysPath = this.normalizePath(sysPath);
-                    if (normSysPath === normListPath) {
-                        mediaMap[m.id] = pItem;
-                        break;
-                    }
-                }
+                var normSysPath = this.normalizePath(sysPath);
+                mediaMap[normSysPath] = pItem;
             }
         }
 
@@ -177,9 +172,9 @@ $._mmmedia = {
             if (seq) {
                 var seqSettings = seq.getSettings();
                 seqSettings.videoFrameRate = settings.fps; // Set to whatever manifest says
-                // For a 16:9 vertical sequence, we swap dims
-                var w = settings.resolution === 'vertical' ? 1080 : 1920;
-                var h = settings.resolution === 'vertical' ? 1920 : 1080;
+                // Use resolution from manifest project settings
+                var w = settings.resolution.width || 1920;
+                var h = settings.resolution.height || 1080;
                 seqSettings.videoFrameWidth = w;
                 seqSettings.videoFrameHeight = h;
                 seq.setSettings(seqSettings);
@@ -193,17 +188,18 @@ $._mmmedia = {
 
             for (var i = 0; i < clips.length; i++) {
                 var c = clips[i];
-                var pItem = mediaMap[c.mediaId];
+                var normClipPath = this.normalizePath(c.file);
+                var pItem = mediaMap[normClipPath];
                 if (!pItem) continue;
 
                 var fps = settings.fps || 30;
 
                 // MMMedia passes frames, we must inject them as Premiere Ticks
-                var inTicks = this.secondsToTicks(c.trimStartFrame / fps);
-                var outTicks = this.secondsToTicks(c.trimEndFrame / fps);
+                var inTicks = this.secondsToTicks(c.sourceIn / fps);
+                var outTicks = this.secondsToTicks(c.sourceOut / fps);
 
                 // Track targeting (naive for v1: all to track 0)
-                var insertTime = this.secondsToTicks(c.startFrame / fps);
+                var insertTime = this.secondsToTicks(c.timelineIn / fps);
 
                 videoTrack.insertClip(pItem, insertTime);
 
@@ -228,8 +224,8 @@ $._mmmedia = {
                         tItem.speedMultiplier = c.speed;
                     }
 
-                    // Properties (Scale)
-                    if (c.zoom) {
+                    // Properties (Scale via zoomLevel)
+                    if (c.zoomLevel) {
                         var comps = tItem.components;
                         for (var k = 0; k < comps.numItems; k++) {
                             var comp = comps[k];
@@ -238,7 +234,7 @@ $._mmmedia = {
                                 for (var p = 0; p < props.numItems; p++) {
                                     var prop = props[p];
                                     if (prop.displayName === "Scale") {
-                                        prop.setValue(c.zoom * 100);
+                                        prop.setValue(c.zoomLevel);
                                     }
                                 }
                             }

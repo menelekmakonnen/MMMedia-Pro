@@ -34,19 +34,15 @@ export type ClipType = 'video' | 'image' | 'audio' | 'grid';
 export interface Asset {
     id: string;
     name: string;
-    type: 'speed-ramp' | 'effect';
+    type: 'effect';
     description?: string;
     thumbnail?: string;
 }
 
-export interface SpeedRamp extends Asset {
-    type: 'speed-ramp';
-    points: Array<{ x: number, y: number }>; // Normalized 0-1 Bezier points
-}
-
 export interface Effect extends Asset {
     type: 'effect';
-    shader: string; // CSS filter or WebGL shader name
+    lumetriPreset?: string; // Lumetri LUT/preset filename
+    shader?: string; // CSS filter or WebGL shader name (legacy)
     parameters: Record<string, number | string | boolean>;
 }
 
@@ -81,15 +77,14 @@ export interface Clip {
     zoomEnd?: number;     // Dynamic zoom end percentage
     zoomOrigin?: 'center' | 'top' | 'bottom' | 'left' | 'right'; // Anchor point for zoom
 
-    // Visual texture applied during trailer generation (exported to FFmpeg)
-    visualTexture?: 'none' | 'grain' | 'chromatic' | 'motion-blur' | 'vintage';
+
 
     // Audio Analysis
     bpm?: number;
     beatMarkers?: { time: number, energy: number }[];
 
     // Asset References
-    speedRampId?: string; // Overrides 'speed' if present
+
     effectIds?: string[]; // Applied in order
 
     // Metadata
@@ -103,16 +98,16 @@ export interface Clip {
     // Ownership (Contract 5)
     origin?: 'auto' | 'manual';
 
-    // Transitions (Comprehensive transition system)
-    transitionEnter?: string | string[]; // TransitionType | TransitionType[]
-    transitionExit?: string | string[];  // TransitionType | TransitionType[]
-    transitionDurationFrames?: number;
+
 
     // Source orientation for rendering decisions
     sourceOrientation?: 'horizontal' | 'vertical' | 'square';
 
     // Persistent rotation (0/90/180/270 degrees) — applied in preview AND export
     rotation?: 0 | 90 | 180 | 270;
+
+    // Boomerang (damped-bounce forward↔reverse effect)
+    boomerang?: boolean;
 
     // Linkage
     mediaLibraryId?: string; // ID of the MediaFile this clip was created from
@@ -141,11 +136,6 @@ export interface GridClip extends Clip {
     globalFlux?: boolean;
 }
 
-// Manifest Protocol (Contract 2)
-export interface Manifest {
-    version: "1.0";
-    project: ProjectSettings;
-    clips: Clip[];
-}
+
 
 export type TabId = 'dashboard' | 'media' | 'trailer' | 'timeline' | 'grideditor' | 'export' | 'sequence' | 'videoplayer' | 'edits' | 'global-settings';

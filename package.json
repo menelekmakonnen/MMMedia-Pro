@@ -13,7 +13,10 @@
         "preview": "vite preview",
         "electron:dev": "cross-env ELECTRON_RUN_AS_NODE= vite",
         "electron:build": "npm run build && electron-builder",
-        "build:electron": "tsc -p electron/tsconfig.json"
+        "build:electron": "tsc -p electron/tsconfig.json",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "test:golden": "node scripts/test-golden-render.cjs"
     },
     "build": {
         "appId": "com.icunilabs.mmmediapro",
@@ -35,12 +38,12 @@
     },
     "dependencies": {
         "clsx": "^2.1.1",
+        "ffmpeg-static": "^5.3.0",
         "fluent-ffmpeg": "^2.1.3",
         "framer-motion": "^12.38.0",
         "lucide-react": "^0.462.0",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",
-        "ffmpeg-static": "^5.3.0",
         "seedrandom": "^3.0.5",
         "tailwind-merge": "^3.4.0",
         "uuid": "^11.0.5",
@@ -62,7 +65,6 @@
         "electron-builder": "^24.13.3",
         "eslint": "^9.18.0",
         "eslint-plugin-react": "^7.37.3",
-
         "postcss": "^8.4.49",
         "sharp": "^0.34.5",
         "tailwindcss": "^3.4.18",
@@ -70,6 +72,7 @@
         "vite": "^5.4.21",
         "vite-plugin-electron": "0.29.0",
         "vite-plugin-electron-renderer": "0.14.6",
+        "vitest": "^4.1.8",
         "wait-on": "^8.0.2"
     }
 }

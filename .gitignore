@@ -15,3 +15,12 @@ test.mp4
 build_error.txt
 builder_error.txt
 render_log.txt
+
+# Backup / debug / one-off files
+__*
+*_original*
+*_utf8*
+golden-demo.json
+fix_encoding.py
+electron-fix.cjs
+*.py

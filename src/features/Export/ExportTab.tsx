@@ -8,6 +8,7 @@ import { generateManifest } from '../../lib/manifestBridge';
 import clsx from 'clsx';
 import { toast } from '../../components/Toast';
 import { EXPORT_PRESETS, getOutputDimensions } from '../../lib/exportPresets';
+import { expandClipToBoomerang, BOOMERANG_PRESETS } from '../../lib/boomerang';
 import { Mp4Tab } from './Mp4Tab';
 import { PremiereTab } from './PremiereTab';
 import { AmeTab } from './AmeTab';
@@ -21,7 +22,7 @@ export const ExportTab: React.FC = () => {
     const {
         activeTab, setActiveTab,
         selectedPresetId, exportQuality, orientation, selectedFps,
-        setLastExportPath, setIsExporting, renderEngine,
+        setLastExportPath, setIsExporting, renderEngine, useGpu,
     } = useExportSettingsStore();
 
     const [isExportingDirect, setIsExportingDirect] = useState(false);
@@ -219,6 +220,17 @@ export const ExportTab: React.FC = () => {
                 addLog(`⚠ Pre-flight: repaired ${repairCount} clip(s) with invalid trim data`);
             }
 
+            // ── BOOMERANG EXPANSION: expand boomerang clips into sub-clips ──
+            const preRepairCount = exportClips.length;
+            exportClips = exportClips.flatMap(c => {
+                if (c.type === 'audio' || !c.boomerang) return [c];
+                const expanded = expandClipToBoomerang(c, BOOMERANG_PRESETS.classic, selectedFps || settings.fps || 30);
+                return expanded;
+            });
+            if (exportClips.length !== preRepairCount) {
+                addLog(`🔄 Boomerang: expanded ${preRepairCount - exportClips.filter(c => c.type === 'audio').length} video clips → ${exportClips.filter(c => c.type !== 'audio').length} (${exportClips.length - preRepairCount} sub-clips added)`);
+            }
+
             const audioClips = exportClips.filter(c => c.type === 'audio');
             const videoClips = exportClips.filter(c => c.type !== 'audio');
             addLog(`Sending ${exportClips.length} clips → ${videoClips.length} video + ${audioClips.length} audio`);
@@ -241,9 +253,29 @@ export const ExportTab: React.FC = () => {
                     outputWidth: outputDims.w, outputHeight: outputDims.h,
                     outputCodec: selectedPreset.codec, outputBitrate: selectedPreset.bitrate,
                     outputAudioBitrate: selectedPreset.audioBitrate,
+                    // Transitions: honour the timeline's transition strategy on export
+                    // (matches the 0.5s preview crossfade). Only the monolithic engine
+                    // applies these; the per-clip engine stays hard-cut.
+                    transitionStrategy: useClipStore.getState().transitionStrategy,
+                    transitionDurationSec: 0.5,
+                    // GPU encode (auto-falls back to libx264 if nvenc is unavailable)
+                    useGpu,
                 },
                 isIntermediate: false
             };
+
+            // ── RENDER-PARITY PRE-FLIGHT ──
+            // Warn about anything the exporter can't honour BEFORE the long render.
+            try {
+                const parity = await window.ipcRenderer.analyzeRenderParity({
+                    clips: exportClips, settings: exportPayload.settings,
+                });
+                if (parity && !parity.ok) {
+                    parity.warnings.forEach(w => addLog(`${w.level === 'warning' ? '⚠' : 'ℹ'} ${w.message}`));
+                    const hard = parity.warnings.filter(w => w.level === 'warning');
+                    if (hard.length) toast.warning(`${hard.length} render-parity warning(s) — see export log`);
+                }
+            } catch { /* non-fatal — parity check is advisory only */ }
 
             let result: { success: boolean; error?: string };
 

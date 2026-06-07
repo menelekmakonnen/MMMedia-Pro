@@ -4,6 +4,8 @@ import fs from 'fs'
 import { exec } from 'child_process'
 import ffmpeg from 'fluent-ffmpeg';
 import ffmpegStatic from 'ffmpeg-static';
+import { resolveEffectFilter, getUnexportableEffects } from './effectCompiler';
+import { buildAtempoChain, shouldUseIntermediateForReverse } from './filterBuilder';
 
 process.env.DIST = join(__dirname, '../dist')
 process.env.VITE_PUBLIC = app.isPackaged ? process.env.DIST : join(process.env.DIST, '../public')
@@ -36,7 +38,7 @@ function createWindow() {
             nodeIntegration: false,
             contextIsolation: true,
             sandbox: false,
-            webSecurity: false,
+            webSecurity: app.isPackaged,
         },
     })
 
@@ -57,7 +59,9 @@ function createWindow() {
         console.log(`[Renderer] ${message} (${sourceId}:${line})`);
     });
 
-    win.webContents.openDevTools();
+    if (process.argv.includes('--dev') || !app.isPackaged) {
+        win.webContents.openDevTools();
+    }
 
     win.webContents.on('did-finish-load', () => {
         win?.webContents.send('main-process-message', (new Date).toLocaleString())
@@ -206,7 +210,8 @@ ipcMain.handle('read-file-buffer', async (_event, path: string) => {
             return { success: false, error: 'File too large', isTooLarge: true }
         }
         const buffer = await fs.promises.readFile(path)
-        return { success: true, buffer }
+        // Return as plain Uint8Array — Node Buffer doesn't always survive IPC structured clone
+        return { success: true, buffer: new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength) }
     } catch (e) {
         return { success: false, error: String(e) }
     }
@@ -325,6 +330,53 @@ function resolveFFmpegBin(): string {
     return 'ffmpeg';
 }
 
+// Cache of FFmpeg's available encoder list (queried once per app run).
+let _encoderListCache: string | null = null;
+function getAvailableEncoders(ffmpegBin: string): string {
+    if (_encoderListCache !== null) return _encoderListCache;
+    try {
+        const { execFileSync } = require('child_process');
+        _encoderListCache = execFileSync(ffmpegBin, ['-hide_banner', '-encoders'], {
+            timeout: 10000, windowsHide: true, encoding: 'utf-8',
+        }) as string;
+    } catch {
+        _encoderListCache = '';
+    }
+    return _encoderListCache;
+}
+
+/**
+ * Resolve the actual video encoder to use. When GPU encoding is requested,
+ * map the CPU codec to its NVENC equivalent IF FFmpeg reports it available,
+ * otherwise transparently fall back to the CPU codec.
+ */
+function resolveVideoEncoder(
+    ffmpegBin: string,
+    requestedCodec: string,
+    useGpu: boolean,
+    log?: (m: string) => void,
+): string {
+    if (!useGpu) return requestedCodec;
+    const gpuMap: Record<string, string> = {
+        libx264: 'h264_nvenc',
+        libx265: 'hevc_nvenc',
+        h264: 'h264_nvenc',
+        hevc: 'hevc_nvenc',
+    };
+    const target = gpuMap[requestedCodec];
+    if (!target) {
+        log?.(`GPU requested but no NVENC mapping for "${requestedCodec}" — using CPU.`);
+        return requestedCodec;
+    }
+    const encoders = getAvailableEncoders(ffmpegBin);
+    if (encoders.includes(target)) {
+        log?.(`GPU encoding enabled: ${requestedCodec} → ${target}`);
+        return target;
+    }
+    log?.(`GPU encoder "${target}" not available on this system — falling back to ${requestedCodec}.`);
+    return requestedCodec;
+}
+
 function normalizeClipPath(clipPath: string): string {
     let p = clipPath;
     if (p?.startsWith('file:///')) p = p.slice(8);
@@ -377,6 +429,64 @@ function runFfmpegAsync(
         p.on('error', (err: any) => { try { fs.unlinkSync(psFile); } catch {} resolve({ code: 1, stderr: err.message }); });
     });
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// RENDER-PARITY ANALYSIS
+// Scans the timeline for anything the exporter cannot (or will not) honour and
+// returns a list of human-readable warnings so the UI can show "what you see is
+// what you get" issues BEFORE a long render starts.
+// ══════════════════════════════════════════════════════════════════════════════
+ipcMain.handle('analyze-render-parity', async (_event, { clips: rawClips, settings }) => {
+    const warnings: { level: 'warning' | 'info'; message: string }[] = [];
+    try {
+        const fps = settings?.fps || 30;
+        const clips = (rawClips || []).filter((c: any) => !c.disabled);
+        const videoClips = clips.filter((c: any) => c.type !== 'audio');
+
+        // 1. Missing / non-file media
+        let missing = 0;
+        for (const c of clips) {
+            const p = normalizeClipPath(c.path || '');
+            if (!p || p.startsWith('blob:') || p.startsWith('http:') || p.startsWith('data:')) { missing++; continue; }
+            if (!fs.existsSync(p)) missing++;
+        }
+        if (missing > 0) warnings.push({ level: 'warning', message: `${missing} clip(s) reference missing or non-file media — they will be skipped and appear as gaps.` });
+
+        // 2. Effects that cannot be exported
+        const unexportable = new Set<string>();
+        for (const c of videoClips) for (const id of (c.effectIds || [])) {
+            getUnexportableEffects([id]).forEach((e) => unexportable.add(e));
+        }
+        if (unexportable.size > 0) warnings.push({ level: 'warning', message: `${unexportable.size} effect(s) are preview-only and won't render: ${[...unexportable].join(', ')}.` });
+
+        // 3. Sub-frame clips (too short to produce a single output frame)
+        const subFrame = videoClips.filter((c: any) => {
+            const speed = c.speed || 1;
+            const out = (((c.endFrame ?? 0) - (c.startFrame ?? 0)) / fps);
+            return out > 0 && out < (1 / fps) / speed;
+        }).length;
+        if (subFrame > 0) warnings.push({ level: 'info', message: `${subFrame} clip(s) are shorter than one frame and will be dropped.` });
+
+        // 4. Transition viability (monolithic only)
+        const strategy = settings?.transitionStrategy || 'cut';
+        if (strategy !== 'cut') {
+            const reqDur = typeof settings?.transitionDurationSec === 'number' ? settings.transitionDurationSec : 0.5;
+            const minDur = Math.min(...videoClips.map((c: any) => (((c.endFrame ?? 0) - (c.startFrame ?? 0)) / fps) / (c.speed || 1)).filter((d: number) => d > 0));
+            if (isFinite(minDur) && reqDur * 0.4 > minDur * 0.4 && minDur * 0.4 < (1 / fps)) {
+                warnings.push({ level: 'info', message: `Clips are too short for a ${reqDur}s ${strategy} — transitions will fall back to hard cuts.` });
+            }
+            warnings.push({ level: 'info', message: `Transitions (${strategy}) only apply with the Monolithic render engine.` });
+        }
+
+        // 5. Long reversed clips (memory heavy in monolithic)
+        const longReversed = videoClips.filter((c: any) => c.reversed && (((c.endFrame ?? 0) - (c.startFrame ?? 0)) / fps) > 5).length;
+        if (longReversed > 0) warnings.push({ level: 'info', message: `${longReversed} reversed clip(s) are >5s — these use a slower two-pass reverse.` });
+
+        return { ok: warnings.length === 0, warnings };
+    } catch (err: any) {
+        return { ok: false, warnings: [{ level: 'warning', message: `Parity analysis failed: ${err?.message || 'unknown error'}` }] };
+    }
+});
 
 // ══════════════════════════════════════════════════════════════════════════════
 // EXPORT PIPELINE — Per-Clip Architecture
@@ -517,25 +627,51 @@ ipcMain.handle('export-project', async (event, { filePath, clips: rawClips, sett
                 if (rot === 90) vf += ',transpose=1';
                 else if (rot === 180) vf += ',transpose=1,transpose=1';
                 else if (rot === 270) vf += ',transpose=2';
-                vf += `,scale=${outW}:${outH}:force_original_aspect_ratio=decrease,pad=${outW}:${outH}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
 
+                // Zoompan — applied AFTER rotation, BEFORE scale/pad
+                let zoompanUsed = false;
+                if (clip.zoomStart !== undefined && clip.zoomEnd !== undefined &&
+                    (clip.zoomStart !== 100 || clip.zoomEnd !== 100)) {
+                    const clipDurFrames = Math.round((clip.endFrame - clip.startFrame) / (clip.speed || 1));
+                    const zs = (clip.zoomStart || 100) / 100;
+                    const ze = (clip.zoomEnd || 100) / 100;
+
+                    let zx = "'iw/2-(iw/zoom/2)'";
+                    let zy = "'ih/2-(ih/zoom/2)'";
+                    const origin = clip.zoomOrigin || 'center';
+                    if (origin === 'top') { zy = "'0'"; }
+                    else if (origin === 'bottom') { zy = "'ih-ih/zoom'"; }
+                    else if (origin === 'left') { zx = "'0'"; }
+                    else if (origin === 'right') { zx = "'iw-iw/zoom'"; }
+
+                    vf += `,zoompan=z='${zs}+(${ze}-${zs})*on/${clipDurFrames}':x=${zx}:y=${zy}:d=${clipDurFrames}:s=${outW}x${outH}:fps=${fps}`;
+                    zoompanUsed = true;
+                }
+
+                // Scale/pad — skip if zoompan already set output resolution
+                if (!zoompanUsed) {
+                    vf += `,scale=${outW}:${outH}:force_original_aspect_ratio=decrease,pad=${outW}:${outH}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
+                } else {
+                    vf += `,setsar=1`;
+                }
+
+                // Effects — use resolveEffectFilter from effectCompiler
                 if (clip.effectIds?.length) {
-                    const fxMap: Record<string, string> = {
-                        'fx_bw_contrast': 'hue=s=0,eq=contrast=1.2',
-                        'fx_vhs_glitch': 'boxblur=2:1,eq=contrast=1.2:saturation=1.2',
-                        'fx_warm_glow': 'colorbalance=rs=.2:gs=-.1:bs=-.2',
-                        'fx_cinematic_teal_v1': 'colorbalance=rs=-0.2:gs=0:bs=0.2:rm=0:gm=0:bm=0:rh=0.2:gh=0:bh=-0.2',
-                        'fx_vintage_film_v1': 'noise=alls=20:allf=t,eq=saturation=0.6:contrast=1.1',
-                        'fx_neon_glow_v1': 'eq=saturation=2.0:contrast=1.1',
-                    };
-                    const effects = clip.effectIds.map((id: string) => fxMap[id] || '').filter(Boolean).join(',');
+                    const effects = clip.effectIds.map((id: string) => resolveEffectFilter(id)).filter(Boolean).join(',');
                     if (effects) vf += `,${effects}`;
                 }
-                const vt = clip.visualTexture || 'none';
-                if (vt === 'grain') vf += ',noise=alls=15:allf=t';
-                else if (vt === 'chromatic') vf += ',rgbashift=rh=-3:bh=3';
-                else if (vt === 'motion-blur') vf += ',tblend=all_mode=average';
-                else if (vt === 'vintage') vf += ',noise=alls=20:allf=t,eq=saturation=0.6:contrast=1.1,colorbalance=rs=.1:gs=-.05:bs=-.1';
+
+                // Reverse filter — applied before speed adjustment
+                let needsReversePass = false;
+                if (clip.reversed) {
+                    const clipDurSec = (clip.endFrame - clip.startFrame) / fps;
+                    if (clipDurSec <= 5) {
+                        vf += ',reverse';
+                    } else {
+                        needsReversePass = true;
+                        log(`  ⚠ Clip ${i+1}: reversed clip is ${clipDurSec.toFixed(1)}s — will use two-pass reverse`);
+                    }
+                }
 
                 vf += `,setpts=${(1/speed).toFixed(4)}*PTS,fps=fps=${fps}[v_out]`;
 
@@ -543,12 +679,13 @@ ipcMain.handle('export-project', async (event, { filePath, clips: rawClips, sett
                 let af: string;
                 if (hasAudio) {
                     af = `[0:a]atrim=start=${seekClamped.toFixed(4)}:end=${trimEnd.toFixed(4)},asetpts=PTS-STARTPTS`;
+                    // Reverse audio if clip is reversed (short clips only, long clips use two-pass)
+                    if (clip.reversed && !needsReversePass) {
+                        af += ',areverse';
+                    }
                     if (speed !== 1.0) {
-                        let rem = speed; const parts: string[] = [];
-                        while (rem > 2.0) { parts.push('atempo=2.0'); rem /= 2.0; }
-                        while (rem < 0.5) { parts.push('atempo=0.5'); rem /= 0.5; }
-                        parts.push(`atempo=${rem.toFixed(4)}`);
-                        af += ',' + parts.join(',');
+                        const atempoFilter = buildAtempoChain(speed);
+                        if (atempoFilter) af += ',' + atempoFilter;
                     }
                     af += `,volume=${volume.toFixed(4)}[a_out]`;
                 } else {
@@ -558,7 +695,7 @@ ipcMain.handle('export-project', async (event, { filePath, clips: rawClips, sett
 
                 const filterFile = path.join(tmpDir, `mmm_clip_${i}_${Date.now()}.txt`);
                 fs.writeFileSync(filterFile, vf + ';\n' + af, 'utf-8');
-                const intermediateFile = path.join(tmpDir, `mmm_clip_${i}_${Date.now()}.mkv`);
+                let intermediateFile = path.join(tmpDir, `mmm_clip_${i}_${Date.now()}.mkv`);
                 intermediateFiles.push(intermediateFile);
                 intermediateDurations.push(expectedOutputDur);
 
@@ -567,7 +704,7 @@ ipcMain.handle('export-project', async (event, { filePath, clips: rawClips, sett
                     '-i', clip.path,
                     '-filter_complex_script', filterFile,
                     '-map', '[v_out]', '-map', '[a_out]',
-                    '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '0', '-pix_fmt', 'yuv420p',
+                    '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '15', '-pix_fmt', 'yuv420p',
                     '-c:a', 'aac', '-b:a', '320k',
                     intermediateFile
                 ], `clip${i}`, (line) => {
@@ -580,6 +717,29 @@ ipcMain.handle('export-project', async (event, { filePath, clips: rawClips, sett
                     log(`⚠ Clip ${i+1} failed (code ${result.code}) — skipping. Last stderr: ${result.stderr.slice(-200).trim()}`);
                     intermediateFiles.pop();
                     intermediateDurations.pop();
+                    continue;
+                }
+
+                // Two-pass reverse: for long reversed clips (>5s), reverse the intermediate
+                if (needsReversePass && result.code === 0) {
+                    const reversedFile = path.join(tmpDir, `mmm_clip_${i}_rev_${Date.now()}.mkv`);
+                    log(`  Two-pass reverse for clip ${i+1}: ${intermediateFile} → ${reversedFile}`);
+                    const revResult = await runFfmpegAsync(ffmpegBin, [
+                        '-y', '-i', intermediateFile,
+                        '-vf', 'reverse', '-af', 'areverse',
+                        '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '15', '-pix_fmt', 'yuv420p',
+                        '-c:a', 'aac', '-b:a', '320k',
+                        reversedFile
+                    ], `clip${i}_rev`, (line) => {
+                        const t = line.trim(); if (t) try { event.sender.send('export-log', `[ffmpeg:rev] ${t}`); } catch {}
+                    });
+                    try { fs.unlinkSync(intermediateFile); } catch {}
+                    if (revResult.code === 0) {
+                        intermediateFiles[intermediateFiles.length - 1] = reversedFile;
+                        intermediateFile = reversedFile;
+                    } else {
+                        log(`  ⚠ Two-pass reverse failed for clip ${i+1} (code ${revResult.code}) — using forward version`);
+                    }
                 }
             }
 
@@ -661,9 +821,22 @@ ipcMain.handle('export-project', async (event, { filePath, clips: rawClips, sett
 
             // Quality
             const quality = settings?.exportQuality || 'standard';
-            const isHevc = outCodec === 'libx265';
+            const resolvedCodec = resolveVideoEncoder(ffmpegBin, outCodec, !!settings?.useGpu, log);
+            const isNvenc = resolvedCodec.includes('nvenc');
+            const isHevc = resolvedCodec.includes('265') || resolvedCodec.includes('hevc');
             let qArgs: string[] = [];
-            if (isIntermediate) { qArgs = ['-preset', 'ultrafast', '-crf', '10', '-c:a', 'aac', '-b:a', '320k']; }
+            if (isNvenc) {
+                const nvPreset = quality === 'master' ? 'p6' : quality === 'draft' ? 'p2' : 'p4';
+                if (isIntermediate) { qArgs = ['-preset', 'p1', '-rc', 'vbr', '-cq', '12']; }
+                else if (outBitrate > 0) {
+                    qArgs = ['-preset', nvPreset, '-rc', 'vbr', '-b:v', `${outBitrate}k`, '-maxrate', `${Math.round(outBitrate*1.5)}k`, '-bufsize', `${Math.round(outBitrate*2)}k`];
+                } else {
+                    const cq = quality === 'master' ? '19' : quality === 'draft' ? '28' : '23';
+                    qArgs = ['-preset', nvPreset, '-rc', 'vbr', '-cq', cq, '-b:v', '0'];
+                }
+                qArgs.push('-c:a', 'aac', '-b:a', `${isIntermediate ? 320 : outAudioBitrate}k`);
+            }
+            else if (isIntermediate) { qArgs = ['-preset', 'ultrafast', '-crf', '10', '-c:a', 'aac', '-b:a', '320k']; }
             else if (outBitrate > 0) {
                 qArgs = ['-b:v', `${outBitrate}k`, '-maxrate', `${Math.round(outBitrate*1.5)}k`, '-bufsize', `${Math.round(outBitrate*2)}k`];
                 qArgs.push('-preset', quality === 'draft' ? (isHevc ? 'fast' : 'veryfast') : quality === 'master' ? 'slow' : (isHevc ? 'medium' : 'medium'));
@@ -685,7 +858,7 @@ ipcMain.handle('export-project', async (event, { filePath, clips: rawClips, sett
                 log(`Duration safety ceiling: ${safetyCeiling.toFixed(2)}s (actual video: ${actualTotalDuration.toFixed(2)}s)`);
             }
 
-            finalArgs.push('-r', fps.toString(), '-c:v', outCodec, '-pix_fmt', 'yuv420p',
+            finalArgs.push('-r', fps.toString(), '-c:v', resolvedCodec, '-pix_fmt', 'yuv420p',
                 '-colorspace', 'bt709', '-color_trc', 'bt709', '-color_primaries', 'bt709',
                 '-movflags', '+faststart', ...qArgs, filePath);
 
@@ -725,8 +898,9 @@ ipcMain.handle('export-project', async (event, { filePath, clips: rawClips, sett
 
 // ══════════════════════════════════════════════════════════════════════════════
 // EXPORT PIPELINE — Monolithic Architecture (Single-Pass Filter Graph)
-// All clips are stitched together in one FFmpeg invocation. Supports xfade
-// transitions, audio mixing, and direct process spawning (no PowerShell).
+// All clips are stitched together in one FFmpeg invocation. Implements real
+// xfade/acrossfade transitions (cross-dissolve, fade-to-black), audio mixing,
+// optional NVENC GPU encoding, and direct process spawning (no PowerShell).
 // Faster for small-medium timelines. May OOM on very large projects.
 // ══════════════════════════════════════════════════════════════════════════════
 ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: rawClips, settings, isIntermediate }) => {
@@ -808,6 +982,11 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
             const outAudioBitrate = settings?.outputAudioBitrate || 256;
             log(`Output: ${outW}x${outH} ${outCodec} @ ${outBitrate > 0 ? outBitrate + 'kbps' : 'CRF'} | export ${exportFps}fps (project ${projectFps}fps) | audio ${outAudioBitrate}k`);
 
+            // Transition strategy (from the timeline). 'cut' = hard cut (concat),
+            // 'cross-dissolve' = xfade fade, 'fade-to-black' = xfade fadeblack.
+            const transitionStrategy: 'cut' | 'cross-dissolve' | 'fade-to-black' = settings?.transitionStrategy || 'cut';
+            const requestedTransitionDur = typeof settings?.transitionDurationSec === 'number' ? settings.transitionDurationSec : 0.5;
+
             // ── 3. BUILD FILTER GRAPH ──
             let filterChains: string[] = [];
             let inputArgs: string[] = [];
@@ -815,26 +994,13 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
             let preparedVideoStreams: string[] = [];
             let preparedAudioStreams: string[] = [];
             let clipDurations: number[] = [];
-            let clipTransitions: { enter: string; durationFrames: number }[] = [];
 
-            const transitionToXfade: Record<string, string> = {
-                'crossfade': 'fade', 'slide-left': 'slideleft', 'slide-right': 'slideright',
-                'slide-up': 'slideup', 'slide-down': 'slidedown', 'wipe-left': 'wipeleft',
-                'wipe-right': 'wiperight', 'wipe-up': 'wipeup', 'wipe-down': 'wipedown',
-                'push-left': 'slideleft', 'push-right': 'slideright', 'zoom-in': 'fadegrays',
-                'zoom-out': 'fadeblack', 'spin-in': 'circleopen', 'glitch-cut': 'pixelize', 'none': '',
-            };
 
             clips.forEach((clip: any, index: number) => {
                 const seekTo = (clip.trimStartFrame ?? 0) / projectFps;
                 const sourceDuration = probeResults[index].duration;
 
-                let speed = clip.speed || 1.0;
-                if (clip.speedRampId) {
-                    if (clip.speedRampId.includes('slow')) speed = 0.5;
-                    else if (clip.speedRampId.includes('fast') || clip.speedRampId.includes('speed_up')) speed = 2.0;
-                    else if (clip.speedRampId.includes('bullet')) speed = 0.25;
-                }
+                const speed = clip.speed || 1.0;
 
                 // FIX: Use TIMELINE duration as canonical output duration
                 let timelineDur = ((clip.endFrame ?? 0) - (clip.startFrame ?? 0)) / projectFps;
@@ -911,7 +1077,6 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
 
                     // Video chain — trim extracts source material, setpts applies speed
                     let vf = `[${index}:v]trim=start=0:duration=${clipDur.toFixed(4)},setpts=PTS-STARTPTS`;
-                    vf += `,scale=${outW}:${outH}:force_original_aspect_ratio=decrease,pad=${outW}:${outH}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
 
                     // Rotation support
                     const rot = clip.rotation || 0;
@@ -919,26 +1084,48 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
                     else if (rot === 180) vf += ',transpose=1,transpose=1';
                     else if (rot === 270) vf += ',transpose=2';
 
-                    // Effects
+                    // Zoompan — applied AFTER rotation, BEFORE scale/pad
+                    let zoompanUsed = false;
+                    if (clip.zoomStart !== undefined && clip.zoomEnd !== undefined &&
+                        (clip.zoomStart !== 100 || clip.zoomEnd !== 100)) {
+                        const clipDurFrames = Math.round((clip.endFrame - clip.startFrame) / (clip.speed || 1));
+                        const zs = (clip.zoomStart || 100) / 100;
+                        const ze = (clip.zoomEnd || 100) / 100;
+
+                        let zx = "'iw/2-(iw/zoom/2)'";
+                        let zy = "'ih/2-(ih/zoom/2)'";
+                        const origin = clip.zoomOrigin || 'center';
+                        if (origin === 'top') { zy = "'0'"; }
+                        else if (origin === 'bottom') { zy = "'ih-ih/zoom'"; }
+                        else if (origin === 'left') { zx = "'0'"; }
+                        else if (origin === 'right') { zx = "'iw-iw/zoom'"; }
+
+                        vf += `,zoompan=z='${zs}+(${ze}-${zs})*on/${clipDurFrames}':x=${zx}:y=${zy}:d=${clipDurFrames}:s=${outW}x${outH}:fps=${fps}`;
+                        zoompanUsed = true;
+                    }
+
+                    // Scale/pad — skip if zoompan already set output resolution
+                    if (!zoompanUsed) {
+                        vf += `,scale=${outW}:${outH}:force_original_aspect_ratio=decrease,pad=${outW}:${outH}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
+                    } else {
+                        vf += `,setsar=1`;
+                    }
+
+                    // Effects — use resolveEffectFilter from effectCompiler
                     if (clip.effectIds && clip.effectIds.length > 0) {
-                        const fxMap: Record<string, string> = {
-                            'fx_bw_contrast': 'hue=s=0,eq=contrast=1.2',
-                            'fx_vhs_glitch': 'boxblur=2:1,eq=contrast=1.2:saturation=1.2',
-                            'fx_warm_glow': 'colorbalance=rs=.2:gs=-.1:bs=-.2',
-                            'fx_cinematic_teal_v1': 'colorbalance=rs=-0.2:gs=0:bs=0.2:rm=0:gm=0:bm=0:rh=0.2:gh=0:bh=-0.2',
-                            'fx_vintage_film_v1': 'noise=alls=20:allf=t,eq=saturation=0.6:contrast=1.1',
-                            'fx_neon_glow_v1': 'eq=saturation=2.0:contrast=1.1',
-                        };
-                        const effects = clip.effectIds.map((id: string) => fxMap[id] || '').filter(Boolean).join(',');
+                        const effects = clip.effectIds.map((id: string) => resolveEffectFilter(id)).filter(Boolean).join(',');
                         if (effects) vf += `,${effects}`;
                     }
 
-                    // Visual textures
-                    const visualTexture = clip.visualTexture || clip._visualTexture || 'none';
-                    if (visualTexture === 'grain') vf += ',noise=alls=15:allf=t';
-                    else if (visualTexture === 'chromatic') vf += ',rgbashift=rh=-3:bh=3';
-                    else if (visualTexture === 'motion-blur') vf += ',tblend=all_mode=average';
-                    else if (visualTexture === 'vintage') vf += ',noise=alls=20:allf=t,eq=saturation=0.6:contrast=1.1,colorbalance=rs=.1:gs=-.05:bs=-.1';
+                    // Reverse filter — applied before speed adjustment
+                    if (clip.reversed) {
+                        const clipDurSec = (clip.endFrame - clip.startFrame) / fps;
+                        if (clipDurSec > 5) {
+                            console.warn(`[Export] Warning: Reversing ${clipDurSec.toFixed(1)}s clip in monolithic mode may use significant memory`);
+                            log(`  ⚠ Warning: Reversing ${clipDurSec.toFixed(1)}s clip in monolithic mode may use significant memory`);
+                        }
+                        vf += ',reverse';
+                    }
 
                     vf += `,setpts=${(1 / speed).toFixed(4)}*PTS[${vOut}]`;
                     filterChains.push(vf);
@@ -947,17 +1134,17 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
                     const hasRealAudio = probeResults[index].hasAudio && clip.type !== 'image';
 
                     if (hasRealAudio) {
-                        let atempoChain = '';
+                        let audioExtra = '';
+                        // Reverse audio in monolithic mode
+                        if (clip.reversed) {
+                            audioExtra += ',areverse';
+                        }
                         if (speed !== 1.0) {
-                            let rem = speed;
-                            const parts: string[] = [];
-                            while (rem > 2.0) { parts.push('atempo=2.0'); rem /= 2.0; }
-                            while (rem < 0.5) { parts.push('atempo=0.5'); rem /= 0.5; }
-                            parts.push(`atempo=${rem.toFixed(4)}`);
-                            atempoChain = ',' + parts.join(',');
+                            const atempoFilter = buildAtempoChain(speed);
+                            if (atempoFilter) audioExtra += ',' + atempoFilter;
                         }
                         filterChains.push(
-                            `[${index}:a]atrim=start=0:duration=${clipDur.toFixed(4)},asetpts=PTS-STARTPTS${atempoChain},volume=${finalVolume.toFixed(4)}[${aOut}]`
+                            `[${index}:a]atrim=start=0:duration=${clipDur.toFixed(4)},asetpts=PTS-STARTPTS${audioExtra},volume=${finalVolume.toFixed(4)}[${aOut}]`
                         );
                     } else {
                         filterChains.push(`anullsrc=r=48000:cl=stereo[sil_${index}]`);
@@ -968,16 +1155,7 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
                     preparedAudioStreams.push(`[${aOut}]`);
                     clipDurations.push(outDur);
 
-                    // Extract transition metadata
-                    let enterType = 'none';
-                    if (clip.transitionEnter) {
-                        const te = Array.isArray(clip.transitionEnter) ? clip.transitionEnter[0] : clip.transitionEnter;
-                        if (te && te !== 'none') enterType = te;
-                    }
-                    clipTransitions.push({
-                        enter: enterType,
-                        durationFrames: clip.transitionDurationFrames || 0,
-                    });
+
 
                     log(`Clip ${index}: ${clip.filename} | seek=${seekClamped.toFixed(2)}s srcTrim=${clipDur.toFixed(3)}s speed=${speed} → output=${outDur.toFixed(3)}s (timeline=${timelineDur.toFixed(3)}s) vol=${finalVolume.toFixed(2)} audio=${hasRealAudio}`);
                     videoInputCount++;
@@ -989,68 +1167,56 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
                 return;
             }
 
-            // ── 4. TRANSITION-AWARE STITCHING ──
-            const hasTransitions = clipTransitions.some((t, i) => i > 0 && t.enter !== 'none' && t.durationFrames > 0);
-            let finalVideoMap = '';
-            let finalAudioMap = '';
+            // ── 4. STITCHING (cut via concat, or crossfade via xfade) ──
+            let finalVideoMap: string;
+            let finalAudioMap: string;
 
-            if (hasTransitions && videoInputCount > 1) {
-                log(`Building xfade transition chain for ${videoInputCount} clips`);
-                let prevVideoLabel = preparedVideoStreams[0];
-                let accumulatedDuration = clipDurations[0];
+            // Decide whether transitions are viable. xfade needs >=2 clips and a
+            // transition shorter than the clips it joins; clamp to 40% of the
+            // shortest clip so beat-synced micro-clips never get a negative offset.
+            const minClipDur = clipDurations.length ? Math.min(...clipDurations) : 0;
+            const xfadeDur = Math.min(requestedTransitionDur, minClipDur * 0.4);
+            const wantsTransition = transitionStrategy !== 'cut' && videoInputCount >= 2 && xfadeDur >= (1 / fps);
 
+            if (wantsTransition) {
+                const xfadeType = transitionStrategy === 'fade-to-black' ? 'fadeblack' : 'fade';
+                const D = parseFloat(xfadeDur.toFixed(4));
+                log(`Stitching with ${transitionStrategy} (xfade=${xfadeType}, d=${D}s) across ${videoInputCount} clips`);
+
+                // xfade is strict about input format/fps/timebase — normalize each
+                // prepared video stream before feeding the transition chain.
+                const normV: string[] = [];
+                preparedVideoStreams.forEach((label, i) => {
+                    const out = `vn${i}`;
+                    filterChains.push(`${label}format=yuv420p,fps=${fps},settb=AVTB[${out}]`);
+                    normV.push(`[${out}]`);
+                });
+
+                // Video xfade chain. offset = (running output length) - D.
+                let prevV = normV[0];
+                let cum = clipDurations[0];
                 for (let i = 1; i < videoInputCount; i++) {
-                    const trans = clipTransitions[i];
-                    const transType = transitionToXfade[trans.enter] || 'fade';
-                    const transDurSec = Math.min(trans.durationFrames / fps, accumulatedDuration * 0.4, clipDurations[i] * 0.4);
-                    const transOffset = Math.max(0, accumulatedDuration - transDurSec);
-
-                    if (trans.enter !== 'none' && transDurSec > 0.03) {
-                        const outLabel = i === videoInputCount - 1 ? '[concat_v]' : `[xf_v${i}]`;
-                        filterChains.push(
-                            `${prevVideoLabel}${preparedVideoStreams[i]}xfade=transition=${transType}:duration=${transDurSec.toFixed(4)}:offset=${transOffset.toFixed(4)}${outLabel}`
-                        );
-                        prevVideoLabel = outLabel;
-                        accumulatedDuration = transOffset + clipDurations[i];
-                    } else {
-                        const outLabel = i === videoInputCount - 1 ? '[concat_v]' : `[xf_v${i}]`;
-                        filterChains.push(
-                            `${prevVideoLabel}${preparedVideoStreams[i]}concat=n=2:v=1:a=0${outLabel}`
-                        );
-                        prevVideoLabel = outLabel;
-                        accumulatedDuration += clipDurations[i];
-                    }
+                    const offset = Math.max(0, cum - D);
+                    const out = i === videoInputCount - 1 ? 'xf_v' : `xfv${i}`;
+                    filterChains.push(`${prevV}${normV[i]}xfade=transition=${xfadeType}:duration=${D}:offset=${offset.toFixed(4)}[${out}]`);
+                    prevV = `[${out}]`;
+                    cum = cum + clipDurations[i] - D;
                 }
+                finalVideoMap = 'xf_v';
 
-                // Audio crossfade chain
-                let prevAudioLabel = preparedAudioStreams[0];
-                let accAudioDur = clipDurations[0];
-
+                // Audio acrossfade chain — overlaps by the same D so A/V stay aligned.
+                let prevA = preparedAudioStreams[0];
                 for (let i = 1; i < videoInputCount; i++) {
-                    const trans = clipTransitions[i];
-                    const transDurSec = Math.min(trans.durationFrames / fps, accAudioDur * 0.4, clipDurations[i] * 0.4);
-
-                    if (trans.enter !== 'none' && transDurSec > 0.03) {
-                        const outLabel = i === videoInputCount - 1 ? '[concat_a]' : `[xf_a${i}]`;
-                        filterChains.push(
-                            `${prevAudioLabel}${preparedAudioStreams[i]}acrossfade=d=${transDurSec.toFixed(4)}:c1=tri:c2=tri${outLabel}`
-                        );
-                        prevAudioLabel = outLabel;
-                        accAudioDur = (accAudioDur - transDurSec) + clipDurations[i];
-                    } else {
-                        const outLabel = i === videoInputCount - 1 ? '[concat_a]' : `[xf_a${i}]`;
-                        filterChains.push(
-                            `${prevAudioLabel}${preparedAudioStreams[i]}concat=n=2:v=0:a=1${outLabel}`
-                        );
-                        prevAudioLabel = outLabel;
-                        accAudioDur += clipDurations[i];
-                    }
+                    const out = i === videoInputCount - 1 ? 'xf_a' : `xfa${i}`;
+                    filterChains.push(`${prevA}${preparedAudioStreams[i]}acrossfade=d=${D}:c1=tri:c2=tri[${out}]`);
+                    prevA = `[${out}]`;
                 }
-                finalVideoMap = 'concat_v';
-                finalAudioMap = 'concat_a';
-                log(`Xfade chain complete: ${videoInputCount - 1} transitions applied`);
+                finalAudioMap = 'xf_a';
             } else {
-                log('No transitions — using simple concat');
+                if (transitionStrategy !== 'cut' && videoInputCount >= 2) {
+                    log(`Transition "${transitionStrategy}" requested but clips too short for ${requestedTransitionDur}s xfade — using hard cuts.`);
+                }
+                log('Stitching clips via concat (hard cuts)');
                 const concatPairs = preparedVideoStreams.map((v, i) => `${v}${preparedAudioStreams[i]}`).join('');
                 filterChains.push(
                     `${concatPairs}concat=n=${videoInputCount}:v=1:a=1[concat_v][concat_a]`
@@ -1064,10 +1230,10 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
 
             if (audioBgOuts.length > 0) {
                 log(`Mixing ${audioBgOuts.length} background audio track(s) via amix`);
-                filterChains.push(`[concat_a]${audioBgOuts.join('')}amix=inputs=${audioBgOuts.length + 1}:duration=first:dropout_transition=0[final_a]`);
+                filterChains.push(`[${finalAudioMap}]${audioBgOuts.join('')}amix=inputs=${audioBgOuts.length + 1}:duration=first:dropout_transition=0[final_a]`);
                 finalAudioMap = 'final_a';
             } else {
-                log('No background audio tracks — using concat audio directly.');
+                log('No background audio tracks — using stitched audio directly.');
             }
 
             // Write filter to temp file
@@ -1079,10 +1245,25 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
 
             // Quality preset args
             const quality = settings?.exportQuality || 'standard';
-            const isHevc = outCodec === 'libx265';
+            // Resolve the real encoder (maps to NVENC when GPU is on + available).
+            const resolvedCodec = resolveVideoEncoder(ffmpegBin, outCodec, !!settings?.useGpu, log);
+            const isNvenc = resolvedCodec.includes('nvenc');
+            const isHevc = resolvedCodec.includes('265') || resolvedCodec.includes('hevc');
             let qualityArgs: string[] = [];
 
-            if (isIntermediate) {
+            if (isNvenc) {
+                // NVENC: presets p1 (fastest) … p7 (best); quality via -cq under -rc vbr.
+                const nvPreset = quality === 'master' ? 'p6' : quality === 'draft' ? 'p2' : 'p4';
+                if (isIntermediate) {
+                    qualityArgs = ['-preset', 'p1', '-rc', 'vbr', '-cq', '12'];
+                } else if (outBitrate > 0) {
+                    qualityArgs = ['-preset', nvPreset, '-rc', 'vbr', '-b:v', `${outBitrate}k`, '-maxrate', `${Math.round(outBitrate * 1.5)}k`, '-bufsize', `${Math.round(outBitrate * 2)}k`];
+                } else {
+                    const cq = quality === 'master' ? '19' : quality === 'draft' ? '28' : '23';
+                    qualityArgs = ['-preset', nvPreset, '-rc', 'vbr', '-cq', cq, '-b:v', '0'];
+                }
+                qualityArgs.push('-c:a', 'aac', '-b:a', `${isIntermediate ? 320 : outAudioBitrate}k`);
+            } else if (isIntermediate) {
                 qualityArgs = ['-preset', 'ultrafast', '-crf', '10', '-c:a', 'aac', '-b:a', '320k'];
             } else if (outBitrate > 0) {
                 qualityArgs = ['-b:v', `${outBitrate}k`, '-maxrate', `${Math.round(outBitrate * 1.5)}k`, '-bufsize', `${Math.round(outBitrate * 2)}k`];
@@ -1098,18 +1279,24 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
             }
 
             // Build full FFmpeg args
+            // OOM FIX: Limit threads and filter concurrency to prevent unbounded memory usage.
+            // Without these, FFmpeg decodes all inputs in parallel, exhausting RAM on complex timelines.
             const ffmpegArgs = [
                 '-y',
+                '-threads', '2',
+                '-filter_threads', '1',
+                '-filter_complex_threads', '1',
                 ...inputArgs,
                 '-filter_complex_script', filterFile,
                 '-map', `[${finalVideoMap}]`,
                 '-map', `[${finalAudioMap}]`,
                 '-r', fps.toString(),
-                '-c:v', outCodec,
+                '-c:v', resolvedCodec,
                 '-pix_fmt', 'yuv420p',
                 '-colorspace', 'bt709',
                 '-color_trc', 'bt709',
                 '-color_primaries', 'bt709',
+                '-max_muxing_queue_size', '1024',
                 '-movflags', '+faststart',
                 ...qualityArgs,
                 filePath
@@ -1141,7 +1328,7 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
                 }
             });
 
-            proc.on('close', (code: number) => {
+            proc.on('close', async (code: number) => {
                 try { fs.unlinkSync(filterFile); } catch {}
                 activeExportProc = null;
 
@@ -1155,10 +1342,27 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
                     event.sender.send('export-progress', 100);
                     resolve({ success: true });
                 } else {
-                    log(`Export FAILED (code ${code})`);
+                    // OOM detection: exit code -12 (ENOMEM) appears as unsigned 4294967284 on Windows
+                    const isOOM = code === -12 || code === 4294967284 || stderrLog.includes('Cannot allocate memory');
+                    log(`Export FAILED (code ${code})${isOOM ? ' — OUT OF MEMORY DETECTED' : ''}`);
                     log('FFmpeg stderr (last 1000 chars):\n' + stderrLog.slice(-1000));
-                    const errMsg = stderrLog.slice(-500).trim() || `FFmpeg exited with code ${code}`;
-                    resolve({ success: false, error: errMsg });
+
+                    if (isOOM) {
+                        log('⚠ Monolithic engine ran out of memory on this project.');
+                        log('  This timeline has too many inputs for a single-pass filter graph.');
+                        log('  Recommendation: Switch to the Per-Clip engine in Export settings, which');
+                        log('  renders each clip individually and avoids this memory limitation.');
+                        try { event.sender.send('export-log', '[Monolithic] ⚠ OUT OF MEMORY — this project is too large for single-pass rendering. Switch to Per-Clip engine.'); } catch {}
+                        // Clean up partial output
+                        try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch {}
+                        resolve({
+                            success: false,
+                            error: 'Out of memory: this project is too large for the Monolithic engine. Please switch to "Per-Clip" render engine in Export settings and try again.'
+                        });
+                    } else {
+                        const errMsg = stderrLog.slice(-500).trim() || `FFmpeg exited with code ${code}`;
+                        resolve({ success: false, error: errMsg });
+                    }
                 }
             });
 
@@ -1223,7 +1427,7 @@ ipcMain.handle('random-render', async (event, { filePath, clips: rawClips, setti
                 fs.writeFileSync(filterFile, vf + ';\n' + af, 'utf-8');
                 const intFile = path.join(tmpDir, `mmm_rr_${i}_${Date.now()}.mkv`);
                 intermediates.push(intFile);
-                const r = await runFfmpegAsync(ffmpegBin, ['-y', '-i', clip.path, '-filter_complex_script', filterFile, '-map', '[v_out]', '-map', '[a_out]', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '0', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', intFile], `rr${i}`);
+                const r = await runFfmpegAsync(ffmpegBin, ['-y', '-i', clip.path, '-filter_complex_script', filterFile, '-map', '[v_out]', '-map', '[a_out]', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '15', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', intFile], `rr${i}`);
                 try { fs.unlinkSync(filterFile); } catch {}
                 if (r.code !== 0) intermediates.pop();
                 event.sender.send('export-progress', Math.round(((i+1)/selected.length)*80));

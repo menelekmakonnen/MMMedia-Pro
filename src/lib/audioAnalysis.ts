@@ -493,3 +493,122 @@ export const analyzeAudio = async (audioBuffer: AudioBuffer, beatSensitivity = 0
         peaks: beats, // Legacy compatibility
     };
 };
+
+// ═══════════════════════════════════════════════════════
+//  RHYTHM CONSISTENCY DETECTION
+// ═══════════════════════════════════════════════════════
+
+export interface RhythmProfile {
+    consistency: 'locked' | 'shifting' | 'chaotic';
+    tempoChanges: { time: number; fromBPM: number; toBPM: number }[];
+    dominantSubdivision: 2 | 3 | 4;
+}
+
+/**
+ * Analyze rhythm consistency from beat markers.
+ * - locked: <5% interval variance (EDM, pop)
+ * - shifting: 5-15% variance (rock, live music)
+ * - chaotic: >15% variance (jazz, experimental)
+ */
+export function analyzeRhythmConsistency(beats: BeatMarker[]): RhythmProfile {
+    if (beats.length < 4) {
+        return { consistency: 'chaotic', tempoChanges: [], dominantSubdivision: 4 };
+    }
+
+    // Calculate inter-beat intervals
+    const intervals: number[] = [];
+    for (let i = 1; i < beats.length; i++) {
+        intervals.push(beats[i].time - beats[i - 1].time);
+    }
+
+    const mean = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+    const variance = intervals.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / intervals.length;
+    const coeffOfVariation = Math.sqrt(variance) / mean;
+
+    // Detect tempo changes (sliding window of 8 beats)
+    const tempoChanges: { time: number; fromBPM: number; toBPM: number }[] = [];
+    const windowSize = 8;
+    for (let i = windowSize; i < intervals.length - windowSize; i++) {
+        const before = intervals.slice(i - windowSize, i);
+        const after = intervals.slice(i, i + windowSize);
+        const bpmBefore = 60 / (before.reduce((a, b) => a + b, 0) / before.length);
+        const bpmAfter = 60 / (after.reduce((a, b) => a + b, 0) / after.length);
+        if (Math.abs(bpmAfter - bpmBefore) > 5) {
+            // Only add if not too close to previous tempo change
+            const lastChange = tempoChanges[tempoChanges.length - 1];
+            if (!lastChange || beats[i].time - lastChange.time > 2.0) {
+                tempoChanges.push({ time: beats[i].time, fromBPM: Math.round(bpmBefore), toBPM: Math.round(bpmAfter) });
+            }
+        }
+    }
+
+    // Detect dominant subdivision (2, 3, or 4 grouping)
+    // Check if beats group naturally into 2s, 3s, or 4s by energy accent patterns
+    let bestSub: 2 | 3 | 4 = 4;
+    let bestScore = 0;
+    for (const sub of [2, 3, 4] as const) {
+        let score = 0;
+        for (let i = 0; i < beats.length; i++) {
+            if (i % sub === 0) score += beats[i].energy;
+        }
+        score /= Math.ceil(beats.length / sub);
+        if (score > bestScore) {
+            bestScore = score;
+            bestSub = sub;
+        }
+    }
+
+    return {
+        consistency: coeffOfVariation < 0.05 ? 'locked' : coeffOfVariation < 0.15 ? 'shifting' : 'chaotic',
+        tempoChanges,
+        dominantSubdivision: bestSub,
+    };
+}
+
+// ═══════════════════════════════════════════════════════
+//  PHRASE DETECTION
+// ═══════════════════════════════════════════════════════
+
+export interface MusicPhrase {
+    startTime: number;
+    endTime: number;
+    beatCount: number;
+    energy: 'rising' | 'falling' | 'steady' | 'peak';
+}
+
+/**
+ * Group beats into musical phrases (typically 4 or 8 bars).
+ * Major editing decisions should happen at phrase boundaries.
+ */
+export function detectPhrases(beats: BeatMarker[], bpm: number, subdivision: number = 4): MusicPhrase[] {
+    if (beats.length < 4) return [];
+
+    // A phrase is typically 4 bars × subdivision beats = subdivision*4 beats
+    const beatsPerPhrase = subdivision * 4;
+    const phrases: MusicPhrase[] = [];
+
+    for (let i = 0; i < beats.length; i += beatsPerPhrase) {
+        const phraseBeats = beats.slice(i, i + beatsPerPhrase);
+        if (phraseBeats.length < 2) break;
+
+        const start = phraseBeats[0].time;
+        const end = phraseBeats[phraseBeats.length - 1].time;
+
+        // Determine energy trajectory
+        const firstHalf = phraseBeats.slice(0, Math.ceil(phraseBeats.length / 2));
+        const secondHalf = phraseBeats.slice(Math.ceil(phraseBeats.length / 2));
+        const firstEnergy = firstHalf.reduce((s, b) => s + b.energy, 0) / firstHalf.length;
+        const secondEnergy = secondHalf.reduce((s, b) => s + b.energy, 0) / secondHalf.length;
+        const avgEnergy = phraseBeats.reduce((s, b) => s + b.energy, 0) / phraseBeats.length;
+
+        let energy: MusicPhrase['energy'];
+        if (avgEnergy > 0.75) energy = 'peak';
+        else if (secondEnergy - firstEnergy > 0.1) energy = 'rising';
+        else if (firstEnergy - secondEnergy > 0.1) energy = 'falling';
+        else energy = 'steady';
+
+        phrases.push({ startTime: start, endTime: end, beatCount: phraseBeats.length, energy });
+    }
+
+    return phrases;
+}

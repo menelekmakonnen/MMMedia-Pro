@@ -93,7 +93,7 @@ const VARIANT_CONFIG: Record<ToastVariant, {
  *  Single Toast Item
  * ═══════════════════════════════════════════════════════════ */
 
-const ToastNotification: React.FC<{ item: ToastItem }> = ({ item }) => {
+const ToastNotification = React.forwardRef<HTMLDivElement, { item: ToastItem }>(({ item }, ref) => {
     const { removeToast } = useToastStore();
     const config = VARIANT_CONFIG[item.variant];
     const duration = item.duration ?? 4000;
@@ -105,6 +105,7 @@ const ToastNotification: React.FC<{ item: ToastItem }> = ({ item }) => {
 
     return (
         <motion.div
+            ref={ref}
             layout
             initial={{ opacity: 0, y: -20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -143,7 +144,8 @@ const ToastNotification: React.FC<{ item: ToastItem }> = ({ item }) => {
             </div>
         </motion.div>
     );
-};
+});
+ToastNotification.displayName = 'ToastNotification';
 
 /* ═══════════════════════════════════════════════════════════
  *  Toast Container — rendered once in App.tsx

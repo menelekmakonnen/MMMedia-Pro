@@ -6,9 +6,10 @@ import { useUserStore } from '../../store/userStore';
 import { useSavedEditsStore } from '../../store/savedEditsStore';
 import { useGodModeStore } from '../../store/godModeStore';
 import { generateTrailerSequence, TrailerSettings, TrailerClip, extractBeatTimestamps } from '../../lib/trailerGenerator';
-import { getClipTransitionStyle } from '../../lib/transitions';
+import { generateSeed } from '../../lib/random';
+
 import { DEFAULT_FPS } from '../../lib/time';
-import { Wand2, RefreshCw, Settings2, Film, Play, Pause, ArrowLeft, Volume2, VolumeX } from 'lucide-react';
+import { Wand2, RefreshCw, Settings2, Film, Play, Pause, ArrowLeft, Volume2, VolumeX, Shuffle, Dice3, Sparkles } from 'lucide-react';
 import clsx from 'clsx';
 import { v4 as uuidv4 } from 'uuid';
 import { Clip } from '../../types';
@@ -37,6 +38,8 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedCli
     const [isPlaying, setIsPlaying] = useState(true);
     const [isGenerating, setIsGenerating] = useState(true);
     const [globalProgress, setGlobalProgress] = useState(0);
+    const [showVolumeBar, setShowVolumeBar] = useState(false);
+    const volumeBarTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const videoARef = useRef<HTMLVideoElement>(null);
     const videoBRef = useRef<HTMLVideoElement>(null);
@@ -98,7 +101,8 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedCli
         }
         
         setTimeout(() => {
-            const seq = generateTrailerSequence(pool, { ...settings, beatTimestamps: beats });
+            // Generate a fresh seed so Flux/regeneration produces different clips
+            const seq = generateTrailerSequence(pool, { ...settings, seed: generateSeed(), beatTimestamps: beats });
             let accumulated = 0;
             const embellished = seq.map(c => {
                 const dur = (c.endFrame - c.startFrame) / DEFAULT_FPS;
@@ -115,6 +119,75 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedCli
         }, 100);
     };
     const hasBuiltOnce = useRef(false);
+
+    // ── SHUFFLE ONLY: keep same clips & durations, just reorder ──
+    const shuffleOnly = () => {
+        if (draftSequence.length <= 1) return;
+        setIsPlaying(false);
+        const videoClips = draftSequence.filter(c => c.type !== 'audio');
+        const audioClips = draftSequence.filter(c => c.type === 'audio');
+        // Fisher-Yates shuffle
+        const shuffled = [...videoClips];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        // Recalculate timeline positions
+        let accumulated = 0;
+        const reordered = shuffled.map(c => {
+            const dur = (c.endFrame - c.startFrame) / DEFAULT_FPS;
+            const ret = { ...c, globalStart: accumulated, globalEnd: accumulated + dur, localDuration: dur };
+            accumulated += dur;
+            return ret;
+        });
+        (reordered as any).totalDuration = accumulated;
+        setDraftSequence([...reordered, ...audioClips]);
+        setCurrentClipIndex(0);
+        setGlobalProgress(0);
+        setIsPlaying(true);
+    };
+
+    // ── RANDOMIZE SEGMENTS + DURATIONS: fresh seed → new trim points, durations, speeds ──
+    const randomizeSegments = () => {
+        hasBuiltOnce.current = true; // force fresh generation (skip preGenerated)
+        buildSequence();
+    };
+
+    // ── SHUFFLE + FLUX: full regenerate then shuffle the result ──
+    const shuffleFlux = async () => {
+        setIsGenerating(true); setIsPlaying(false);
+        hasBuiltOnce.current = true;
+
+        let beats = null;
+        if (settings.useAudioGuide && settings.audioUrl) {
+            beats = await extractBeatTimestamps(settings.audioUrl, settings.audioTrimStart || 0, settings.audioTrimEnd || settings.targetDuration, settings.audioAnalysis);
+        }
+
+        setTimeout(() => {
+            const seq = generateTrailerSequence(pool, { ...settings, seed: generateSeed(), beatTimestamps: beats });
+            // Separate video and audio
+            const videoClips = seq.filter(c => c.type !== 'audio');
+            const audioClips = seq.filter(c => c.type === 'audio');
+            // Shuffle video clips
+            for (let i = videoClips.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [videoClips[i], videoClips[j]] = [videoClips[j], videoClips[i]];
+            }
+            let accumulated = 0;
+            const embellished = videoClips.map(c => {
+                const dur = (c.endFrame - c.startFrame) / DEFAULT_FPS;
+                const ret = { ...c, globalStart: accumulated, globalEnd: accumulated + dur, localDuration: dur };
+                accumulated += dur;
+                return ret;
+            });
+            (embellished as any).totalDuration = accumulated;
+            setDraftSequence([...embellished, ...audioClips]);
+            setCurrentClipIndex(0);
+            setGlobalProgress(0);
+            setIsGenerating(false);
+            if (embellished.length > 0) setIsPlaying(true);
+        }, 100);
+    };
 
     useEffect(() => { buildSequence(); }, [settings]);
 
@@ -170,7 +243,7 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedCli
     const localFrame = currentClip
         ? Math.floor(((globalProgress * ((draftSequence as any).totalDuration || 1)) - (currentClip.globalStart || 0)) * DEFAULT_FPS)
         : 0;
-    const transitionStyle = currentClip ? getClipTransitionStyle(currentClip, Math.max(0, localFrame)) : { transform: '', opacity: 1, zIndex: 20 };
+    const transitionStyle = { transform: '', opacity: 1, zIndex: 20, clipPath: undefined as string | undefined };
 
     // Determine object-fit based on source orientation
     const currentOrientation = currentClip?.sourceOrientation || 'horizontal';
@@ -200,11 +273,14 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedCli
                 // a clip change. The video element needs time to: set src → load
                 // metadata → seek to trimStart → begin playback. Without this grace
                 // period, every clip gets falsely flagged as "stalled" and skipped.
+                //
+                // NOTE: Reversed clips use manual seeking (not native playback), so
+                // stall detection is skipped entirely for them.
                 const STALL_GRACE_MS = 3000;
                 const STALL_TIMEOUT_MS = 5000;
                 const timeSinceClipChange = now - clipChangeTimeRef.current;
 
-                if (timeSinceClipChange > STALL_GRACE_MS) {
+                if (!clip.reversed && timeSinceClipChange > STALL_GRACE_MS) {
                     const ct = activeVid.currentTime;
                     if (ct === lastCurrentTimeRef.current) {
                         if (stallStartRef.current === 0) stallStartRef.current = now;
@@ -222,16 +298,16 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedCli
                 }
 
                 if (clip.reversed) {
-                    const dt = (now - lastRafTimeRef.current) / 1000;
+                    // BOOMERANG PREVIEW: Play forward instead of seeking backward.
+                    // HTML5 video cannot smoothly reverse. The exported video uses
+                    // FFmpeg's `reverse` filter for true reversal. In preview we
+                    // replay the same source range forward — the bouncing duration
+                    // decay still communicates the boomerang feel.
                     lastRafTimeRef.current = now;
-                    const step = dt * (clip.speed || 1);
-                    activeVid.pause();
-                    const newTime = activeVid.currentTime - step;
-                    if (newTime <= trimStart) {
+                    if (activeVid.currentTime >= trimEnd || activeVid.ended) {
                         handleClipEnd();
                     } else {
-                        activeVid.currentTime = newTime;
-                        const globalTime = (clip.globalStart || 0) + Math.max(0, trimEnd - newTime);
+                        const globalTime = (clip.globalStart || 0) + Math.max(0, activeVid.currentTime - trimStart);
                         setGlobalProgress(globalTime / (seq as any).totalDuration);
                     }
                 } else {
@@ -260,17 +336,16 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedCli
         if (activeVid && clip) {
             activeVid.volume = (clip.isMuted || isMasterMuted) ? 0 : vol;
             activeVid.playbackRate = Math.max(0.0625, Math.min(16, clip.speed || 1));
-            const startSec = clip.reversed
-                ? clip.trimEndFrame / DEFAULT_FPS
-                : clip.trimStartFrame / DEFAULT_FPS;
+            // Preview always plays forward from trimStart (FFmpeg handles reversal on export)
+            const startSec = clip.trimStartFrame / DEFAULT_FPS;
             if (Math.abs(activeVid.currentTime - startSec) > 0.1) {
                 const onSeek = () => {
                     activeVid.removeEventListener('seeked', onSeek);
-                    if (isPlayingRef.current && !clip.reversed) activeVid.play().catch(() => {});
+                    if (isPlayingRef.current) activeVid.play().catch(() => {});
                 };
                 activeVid.addEventListener('seeked', onSeek, { once: true });
                 activeVid.currentTime = startSec;
-            } else if (isPlayingRef.current && !clip.reversed) {
+            } else if (isPlayingRef.current) {
                 activeVid.play().catch(() => {});
             } else {
                 activeVid.pause();
@@ -278,9 +353,7 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedCli
         }
 
         if (bgVid && nextClip) {
-            const bgStart = nextClip.reversed
-                ? nextClip.trimEndFrame / DEFAULT_FPS
-                : nextClip.trimStartFrame / DEFAULT_FPS;
+            const bgStart = nextClip.trimStartFrame / DEFAULT_FPS;
             if (bgVid.readyState >= 1) { bgVid.currentTime = bgStart; bgVid.pause(); }
             else { bgVid.addEventListener('loadedmetadata', () => { bgVid.currentTime = bgStart; bgVid.pause(); }, { once: true }); }
         }
@@ -321,6 +394,18 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedCli
             audioPlayerRef.current?.pause();
         };
     }, []);
+
+    // Pause/resume video elements when isPlaying toggles
+    useEffect(() => {
+        const activeVid = activeVideoRef.current === 'A' ? videoARef.current : videoBRef.current;
+        if (!activeVid) return;
+        if (isPlaying && !isGenerating) {
+            const clip = draftSequence[currentClipIndex];
+            if (clip && !clip.reversed) activeVid.play().catch(() => {});
+        } else {
+            activeVid.pause();
+        }
+    }, [isPlaying, isGenerating]);
 
     // Keyboard shortcut: Space to toggle play/pause
     useEffect(() => {
@@ -448,12 +533,11 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedCli
         // Extract thumbnail from first video clip
         const firstVideoClip = videoClips.find(c => c.type === 'video' && c.path);
         useSavedEditsStore.getState().addEdit({
-            name: `${gm.vibe ? gm.vibe.charAt(0).toUpperCase() + gm.vibe.slice(1) + ' ' : ''}Trailer — ${new Date().toLocaleTimeString()}`,
+            name: `Trailer — ${new Date().toLocaleTimeString()}`,
             clips: allClips,
             clipCount: videoClips.length,
             thumbnailPath: firstVideoClip?.path || undefined,
             duration: dur,
-            godModeVibe: gm.vibe || undefined,
             godModePresetId: gm.selectedPresetId || undefined,
         });
 
@@ -493,12 +577,21 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedCli
                         <Settings2 size={16} /> Settings
                     </button>
                 </div>
-                <div className="flex gap-2">
-                    <button onClick={buildSequence} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-500/20 text-purple-300 font-bold text-xs hover:bg-purple-500/40">
-                        <RefreshCw size={14} className={isGenerating ? "animate-spin" : ""} /> Flux All
+                <div className="flex gap-1.5 flex-wrap justify-end">
+                    <button onClick={randomizeSegments} title="New random trim points, durations & speeds — same pool" className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-500/15 text-blue-300 font-bold text-[10px] uppercase tracking-wider hover:bg-blue-500/30 border border-blue-500/20 hover:border-blue-500/40 transition-all">
+                        <Dice3 size={13} className={isGenerating ? "animate-spin" : ""} /> Randomize
                     </button>
-                    <button onClick={handleSave} className="flex items-center gap-2 px-6 py-2 rounded-lg bg-primary text-white font-black uppercase text-xs hover:bg-primary/80">
-                        <Film size={14} /> Keep Edit
+                    <button onClick={shuffleOnly} title="Shuffle clip order — keep same segments & durations" className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-amber-500/15 text-amber-300 font-bold text-[10px] uppercase tracking-wider hover:bg-amber-500/30 border border-amber-500/20 hover:border-amber-500/40 transition-all">
+                        <Shuffle size={13} /> Shuffle
+                    </button>
+                    <button onClick={shuffleFlux} title="Full regenerate + shuffle order" className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-500/15 text-emerald-300 font-bold text-[10px] uppercase tracking-wider hover:bg-emerald-500/30 border border-emerald-500/20 hover:border-emerald-500/40 transition-all">
+                        <Sparkles size={13} className={isGenerating ? "animate-pulse" : ""} /> Shuffle + Flux
+                    </button>
+                    <button onClick={buildSequence} title="Completely regenerate the edit" className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-purple-500/15 text-purple-300 font-bold text-[10px] uppercase tracking-wider hover:bg-purple-500/30 border border-purple-500/20 hover:border-purple-500/40 transition-all">
+                        <RefreshCw size={13} className={isGenerating ? "animate-spin" : ""} /> Flux All
+                    </button>
+                    <button onClick={handleSave} className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-white font-black uppercase text-[10px] tracking-wider hover:bg-primary/80 shadow-[0_0_15px_rgba(var(--color-primary),0.3)]">
+                        <Film size={13} /> Keep Edit
                     </button>
                 </div>
             </div>
@@ -508,7 +601,18 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedCli
                 orientationFilter === 'vertical' ? 'max-w-[40%] mx-auto' : '',
                 orientationFilter === 'square' ? 'max-w-[60%] mx-auto aspect-square' : '')}
                 style={{ ...(orientationFilter === 'vertical' ? { aspectRatio: '9/16' } : {}) }}
-                onClick={() => setIsPlaying(!isPlaying)}>
+                onClick={() => setIsPlaying(!isPlaying)}
+                onWheel={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const delta = e.deltaY > 0 ? -0.05 : 0.05;
+                    const newVol = Math.max(0, Math.min(1, masterVolume + delta));
+                    setMasterVolume(newVol);
+                    if (isMasterMuted && newVol > 0) setIsMasterMuted(false);
+                    setShowVolumeBar(true);
+                    if (volumeBarTimeoutRef.current) clearTimeout(volumeBarTimeoutRef.current);
+                    volumeBarTimeoutRef.current = setTimeout(() => setShowVolumeBar(false), 1500);
+                }}>
                 {isGenerating ? (
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 animate-pulse">
                         <Wand2 size={48} className="text-purple-500/50" />
@@ -536,6 +640,22 @@ export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedCli
                             }}
                             onError={() => { console.warn('[TrailerPlayer] Video B failed to load — skipping clip'); handleClipEnd(); }}
                             playsInline muted={clipB?.isMuted || isMasterMuted} />
+
+                        {/* Volume Overlay Bar */}
+                        {showVolumeBar && (
+                            <div className="absolute top-3 right-3 z-30 flex flex-col items-center gap-1 bg-black/60 backdrop-blur-md rounded-lg px-2 py-2 border border-white/10 transition-opacity duration-300"
+                                style={{ opacity: showVolumeBar ? 1 : 0 }}>
+                                <div className="text-[9px] font-bold text-white/70 uppercase tracking-wider">Vol</div>
+                                <div className="relative w-1.5 h-16 bg-white/10 rounded-full overflow-hidden">
+                                    <div className="absolute bottom-0 w-full rounded-full transition-all duration-150"
+                                        style={{
+                                            height: `${Math.round((isMasterMuted ? 0 : masterVolume) * 100)}%`,
+                                            background: masterVolume > 0.7 ? '#ef4444' : masterVolume > 0.4 ? '#eab308' : '#22c55e'
+                                        }} />
+                                </div>
+                                <div className="text-[10px] font-mono text-white/80">{Math.round((isMasterMuted ? 0 : masterVolume) * 100)}</div>
+                            </div>
+                        )}
 
                         {/* Centered Play/Pause overlay — always accessible */}
                         <div className="absolute inset-0 flex items-center justify-center z-30 pointer-events-none">

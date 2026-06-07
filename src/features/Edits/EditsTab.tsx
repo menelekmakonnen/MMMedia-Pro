@@ -97,8 +97,8 @@ export const EditsTab: React.FC = () => {
 
     const checkFileExists = useCallback(async (filePath: string) => {
         try {
-            if (window.ipcRenderer?.invoke) {
-                const result = await window.ipcRenderer.invoke('check-file-exists', filePath);
+            if (window.ipcRenderer?.checkFileExists) {
+                const result = await window.ipcRenderer.checkFileExists(filePath);
                 return result?.exists !== false;
             }
         } catch { /* fallback */ }

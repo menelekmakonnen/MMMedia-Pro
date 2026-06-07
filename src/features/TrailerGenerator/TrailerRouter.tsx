@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { TrailerWizard } from './TrailerWizard';
 import { TrailerPlayer } from './TrailerPlayer';
 import { TrailerSettings, generateTrailerSequence, extractBeatTimestamps } from '../../lib/trailerGenerator';
+import { generateSeed } from '../../lib/random';
 import { useClipStore } from '../../store/clipStore';
 import { useMediaStore } from '../../store/mediaStore';
 import { useGodModeStore } from '../../store/godModeStore';
@@ -9,6 +10,7 @@ import { useGodModeStore } from '../../store/godModeStore';
 export const TrailerRouter: React.FC = () => {
     const [activeView, setActiveView] = useState<'wizard' | 'player'>('wizard');
     const [settings, setSettings] = useState<TrailerSettings | null>(null);
+    const [preGeneratedClips, setPreGeneratedClips] = useState<any[]>([]);
     const { setClips } = useClipStore();
     const { files } = useMediaStore();
     const autoGenerateConsumed = useRef(false);
@@ -25,17 +27,36 @@ export const TrailerRouter: React.FC = () => {
     }, [autoGenerate, lastGeneratedSettings]);
 
     const handleGenerate = async (newSettings: TrailerSettings) => {
+        if (!newSettings.seed) {
+            newSettings.seed = generateSeed();
+        }
         setSettings(newSettings);
 
         // Generate clips and push to timeline
         let beatTimestamps = newSettings.beatTimestamps;
         if (newSettings.useAudioGuide && newSettings.audioUrl && !beatTimestamps) {
-            beatTimestamps = await extractBeatTimestamps(
-                newSettings.audioUrl,
-                newSettings.audioTrimStart || 0,
-                newSettings.audioTrimEnd || 30,
-                newSettings.audioAnalysis
-            );
+            // If we already have pre-computed audio analysis (from GodMode or Wizard),
+            // extract beats directly — avoids fetch() on file:// URLs which fails in Electron
+            if (newSettings.audioAnalysis && newSettings.audioAnalysis.beats?.length > 0) {
+                const trimStart = newSettings.audioTrimStart || 0;
+                const trimEnd = newSettings.audioTrimEnd || 30;
+                const safeTrimEnd = Math.min(trimEnd, newSettings.audioAnalysis.duration);
+                beatTimestamps = newSettings.audioAnalysis.beats
+                    .filter(b => b.time >= trimStart && b.time <= safeTrimEnd)
+                    .map(b => b.time - trimStart);
+                if (beatTimestamps.length === 0 || beatTimestamps[0] > 0.5) beatTimestamps.unshift(0);
+                const duration = safeTrimEnd - trimStart;
+                if (beatTimestamps[beatTimestamps.length - 1] < duration - 0.5) beatTimestamps.push(duration);
+                console.log(`[TrailerRouter] Extracted ${beatTimestamps.length} beats from pre-computed analysis`);
+            } else {
+                // Fallback: try extractBeatTimestamps (may fail with file:// URLs)
+                beatTimestamps = await extractBeatTimestamps(
+                    newSettings.audioUrl,
+                    newSettings.audioTrimStart || 0,
+                    newSettings.audioTrimEnd || 30,
+                    newSettings.audioAnalysis
+                );
+            }
         }
 
         // ── MEDIA SELECTION LOGIC ──────────────────────────────────────────
@@ -47,6 +68,7 @@ export const TrailerRouter: React.FC = () => {
             : files;
 
         const clips = generateTrailerSequence(pool, { ...newSettings, beatTimestamps });
+        setPreGeneratedClips(clips);
         if (clips.length > 0) {
             // ⚠ EXPORT PIPELINE: Preserve existing audio clips (track 2) from the store.
             // generateTrailerSequence() only produces video clips. If the user imported
@@ -76,6 +98,7 @@ export const TrailerRouter: React.FC = () => {
             ) : (
                 <TrailerPlayer 
                     settings={settings} 
+                    preGeneratedClips={preGeneratedClips}
                     onDiscard={handleDiscard} 
                     onSettings={handleSettings} 
                 />

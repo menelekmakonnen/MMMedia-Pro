@@ -5,15 +5,15 @@ export interface ElectronAPI {
     exportManifest: (content: string) => Promise<{ success: boolean; filePath?: string; error?: string }>;
     importManifest: () => Promise<{ success?: boolean; content?: string; filePath?: string; error?: string; canceled?: boolean }>;
     saveManifest: (content: string) => Promise<{ success: boolean; filePath?: string; error?: string }>;
-    send: (channel: string, ...args: any[]) => void;
-    on: (channel: string, listener: (...args: any[]) => void) => void;
-    off: (channel: string, listener: (...args: any[]) => void) => void;
-    invoke: (channel: string, ...args: any[]) => Promise<any>;
+    // Window controls
+    windowControl: (action: 'minimize' | 'maximize' | 'close') => void;
+    checkFileExists: (filePath: string) => Promise<{ exists: boolean }>;
 
     // Export API
     showExportDialog: (options: any) => Promise<{ canceled: boolean; filePath?: string }>;
     exportProject: (args: { filePath: string; clips: any[]; settings: any; isIntermediate?: boolean }) => Promise<{ success: boolean; error?: string }>;
     exportProjectMonolithic: (args: { filePath: string; clips: any[]; settings: any; isIntermediate?: boolean }) => Promise<{ success: boolean; error?: string }>;
+    analyzeRenderParity: (args: { clips: any[]; settings: any }) => Promise<{ ok: boolean; warnings: { level: 'warning' | 'info'; message: string }[] }>;
     cancelExport: () => Promise<{ success: boolean; error?: string }>;
     pauseExport: () => Promise<{ success: boolean; error?: string }>;
     resumeExport: () => Promise<{ success: boolean; error?: string }>;

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { v4 as uuidv4 } from 'uuid';
 import { ProjectSettings, ProjectResolution, ResolutionPreset } from '../types';
+import { generateSeed } from '../lib/random';
 
 interface ProjectState {
     settings: ProjectSettings;
@@ -124,6 +125,7 @@ export const useProjectStore = create<ProjectState>()(
                     lastModified: new Date().toISOString(),
                     sequenceViewSplitHeight: 50,
                     sequenceLoop: false,
+                    seed: generateSeed(),
                 }
             })
         }),

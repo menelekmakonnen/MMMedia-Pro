@@ -75,21 +75,21 @@ function App() {
                     <BridgeListener />
                     <button
                         className="h-6 w-6 flex items-center justify-center hover:bg-white/10 rounded transition-colors"
-                        onClick={() => window.ipcRenderer.send('window-control', 'minimize')}
+                        onClick={() => window.ipcRenderer.windowControl('minimize')}
                         title="Minimize"
                     >
                         <Minus size={14} />
                     </button>
                     <button
                         className="h-6 w-6 flex items-center justify-center hover:bg-white/10 rounded transition-colors"
-                        onClick={() => window.ipcRenderer.send('window-control', 'maximize')}
+                        onClick={() => window.ipcRenderer.windowControl('maximize')}
                         title="Maximize"
                     >
                         <Square size={12} />
                     </button>
                     <button
                         className="h-6 w-6 flex items-center justify-center hover:bg-red-500/20 rounded transition-colors"
-                        onClick={() => window.ipcRenderer.send('window-control', 'close')}
+                        onClick={() => window.ipcRenderer.windowControl('close')}
                         title="Close"
                     >
                         <X size={14} />
