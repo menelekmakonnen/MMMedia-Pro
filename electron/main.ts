@@ -7,6 +7,8 @@ import ffmpegStatic from 'ffmpeg-static';
 import { resolveEffectFilter, getUnexportableEffects } from './effectCompiler';
 import { buildAtempoChain, shouldUseIntermediateForReverse, buildVideoFilter, buildClipAudioFilter, computeClipTiming } from './filterBuilder';
 import { getTransitionFFmpegName, isApproximatedTransition } from '../src/lib/transitions';
+import { getGridLayout } from '../src/lib/gridTemplates';
+import type { GridCellLayout } from '../src/lib/gridTemplates';
 
 process.env.DIST = join(__dirname, '../dist')
 process.env.VITE_PUBLIC = app.isPackaged ? process.env.DIST : join(process.env.DIST, '../public')
@@ -498,6 +500,213 @@ ipcMain.handle('analyze-render-parity', async (_event, { clips: rawClips, settin
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
+// GRID CLIP COMPOSITOR
+// Renders a grid clip (multiple cells, each with their own sub-clips) into a
+// single composited intermediate file. Each cell is rendered independently,
+// then overlaid onto a black background at the correct position.
+// ══════════════════════════════════════════════════════════════════════════════
+
+interface RenderGridOpts {
+    outW: number;
+    outH: number;
+    fps: number;
+    projectFps: number;
+    es: any; // ExportSettings-like object passed to buildVideoFilter
+}
+
+async function renderGridClip(
+    grid: any,
+    opts: RenderGridOpts,
+    ffmpegBin: string,
+    tmpDir: string,
+    log: (msg: string) => void
+): Promise<string | null> {
+    const path = require('path');
+    const { outW, outH, fps, projectFps, es } = opts;
+    const gridDuration = ((grid.endFrame ?? 0) - (grid.startFrame ?? 0)) / projectFps;
+    if (gridDuration <= 0) { log('  ⚠ Grid has zero duration'); return null; }
+
+    const cells: any[] = grid.cells || [];
+    const layout: GridCellLayout[] = getGridLayout(grid.numCells || cells.length, grid.gridFormat || 'square');
+    const cellIntermediates: { file: string; cellIdx: number; layoutCell: GridCellLayout }[] = [];
+    const cellCleanup: string[] = []; // Track cell-level intermediates for cleanup
+
+    for (let ci = 0; ci < cells.length; ci++) {
+        const cell = cells[ci];
+        const cellClips: any[] = (cell.clips && cell.clips.length > 0) ? cell.clips : (cell.clip ? [cell.clip] : []);
+        if (cellClips.length === 0) {
+            log(`  Cell ${ci}: empty — skipping`);
+            continue;
+        }
+        // Filter out clips with invalid paths
+        const validClips = cellClips.filter((c: any) => {
+            const p = normalizeClipPath(c.path || '');
+            if (!p || p.startsWith('blob:') || p.startsWith('http:') || p.startsWith('data:')) return false;
+            if (!fs.existsSync(p)) { log(`  Cell ${ci}: skip sub-clip "${c.filename}" — file not found`); return false; }
+            return true;
+        }).map((c: any) => ({ ...c, path: normalizeClipPath(c.path) }));
+
+        if (validClips.length === 0) {
+            log(`  Cell ${ci}: no valid sub-clips after filtering — skipping`);
+            continue;
+        }
+
+        const cellLayout = ci < layout.length ? layout[ci] : layout[layout.length - 1];
+        const cellW = Math.max(2, Math.round(outW * cellLayout.width));
+        const cellH = Math.max(2, Math.round(outH * cellLayout.height));
+        // FFmpeg requires even dimensions
+        const cellWEven = cellW % 2 === 0 ? cellW : cellW + 1;
+        const cellHEven = cellH % 2 === 0 ? cellH : cellH + 1;
+
+        // Build cell-level ExportSettings with the cell's proportional resolution
+        const cellEs = { ...es, width: cellWEven, height: cellHEven };
+
+        // Render each sub-clip in this cell
+        const subIntFiles: string[] = [];
+        for (let si = 0; si < validClips.length; si++) {
+            const subClip = validClips[si];
+            const isImage = subClip.type === 'image';
+            try {
+                let probeSub: { hasAudio: boolean; duration: number };
+                try { probeSub = probeClipFile(ffmpegBin, subClip.path); } catch { probeSub = { hasAudio: false, duration: 0 }; }
+                if (!isImage && probeSub.duration <= 0) { log(`  Cell ${ci} sub-clip ${si}: corrupt source — skipping`); continue; }
+
+                const probeData = { width: subClip.width || cellWEven, height: subClip.height || cellHEven, duration: isImage ? 36000 : probeSub.duration };
+                const timing = computeClipTiming(subClip, cellEs, probeData);
+                const vf = buildVideoFilter(subClip, cellEs, probeData, { preSeeked: true });
+                const af = buildClipAudioFilter(subClip, cellEs, probeData, { preSeeked: true });
+                const hasAudio = probeSub.hasAudio && !isImage;
+                const subIntFile = path.join(tmpDir, `mmm_grid_c${ci}_s${si}_${Date.now()}.mkv`);
+
+                const inputs: string[] = isImage
+                    ? ['-loop', '1', '-t', (timing.srcDurSec + 0.1).toFixed(4), '-i', subClip.path]
+                    : ['-ss', timing.seekSec.toFixed(4), '-i', subClip.path];
+                let fc: string, vmap: string, amap: string;
+                if (hasAudio) {
+                    fc = `[0:v]${vf}[v];[0:a]${af}[a]`; vmap = '[v]'; amap = '[a]';
+                } else {
+                    inputs.push('-f', 'lavfi', '-t', (timing.outDurSec + 0.25).toFixed(4), '-i', 'anullsrc=r=48000:cl=stereo');
+                    fc = `[0:v]${vf}[v]`; vmap = '[v]'; amap = '1:a';
+                }
+                const subArgs = ['-y', ...inputs, '-filter_complex', fc, '-map', vmap, '-map', amap,
+                    '-t', timing.outDurSec.toFixed(4), '-r', String(fps),
+                    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '15', '-pix_fmt', 'yuv420p',
+                    '-c:a', 'aac', '-b:a', '320k', '-ar', '48000', '-ac', '2', subIntFile];
+
+                const r = await runFfmpegAsync(ffmpegBin, subArgs, `grid_c${ci}_s${si}`, () => {});
+                if (r.code !== 0 || !fs.existsSync(subIntFile)) {
+                    log(`  Cell ${ci} sub-clip ${si} "${subClip.filename}" failed: ${r.stderr.slice(-150).trim()}`);
+                    continue;
+                }
+                subIntFiles.push(subIntFile);
+                cellCleanup.push(subIntFile);
+                log(`  Cell ${ci} sub-clip ${si}: "${subClip.filename}" rendered (${cellWEven}x${cellHEven})`);
+            } catch (subErr: any) {
+                log(`  Cell ${ci} sub-clip ${si} error: ${subErr?.message || subErr}`);
+            }
+        }
+
+        if (subIntFiles.length === 0) {
+            log(`  Cell ${ci}: all sub-clips failed — skipping`);
+            continue;
+        }
+
+        // If a cell has multiple sub-clips, concat them together
+        let cellFile: string;
+        if (subIntFiles.length === 1) {
+            cellFile = subIntFiles[0];
+        } else {
+            cellFile = path.join(tmpDir, `mmm_grid_cell${ci}_${Date.now()}.mkv`);
+            const concatInputs: string[] = [];
+            subIntFiles.forEach(f => { concatInputs.push('-i', f); });
+            const pairs = subIntFiles.map((_: string, k: number) => `[${k}:v][${k}:a]`).join('');
+            const concatFc = `${pairs}concat=n=${subIntFiles.length}:v=1:a=1[cv][ca]`;
+            const concatArgs = ['-y', ...concatInputs, '-filter_complex', concatFc, '-map', '[cv]', '-map', '[ca]',
+                '-t', gridDuration.toFixed(4), '-r', String(fps),
+                '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '15', '-pix_fmt', 'yuv420p',
+                '-c:a', 'aac', '-b:a', '320k', '-ar', '48000', '-ac', '2', cellFile];
+            const cr = await runFfmpegAsync(ffmpegBin, concatArgs, `grid_cell${ci}_concat`, () => {});
+            if (cr.code !== 0 || !fs.existsSync(cellFile)) {
+                log(`  Cell ${ci}: concat failed — ${cr.stderr.slice(-150).trim()}`);
+                continue;
+            }
+            cellCleanup.push(cellFile);
+            log(`  Cell ${ci}: ${subIntFiles.length} sub-clips concatenated`);
+        }
+
+        cellIntermediates.push({ file: cellFile, cellIdx: ci, layoutCell: cellLayout });
+    }
+
+    if (cellIntermediates.length === 0) {
+        log('  Grid: no cells rendered successfully');
+        cellCleanup.forEach(f => { try { fs.unlinkSync(f); } catch {} });
+        return null;
+    }
+
+    // ── Build final grid composite ──
+    // Input 0: black background; Inputs 1..N: cell intermediates
+    const gridOutFile = path.join(tmpDir, `mmm_grid_final_${Date.now()}.mkv`);
+    const gridInputs: string[] = [
+        '-f', 'lavfi', '-i', `color=c=black:s=${outW}x${outH}:d=${gridDuration.toFixed(4)}:r=${fps}`,
+    ];
+    cellIntermediates.forEach(ci => { gridInputs.push('-i', ci.file); });
+
+    // Build the overlay chain
+    const fcChains: string[] = [];
+    let prevLabel = '0:v';
+    for (let k = 0; k < cellIntermediates.length; k++) {
+        const { layoutCell } = cellIntermediates[k];
+        const inputIdx = k + 1; // 0 is the background
+        const ox = Math.round(layoutCell.x * outW);
+        const oy = Math.round(layoutCell.y * outH);
+        const cellW2 = Math.max(2, Math.round(outW * layoutCell.width));
+        const cellH2 = Math.max(2, Math.round(outH * layoutCell.height));
+        const cellW2Even = cellW2 % 2 === 0 ? cellW2 : cellW2 + 1;
+        const cellH2Even = cellH2 % 2 === 0 ? cellH2 : cellH2 + 1;
+        const outLabel = k === cellIntermediates.length - 1 ? 'gv' : `ov${k}`;
+        // Scale cell intermediate to exact cell size, then overlay at position
+        fcChains.push(`[${inputIdx}:v]scale=${cellW2Even}:${cellH2Even}:force_original_aspect_ratio=decrease,pad=${cellW2Even}:${cellH2Even}:(ow-iw)/2:(oh-ih)/2,setsar=1[cs${k}]`);
+        fcChains.push(`[${prevLabel}][cs${k}]overlay=x=${ox}:y=${oy}:shortest=1[${outLabel}]`);
+        prevLabel = outLabel;
+    }
+
+    // Audio: mix all cell audio tracks together
+    if (cellIntermediates.length === 1) {
+        fcChains.push(`[1:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[ga]`);
+    } else {
+        const aLabels = cellIntermediates.map((_, k) => {
+            fcChains.push(`[${k + 1}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[ca${k}]`);
+            return `[ca${k}]`;
+        });
+        fcChains.push(`${aLabels.join('')}amix=inputs=${cellIntermediates.length}:duration=longest:dropout_transition=0[ga]`);
+    }
+
+    const filterScript = fcChains.join(';\n');
+    const filterFile = path.join(tmpDir, `mmm_grid_fc_${Date.now()}.txt`);
+    fs.writeFileSync(filterFile, filterScript, 'utf-8');
+
+    const gridArgs = ['-y', ...gridInputs, '-filter_complex_script', filterFile,
+        '-map', '[gv]', '-map', '[ga]', '-t', gridDuration.toFixed(4), '-r', String(fps),
+        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '15', '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac', '-b:a', '320k', '-ar', '48000', '-ac', '2', gridOutFile];
+
+    log(`  Grid: compositing ${cellIntermediates.length} cells onto ${outW}x${outH} background (dur=${gridDuration.toFixed(3)}s)`);
+    const gr = await runFfmpegAsync(ffmpegBin, gridArgs, 'grid_composite', () => {});
+    try { fs.unlinkSync(filterFile); } catch {}
+
+    // Clean up cell intermediates (keep only the final grid file)
+    cellCleanup.forEach(f => { try { fs.unlinkSync(f); } catch {} });
+
+    if (gr.code !== 0 || !fs.existsSync(gridOutFile)) {
+        log(`  Grid: composite failed (code ${gr.code}): ${gr.stderr.slice(-300).trim()}`);
+        return null;
+    }
+
+    log(`  Grid: composite complete → ${gridOutFile}`);
+    return gridOutFile;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // EXPORT PIPELINE — SEGMENT ENGINE (DEFAULT)
 // Two-stage hybrid that gets the best of both legacy engines:
 //   Stage 1 — render every clip to a duration-CAPPED ("-t") normalized
@@ -545,9 +754,18 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
             // ── Normalize / filter / sort ──
             let clips = rawClips
                 .filter((c: any) => !c.disabled)
-                .map((c: any) => ({ ...c, path: normalizeClipPath(c.path) }))
-                .filter((c: any) => c.path && !c.path.startsWith('blob:') && !c.path.startsWith('http:') && !c.path.startsWith('data:'))
-                .filter((c: any) => { if (!fs.existsSync(c.path)) { log(`⚠ Skip "${c.filename}" — file not found`); return false; } return true; })
+                .map((c: any) => ({ ...c, path: normalizeClipPath(c.path || '') }))
+                .filter((c: any) => {
+                    // Grid clips have no path — always pass them through
+                    if (c.type === 'grid') return true;
+                    return c.path && !c.path.startsWith('blob:') && !c.path.startsWith('http:') && !c.path.startsWith('data:');
+                })
+                .filter((c: any) => {
+                    // Grid clips don't have a file to check
+                    if (c.type === 'grid') return true;
+                    if (!fs.existsSync(c.path)) { log(`⚠ Skip "${c.filename}" — file not found`); return false; }
+                    return true;
+                })
                 .sort((a: any, b: any) => {
                     if (a.type === 'audio' && b.type !== 'audio') return 1;
                     if (a.type !== 'audio' && b.type === 'audio') return -1;
@@ -568,6 +786,29 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
             for (let i = 0; i < videoClips.length; i++) {
                 if ((activeExportProc as any)?.__cancelled) { cancelled = true; break; }
                 const clip = videoClips[i];
+
+                // ── Grid clip: composite via renderGridClip ──
+                if (clip.type === 'grid') {
+                    try {
+                        log(`Clip ${i + 1}/${videoClips.length}: "${clip.filename}" — rendering grid (${clip.numCells} cells, ${clip.gridFormat})`);
+                        const gridIntFile = await renderGridClip(clip, { outW, outH, fps, projectFps, es }, ffmpegBin, tmpDir, log);
+                        if (gridIntFile && fs.existsSync(gridIntFile)) {
+                            const gridDur = ((clip.endFrame ?? 0) - (clip.startFrame ?? 0)) / projectFps;
+                            intermediates.push(gridIntFile);
+                            renderedClips.push(clip);
+                            outDurs.push(gridDur);
+                            log(`Clip ${i + 1}/${videoClips.length}: "${clip.filename}" grid composite done, dur=${gridDur.toFixed(3)}s`);
+                        } else {
+                            log(`⚠ Clip ${i + 1}/${videoClips.length} "${clip.filename}" grid render failed`);
+                        }
+                    } catch (gridErr: any) {
+                        log(`⚠ Clip ${i + 1}/${videoClips.length} "${clip.filename}" grid error: ${gridErr?.message || gridErr}`);
+                    }
+                    event.sender.send('export-progress', Math.round(((i + 1) / videoClips.length) * 70));
+                    continue;
+                }
+
+                // ── Normal clip (video/image) ──
                 const isImage = clip.type === 'image';
                 if (!probeCache.has(clip.path)) probeCache.set(clip.path, probeClipFile(ffmpegBin, clip.path));
                 const probe = probeCache.get(clip.path)!;
@@ -618,8 +859,9 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
             for (let i = 0; i < N - 1; i++) {
                 const ct = renderedClips[i]?.transition;
                 let type: string = ct && ct.type ? ct.type
-                    : globalStrategy === 'cross-dissolve' ? 'fade'
-                    : globalStrategy === 'fade-to-black' ? 'fadeblack' : 'cut';
+                    : globalStrategy === 'cross-dissolve' ? 'fade'      // legacy compat
+                    : globalStrategy === 'fade-to-black' ? 'fadeblack'  // legacy compat
+                    : globalStrategy || 'cut';                          // pass any TransitionType directly
                 let durSec = ct && ct.durationFrames ? ct.durationFrames / projectFps : globalTransDur;
                 if (type === 'cut') { boundaries.push({ name: null, dur: 0 }); continue; }
                 const maxD = 0.4 * Math.min(outDurs[i], outDurs[i + 1]);
@@ -660,7 +902,7 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                     const ov = i === N - 1 ? 'xv_out' : `xv${i}`;
                     const oa = i === N - 1 ? 'xa_out' : `xa${i}`;
                     chains.push(`${prevV}${nv[i]}xfade=transition=${name}:duration=${D.toFixed(4)}:offset=${offset.toFixed(4)}[${ov}]`);
-                    chains.push(`${prevA}${na[i]}acrossfade=d=${D.toFixed(4)}:c1=tri:c2=tri[${oa}]`);
+                    chains.push(`${prevA}${na[i]}acrossfade=d=${D.toFixed(4)}:c1=qsin:c2=qsin[${oa}]`);
                     prevV = `[${ov}]`; prevA = `[${oa}]`; cum = cum + outDurs[i] - D;
                 }
                 stitchV = prevV.replace(/[\[\]]/g, ''); stitchA = prevA.replace(/[\[\]]/g, '');
@@ -1465,7 +1707,7 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
                 let prevA = preparedAudioStreams[0];
                 for (let i = 1; i < videoInputCount; i++) {
                     const out = i === videoInputCount - 1 ? 'xf_a' : `xfa${i}`;
-                    filterChains.push(`${prevA}${preparedAudioStreams[i]}acrossfade=d=${D}:c1=tri:c2=tri[${out}]`);
+                    filterChains.push(`${prevA}${preparedAudioStreams[i]}acrossfade=d=${D}:c1=qsin:c2=qsin[${out}]`);
                     prevA = `[${out}]`;
                 }
                 finalAudioMap = 'xf_a';
@@ -1801,6 +2043,166 @@ ipcMain.handle('open-path', async (_event, fullPath: string) => {
     try {
         const { shell } = require('electron');
         await shell.openPath(fullPath);
+        return { success: true };
+    } catch (err: any) {
+        return { success: false, error: err.message };
+    }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PREVIEW PROXY ENGINE
+// Generates low-res FFmpeg preview proxies for clips with effects so the
+// player can show exact rendered output. Uses the SAME filter builders
+// (buildVideoFilter / buildClipAudioFilter) as the export engine.
+// ══════════════════════════════════════════════════════════════════════════════
+
+ipcMain.handle('generate-preview-proxy', async (_event, { clip: rawClip, settings }) => {
+    const path = require('path');
+    const crypto = require('crypto');
+    const ffmpegBin = resolveFFmpegBin();
+
+    try {
+        // Normalize clip path
+        const clip = { ...rawClip, path: normalizeClipPath(rawClip.path || '') };
+
+        // Validate source exists
+        if (!clip.path || clip.path.startsWith('blob:') || clip.path.startsWith('data:')) {
+            return { success: false, error: 'Invalid source path (blob/data URL)' };
+        }
+        if (!fs.existsSync(clip.path)) {
+            return { success: false, error: `Source not found: ${clip.path}` };
+        }
+
+        // Build a hash of all visual settings to detect changes
+        const hashInput = JSON.stringify({
+            path: clip.path,
+            trimStartFrame: clip.trimStartFrame,
+            trimEndFrame: clip.trimEndFrame,
+            startFrame: clip.startFrame,
+            endFrame: clip.endFrame,
+            speed: clip.speed,
+            reversed: clip.reversed,
+            rotation: clip.rotation,
+            flipH: clip.flipH,
+            flipV: clip.flipV,
+            zoomStart: clip.zoomStart,
+            zoomEnd: clip.zoomEnd,
+            zoomLevel: clip.zoomLevel,
+            zoomOrigin: clip.zoomOrigin,
+            effectIds: clip.effectIds,
+            parametricEffects: clip.parametricEffects,
+            colorGrading: clip.colorGrading,
+            textOverlays: clip.textOverlays,
+            shake: clip.shake,
+            filmGrain: clip.filmGrain,
+            vignette: clip.vignette,
+            chromaticAberration: clip.chromaticAberration,
+            sharpen: clip.sharpen,
+            blurAmount: clip.blurAmount,
+            chromaKey: clip.chromaKey,
+            letterbox: clip.letterbox,
+            volume: clip.volume,
+            isMuted: clip.isMuted,
+        });
+        const hash = crypto.createHash('md5').update(hashInput).digest('hex');
+
+        // Output path
+        const proxyDir = path.join(app.getPath('userData'), 'preview_proxies');
+        if (!fs.existsSync(proxyDir)) fs.mkdirSync(proxyDir, { recursive: true });
+        const proxyPath = path.join(proxyDir, `${hash}.mp4`);
+
+        // If proxy already exists, return it immediately
+        if (fs.existsSync(proxyPath)) {
+            return { success: true, proxyPath, hash };
+        }
+
+        // Low-res proxy settings: 640x360, 15fps, crf=28, ultrafast
+        const proxyW = 640;
+        const proxyH = 360;
+        const proxyFps = 15;
+        const projectFps = settings?.fps || 30;
+        const es: any = {
+            width: proxyW,
+            height: proxyH,
+            fps: proxyFps,
+            projectFps: projectFps,
+            quality: 'draft',
+            codec: 'h264',
+        };
+
+        // Probe source
+        const isImage = clip.type === 'image';
+        const probe = probeClipFile(ffmpegBin, clip.path);
+        const probeData = {
+            width: clip.width || proxyW,
+            height: clip.height || proxyH,
+            duration: isImage ? 36000 : probe.duration,
+        };
+
+        // Compute timing
+        const timing = computeClipTiming(clip, es, probeData);
+
+        // Build filters using the same shared logic as the export engine
+        const vf = buildVideoFilter(clip, es, probeData, { preSeeked: true });
+        const af = buildClipAudioFilter(clip, es, probeData, { preSeeked: true });
+
+        // Build FFmpeg args
+        const inputs: string[] = isImage
+            ? ['-loop', '1', '-t', (timing.srcDurSec + 0.1).toFixed(4), '-i', clip.path]
+            : ['-ss', timing.seekSec.toFixed(4), '-i', clip.path];
+
+        const args: string[] = [
+            '-y',
+            ...inputs,
+            '-filter_complex', `[0:v]${vf}[v_out]${probe.hasAudio && !isImage ? `;[0:a]${af}[a_out]` : ''}`,
+            '-map', '[v_out]',
+            ...(probe.hasAudio && !isImage ? ['-map', '[a_out]'] : ['-an']),
+            '-t', timing.outDurSec.toFixed(4),
+            '-c:v', 'libx264',
+            '-preset', 'ultrafast',
+            '-crf', '28',
+            '-r', String(proxyFps),
+            ...(probe.hasAudio && !isImage ? ['-c:a', 'aac', '-b:a', '64k'] : []),
+            '-movflags', '+faststart',
+            proxyPath,
+        ];
+
+        console.log('[ProxyEngine] Generating proxy for', clip.filename, '→', proxyPath);
+
+        // Run FFmpeg
+        const result = await new Promise<{ code: number; stderr: string }>((resolve) => {
+            const { spawn } = require('child_process');
+            const p = spawn(ffmpegBin, args, { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+            let stderr = '';
+            p.stderr.on('data', (d: Buffer) => { stderr += d.toString(); });
+            p.on('close', (code: number) => resolve({ code: code ?? 1, stderr }));
+            p.on('error', (err: any) => resolve({ code: 1, stderr: err.message }));
+        });
+
+        if (result.code !== 0) {
+            console.error('[ProxyEngine] FFmpeg failed:', result.stderr.slice(-500));
+            // Clean up partial file
+            try { if (fs.existsSync(proxyPath)) fs.unlinkSync(proxyPath); } catch {}
+            return { success: false, error: `FFmpeg exited with code ${result.code}`, hash };
+        }
+
+        console.log('[ProxyEngine] ✅ Proxy ready:', proxyPath);
+        return { success: true, proxyPath, hash };
+    } catch (err: any) {
+        console.error('[ProxyEngine] Error:', err);
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('invalidate-preview-proxy', async (_event, { hash }) => {
+    const path = require('path');
+    try {
+        const proxyDir = path.join(app.getPath('userData'), 'preview_proxies');
+        const proxyPath = path.join(proxyDir, `${hash}.mp4`);
+        if (fs.existsSync(proxyPath)) {
+            fs.unlinkSync(proxyPath);
+            console.log('[ProxyEngine] Invalidated proxy:', hash);
+        }
         return { success: true };
     } catch (err: any) {
         return { success: false, error: err.message };

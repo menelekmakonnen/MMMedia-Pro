@@ -1,5 +1,0 @@
-line1 ascii
-line2 em-dash — here
-line3 arrow → here
-line4 emoji ✅ here
-line5 END-OF-FILE-MARKER

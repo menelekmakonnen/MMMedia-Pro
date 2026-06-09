@@ -258,5 +258,54 @@ export interface GridClip extends Clip {
 }
 
 
+// ─── Canonical EditDocument Schema ────────────────────────────────────────────
+
+export interface EffectRecipe {
+    id: string;
+    name: string;
+    effectIds: string[];
+    parametricEffects?: Array<{
+        effectId: string;
+        params: Record<string, number | string | boolean>;
+    }>;
+    colorGrading?: import('./lib/colorGrading').ColorGrading;
+    filmGrain?: number;
+    vignette?: number;
+    chromaticAberration?: number;
+    sharpen?: number;
+    blurAmount?: number;
+}
+
+export interface EditDocument {
+    version: string;                        // Schema version (e.g. "2.0.0")
+    project: {
+        name: string;
+        resolution: { width: number; height: number; label?: string };
+        aspectRatio: string;
+        fps: number;
+        seed?: string;
+        backgroundFillMode: BackgroundFillMode;
+        targetDurationSeconds?: number;
+        sequenceLoop?: boolean;
+    };
+    clips: Clip[];
+    transitionStrategy: string;
+    trackMutes: Record<number, boolean>;
+    trackVolumes: Record<number, number>;
+    styleDNA?: {
+        id: string;
+        name: string;
+        cutDensity: number;
+        zoomStrategy: 'none' | 'subtle' | 'aggressive' | 'ken-burns';
+        transitionAggression: number;
+        colorMood: string;
+        audioStrategy: 'beat-sync' | 'free' | 'rhythmic';
+        effectIntensity: number;
+        speedRange: [number, number];
+        createdAt: string;
+    };
+    effectRecipes?: EffectRecipe[];
+}
+
 
 export type TabId = 'dashboard' | 'media' | 'trailer' | 'timeline' | 'grideditor' | 'export' | 'sequence' | 'videoplayer' | 'edits' | 'global-settings';

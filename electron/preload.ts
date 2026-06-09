@@ -84,6 +84,10 @@ try {
             try { return webUtils.getPathForFile(file); }
             catch { return ''; }
         },
+
+        // Preview Proxy API
+        generatePreviewProxy: (args: { clip: any; settings: any }) => ipcRenderer.invoke('generate-preview-proxy', args),
+        invalidatePreviewProxy: (args: { hash: string }) => ipcRenderer.invoke('invalidate-preview-proxy', args),
     })
 
     console.log('[Preload] ✅ IPC API successfully exposed to window.ipcRenderer');

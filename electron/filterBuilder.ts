@@ -297,7 +297,35 @@ export function buildZoompanFilter(
     // get exactly one output frame per input frame and animate the zoom via the
     // global output-frame counter `on` over the clip's total frame span.
     const totalFrames = d; // total output frames over which to interpolate
-    const zExpr = `'lerp(${zs},${ze},min(1,on/${totalFrames}))'`;
+
+    // Build eased progress expression based on zoomCurve
+    // t = linear progress (0..1), eased = curve-adjusted progress
+    const curve = clip.zoomCurve || 'linear';
+    let tExpr: string;
+    switch (curve) {
+        case 'ease-in':
+            // Quadratic ease-in: t^2
+            tExpr = `min(1,on/${totalFrames})*min(1,on/${totalFrames})`;
+            break;
+        case 'ease-out':
+            // Quadratic ease-out: 1-(1-t)^2
+            tExpr = `(1-(1-min(1,on/${totalFrames}))*(1-min(1,on/${totalFrames})))`;
+            break;
+        case 'ease-in-out':
+            // Smoothstep: 3t^2 - 2t^3
+            tExpr = `(3*min(1,on/${totalFrames})*min(1,on/${totalFrames})-2*min(1,on/${totalFrames})*min(1,on/${totalFrames})*min(1,on/${totalFrames}))`;
+            break;
+        case 'snap':
+            // Fast snap: cubic ease-out for punchy zoom
+            tExpr = `(1-(1-min(1,on/${totalFrames}))*(1-min(1,on/${totalFrames}))*(1-min(1,on/${totalFrames})))`;
+            break;
+        case 'linear':
+        default:
+            tExpr = `min(1,on/${totalFrames})`;
+            break;
+    }
+    // Interpolate: zs + (ze - zs) * eased_t
+    const zExpr = `'${zs}+(${ze}-${zs})*${tExpr}'`;
 
     return `zoompan=z=${zExpr}:x=${xExpr}:y=${yExpr}:d=1:s=${outputWidth}x${outputHeight}:fps=${fps}`;
 }
@@ -517,29 +545,31 @@ export function buildVideoFilter(
         const scaleUp = 1 + (maxOffset * 2) / Math.min(outW, outH);
         // Scale up slightly to allow crop offsets without black edges
         filters.push(`scale=${Math.round(outW * scaleUp)}:${Math.round(outH * scaleUp)}`);
-        // Use random offsets with decay for impact-style shake
+        // Use coherent sine-based motion with decay for smooth, non-jittery shake
         if (sh.type === 'impact') {
+            // Impact: multi-frequency sine blend with exponential decay — feels like a camera hit
             const decay = sh.decayRate || 5;
             filters.push(`crop=${outW}:${outH}:` +
-                `'(iw-${outW})/2+${maxOffset}*random(1)*exp(-${decay}*t)':` +
-                `'(ih-${outH})/2+${maxOffset}*random(2)*exp(-${decay}*t)'`);
+                `'(iw-${outW})/2+${maxOffset}*(sin(t*23.7)*0.6+sin(t*37.1)*0.4)*exp(-${decay}*t)':` +
+                `'(ih-${outH})/2+${maxOffset}*(sin(t*19.3)*0.5+sin(t*31.7)*0.5)*exp(-${decay}*t)'`);
         } else if (sh.type === 'vibration') {
-            // High-frequency micro-jitter
+            // Vibration: high-frequency coherent sine (not random jitter)
+            const a = Math.round(maxOffset * 0.15);
             filters.push(`crop=${outW}:${outH}:` +
-                `'(iw-${outW})/2+${Math.round(maxOffset * 0.15)}*random(1)':` +
-                `'(ih-${outH})/2+${Math.round(maxOffset * 0.15)}*random(2)'`);
+                `'(iw-${outW})/2+${a}*sin(t*67.3)*sin(t*43.1)':` +
+                `'(ih-${outH})/2+${a}*sin(t*53.7)*sin(t*71.9)'`);
         } else if (sh.type === 'earthquake') {
-            // Low-freq Y-dominant shake
+            // Earthquake: low-freq Y-dominant sinusoidal
             filters.push(`crop=${outW}:${outH}:` +
                 `'(iw-${outW})/2+${Math.round(maxOffset * 0.3)}*sin(t*2*PI)':` +
                 `'(ih-${outH})/2+${maxOffset}*sin(t*1.5*PI)'`);
         } else if (sh.type === 'handheld') {
-            // Smooth organic drift
+            // Handheld: smooth organic drift via product-of-sines (Lissajous-like)
             filters.push(`crop=${outW}:${outH}:` +
                 `'(iw-${outW})/2+${Math.round(maxOffset * 0.4)}*sin(t*3.7)*sin(t*2.3)':` +
                 `'(ih-${outH})/2+${Math.round(maxOffset * 0.4)}*sin(t*2.1)*sin(t*4.1)'`);
         } else if (sh.type === 'whip') {
-            // Single directional sweep
+            // Single directional sweep with eased motion
             const dir = sh.direction === 'vertical' ? 'y' : 'x';
             if (dir === 'x') {
                 filters.push(`crop=${outW}:${outH}:` +
@@ -551,10 +581,10 @@ export function buildVideoFilter(
                     `'(ih-${outH})/2+${maxOffset}*(-1+2*min(1,t*5))'`);
             }
         } else {
-            // Random fallback
+            // Default fallback: coherent multi-sine (no random())
             filters.push(`crop=${outW}:${outH}:` +
-                `'(iw-${outW})/2+${maxOffset}*random(1)':` +
-                `'(ih-${outH})/2+${maxOffset}*random(2)'`);
+                `'(iw-${outW})/2+${maxOffset}*sin(t*11.3)*sin(t*7.1)':` +
+                `'(ih-${outH})/2+${maxOffset}*sin(t*13.7)*sin(t*5.3)'`);
         }
     }
 

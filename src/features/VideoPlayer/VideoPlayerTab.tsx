@@ -7,6 +7,7 @@ import {
 import { useClipStore, Clip } from '../../store/clipStore';
 import { useProjectStore } from '../../store/projectStore';
 import { useUserStore } from '../../store/userStore';
+import { useProxyStore } from '../../store/proxyStore';
 import { DEFAULT_FPS } from '../../lib/time';
 import clsx from 'clsx';
 
@@ -39,6 +40,10 @@ export const VideoPlayerTab: React.FC = () => {
     const poolSources = useRef<string[]>(['', '', '']);
     const containerRef = useRef<HTMLDivElement>(null);
     const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+    // Proxy store
+    const { proxies, requestProxy, setProxyReady, setProxyFailed, setProxyRendering, invalidateProxy, getProxy } = useProxyStore();
+    const proxyHashRef = useRef<string>('');
 
     const fps = settings.fps || DEFAULT_FPS;
 
@@ -92,6 +97,116 @@ export const VideoPlayerTab: React.FC = () => {
         return (activePoolIdx.current + 1) % 3;
     }, []);
 
+    // ── Preview Proxy Engine ─────────────────────────────────────────────
+    // Compute a hash of the active clip's visual settings to drive proxy generation
+    const computeClipHash = useCallback((clip: Clip): string => {
+        const data = JSON.stringify({
+            path: clip.path,
+            trimStartFrame: clip.trimStartFrame,
+            trimEndFrame: clip.trimEndFrame,
+            startFrame: clip.startFrame,
+            endFrame: clip.endFrame,
+            speed: clip.speed,
+            reversed: clip.reversed,
+            rotation: clip.rotation,
+            flipH: clip.flipH,
+            flipV: clip.flipV,
+            zoomStart: clip.zoomStart,
+            zoomEnd: clip.zoomEnd,
+            zoomLevel: clip.zoomLevel,
+            zoomOrigin: clip.zoomOrigin,
+            effectIds: clip.effectIds,
+            parametricEffects: clip.parametricEffects,
+            colorGrading: clip.colorGrading,
+            textOverlays: clip.textOverlays,
+            shake: clip.shake,
+            filmGrain: clip.filmGrain,
+            vignette: clip.vignette,
+            chromaticAberration: clip.chromaticAberration,
+            sharpen: clip.sharpen,
+            blurAmount: clip.blurAmount,
+            chromaKey: clip.chromaKey,
+            letterbox: clip.letterbox,
+            volume: clip.volume,
+            isMuted: clip.isMuted,
+        });
+        // Simple string hash for the browser side
+        let h = 0;
+        for (let i = 0; i < data.length; i++) {
+            h = ((h << 5) - h + data.charCodeAt(i)) | 0;
+        }
+        return Math.abs(h).toString(16).padStart(8, '0');
+    }, []);
+
+    // Check if clip has any effects that require a proxy
+    const clipNeedsProxy = useCallback((clip: Clip): boolean => {
+        return !!(
+            clip.reversed ||
+            (clip.effectIds && clip.effectIds.length > 0) ||
+            (clip.parametricEffects && clip.parametricEffects.length > 0) ||
+            clip.colorGrading ||
+            (clip.textOverlays && clip.textOverlays.length > 0) ||
+            clip.shake ||
+            (clip.filmGrain && clip.filmGrain > 0) ||
+            (clip.vignette && clip.vignette > 0) ||
+            (clip.chromaticAberration && clip.chromaticAberration > 0) ||
+            (clip.sharpen && clip.sharpen > 0) ||
+            (clip.blurAmount && clip.blurAmount > 0) ||
+            clip.chromaKey?.enabled ||
+            clip.letterbox ||
+            (clip.zoomStart && clip.zoomStart !== 100) ||
+            (clip.zoomEnd && clip.zoomEnd !== 100) ||
+            (clip.zoomLevel && clip.zoomLevel !== 100)
+        );
+    }, []);
+
+    // Trigger proxy generation when the active clip changes or its settings change
+    useEffect(() => {
+        if (!activeClip || activeClip.type !== 'video') return;
+        if (!clipNeedsProxy(activeClip)) return;
+        if (!window.ipcRenderer?.generatePreviewProxy) return;
+
+        const hash = computeClipHash(activeClip);
+        const existing = getProxy(activeClip.id);
+
+        // If proxy exists with same hash, we're good
+        if (existing && existing.hash === hash && (existing.status === 'ready' || existing.status === 'rendering')) {
+            return;
+        }
+
+        // If hash changed, invalidate old proxy
+        if (existing && existing.hash !== hash) {
+            invalidateProxy(activeClip.id);
+        }
+
+        // Request new proxy
+        requestProxy(activeClip.id, hash);
+        setProxyRendering(activeClip.id);
+        proxyHashRef.current = hash;
+
+        const proxySettings = {
+            fps: settings.fps || DEFAULT_FPS,
+            outputWidth: settings.resolution?.width || 1080,
+            outputHeight: settings.resolution?.height || 1920,
+        };
+
+        window.ipcRenderer.generatePreviewProxy({
+            clip: activeClip,
+            settings: proxySettings,
+        }).then((result) => {
+            if (result.success && result.proxyPath) {
+                setProxyReady(activeClip.id, result.proxyPath);
+                console.log('[ProxyEngine] Proxy ready for', activeClip.filename);
+            } else {
+                setProxyFailed(activeClip.id);
+                console.warn('[ProxyEngine] Proxy failed for', activeClip.filename, result.error);
+            }
+        }).catch((err) => {
+            setProxyFailed(activeClip.id);
+            console.error('[ProxyEngine] IPC error:', err);
+        });
+    }, [activeClip, settings, computeClipHash, clipNeedsProxy, getProxy, requestProxy, setProxyRendering, setProxyReady, setProxyFailed, invalidateProxy]);
+
     // Core sync: when clip changes, either seek or swap
     useEffect(() => {
         if (activeClipIdx < 0 || !activeClip || activeClip.type !== 'video') return;
@@ -101,27 +216,34 @@ export const VideoPlayerTab: React.FC = () => {
         lastClipIdx.current = activeClipIdx;
 
         const prevClip = prevIdx >= 0 && prevIdx < videoClips.length ? videoClips[prevIdx] : null;
-        const sameSource = prevClip && prevClip.path === activeClip.path;
+
+        // Check if proxy is available for this clip
+        const proxy = proxies[activeClip.id];
+        const useProxyPath = proxy?.status === 'ready' && proxy.proxyPath;
+        const sourcePath = useProxyPath ? proxy.proxyPath : activeClip.path;
+        const sameSource = prevClip && prevClip.path === activeClip.path && !useProxyPath;
 
         if (sameSource) {
             const vid = getActiveVid();
             if (vid) {
-                const targetSec = (activeClip.trimStartFrame || 0) / fps;
+                // When using proxy, start from beginning (proxy is already trimmed)
+                const targetSec = useProxyPath ? 0 : (activeClip.trimStartFrame || 0) / fps;
                 vid.currentTime = targetSec;
-                vid.playbackRate = Math.max(0.0625, Math.min(activeClip.speed || 1, 16));
+                // Proxy is already speed-adjusted
+                vid.playbackRate = useProxyPath ? 1 : Math.max(0.0625, Math.min(activeClip.speed || 1, 16));
                 if (isPlaying && vid.paused) vid.play().catch(() => {});
             }
         } else {
-            const newIdx = getIdlePoolIdx(activeClip.path);
+            const newIdx = getIdlePoolIdx(sourcePath);
             const oldIdx = activePoolIdx.current;
             const oldVid = videoPoolRef.current[oldIdx];
             if (oldVid) oldVid.pause();
-            setPoolSource(newIdx, activeClip.path);
+            setPoolSource(newIdx, sourcePath);
             const newVid = videoPoolRef.current[newIdx];
             if (newVid) {
-                const targetSec = (activeClip.trimStartFrame || 0) / fps;
+                const targetSec = useProxyPath ? 0 : (activeClip.trimStartFrame || 0) / fps;
                 newVid.currentTime = targetSec;
-                newVid.playbackRate = Math.max(0.0625, Math.min(activeClip.speed || 1, 16));
+                newVid.playbackRate = useProxyPath ? 1 : Math.max(0.0625, Math.min(activeClip.speed || 1, 16));
                 if (isPlaying) newVid.play().catch(() => {});
             }
             activePoolIdx.current = newIdx;

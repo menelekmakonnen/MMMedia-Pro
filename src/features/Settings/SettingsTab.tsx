@@ -39,7 +39,15 @@ export const SettingsTab: React.FC = () => {
     }, []);
 
     const stateLabel = state === 'error' ? 'ERROR' : state === 'slow' ? 'SLOW' : state === 'loading' ? 'LOADING' : 'ONLINE';
+
+    // Static color maps to avoid dynamic Tailwind class purging
+    const STATE_COLORS: Record<string, { bg: string; border: string; text: string; dot: string }> = {
+        red: { bg: 'bg-red-500/10', border: 'border-red-500/20', text: 'text-red-400', dot: 'bg-red-400' },
+        yellow: { bg: 'bg-yellow-500/10', border: 'border-yellow-500/20', text: 'text-yellow-400', dot: 'bg-yellow-400' },
+        green: { bg: 'bg-green-500/10', border: 'border-green-500/20', text: 'text-green-400', dot: 'bg-green-400' },
+    };
     const stateColor = state === 'error' ? 'red' : state === 'slow' ? 'yellow' : 'green';
+    const sc = STATE_COLORS[stateColor];
     const fpsColor = fps >= 50 ? 'text-green-400' : fps >= 30 ? 'text-yellow-400' : 'text-red-400';
 
     const selectedTransitionDef = getTransitionById(defaultTransition);
@@ -176,12 +184,33 @@ export const SettingsTab: React.FC = () => {
                                 {/* Load Project */}
                                 <button
                                     onClick={async () => {
-                                        await window.ipcRenderer.loadProject().then(res => {
+                                        await window.ipcRenderer.loadProject().then(async (res) => {
                                             if (res.success && res.content) {
-                                                const data = JSON.parse(res.content);
-                                                console.log("Loaded Project:", data);
-                                                toast.success("Project Loaded: " + (data.settings?.name || "Untitled"));
-                                                // TODO: Hydrate stores
+                                                try {
+                                                    const data = JSON.parse(res.content);
+                                                    if (data.version && data.clips && data.project) {
+                                                        // EditDocument format (v2+)
+                                                        const { loadEditDocumentToStores } = await import('../../lib/manifestBridge');
+                                                        loadEditDocumentToStores(data);
+                                                        toast.success(`Project Loaded: ${data.project?.name || 'Untitled'} (${data.clips.length} clips)`);
+                                                    } else if (data.manifestVersion) {
+                                                        // Legacy Manifest format
+                                                        const { loadManifestToStore } = await import('../../lib/manifestBridge');
+                                                        loadManifestToStore(data);
+                                                        toast.success(`Legacy Manifest Loaded: ${data.project?.name || 'Untitled'}`);
+                                                    } else if (data.settings && data.clips) {
+                                                        // Legacy { settings, clips } format
+                                                        const { updateSettings } = useProjectStore.getState();
+                                                        const { setClips } = useClipStore.getState();
+                                                        updateSettings(data.settings);
+                                                        setClips(data.clips);
+                                                        toast.success(`Project Loaded: ${data.settings?.name || 'Untitled'} (${data.clips.length} clips)`);
+                                                    } else {
+                                                        toast.error('Unrecognized project format.');
+                                                    }
+                                                } catch (e) {
+                                                    toast.error('Failed to parse project: ' + e);
+                                                }
                                             }
                                         });
                                     }}
@@ -194,9 +223,9 @@ export const SettingsTab: React.FC = () => {
                                 {/* Save Project (Primary) */}
                                 <button
                                     onClick={async () => {
-                                        const { settings } = useProjectStore.getState();
-                                        const { clips } = await import('../../store/clipStore').then(m => m.useClipStore.getState());
-                                        const projectData = JSON.stringify({ settings, clips }, null, 2);
+                                        const { generateEditDocument } = await import('../../lib/manifestBridge');
+                                        const doc = generateEditDocument();
+                                        const projectData = JSON.stringify(doc, null, 2);
                                         await window.ipcRenderer.saveProject(projectData);
                                     }}
                                     className="flex flex-col items-center justify-center gap-2 p-4 bg-primary/20 text-primary-300 border border-primary/30 rounded-xl hover:bg-primary/80 hover:text-white hover:border-primary transition-all group shadow-[0_0_15px_rgba(var(--color-primary),0.1)]"
@@ -253,8 +282,8 @@ export const SettingsTab: React.FC = () => {
                                     <Activity size={16} className="text-primary-300" />
                                     <h2 className="text-sm font-bold text-white">Engine Status</h2>
                                 </div>
-                                <div className={`px-2 py-0.5 bg-${stateColor}-500/10 border border-${stateColor}-500/20 rounded text-[10px] text-${stateColor}-400 font-mono font-bold flex items-center gap-1.5`}>
-                                    <div className={`w-1.5 h-1.5 rounded-full bg-${stateColor}-400 animate-pulse`} />
+                                <div className={`px-2 py-0.5 ${sc.bg} border ${sc.border} rounded text-[10px] ${sc.text} font-mono font-bold flex items-center gap-1.5`}>
+                                    <div className={`w-1.5 h-1.5 rounded-full ${sc.dot} animate-pulse`} />
                                     {stateLabel}
                                 </div>
                             </div>

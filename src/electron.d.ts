@@ -39,6 +39,10 @@ export interface ElectronAPI {
 
     // File reading (binary buffer for audio/waveform analysis)
     readFileBuffer: (filePath: string) => Promise<{ success: boolean; buffer?: Uint8Array; error?: string }>;
+
+    // Preview Proxy API
+    generatePreviewProxy: (args: { clip: any; settings: any }) => Promise<{ success: boolean; proxyPath?: string; hash?: string; error?: string }>;
+    invalidatePreviewProxy: (args: { hash: string }) => Promise<{ success: boolean; error?: string }>;
 }
 
 declare global {

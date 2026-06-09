@@ -91,7 +91,7 @@ interface ClipStore {
     globalChaosGrid: (gridId: string) => void;
 
     // Phase 7: Advanced
-    setTransitionStrategy: (strategy: 'cut' | 'cross-dissolve' | 'fade-to-black') => void;
+    setTransitionStrategy: (strategy: string) => void;
     setClipDuration: (id: string, durationInSeconds: number) => void;
     nukeLibrary: () => void;
 
@@ -511,7 +511,7 @@ export const useClipStore = create<ClipStore>()(
                         ...c,
                         trimStartFrame: newTrimStart,
                         trimEndFrame: newTrimEnd,
-                        endFrame: c.startFrame + newDuration, // Sync timeline duration
+                        endFrame: c.startFrame + Math.round(newDuration / (c.speed || 1)), // Sync timeline duration (account for speed)
                     }
                     : c
             ),

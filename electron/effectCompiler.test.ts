@@ -10,8 +10,7 @@ import {
 describe('cssToFfmpeg', () => {
     it('returns empty for empty / non-string input', () => {
         expect(cssToFfmpeg('')).toBe('');
-        // @ts-expect-error testing runtime guard
-        expect(cssToFfmpeg(null)).toBe('');
+        expect(cssToFfmpeg(null as any)).toBe('');
         expect(cssToFfmpeg('   ')).toBe('');
     });
 
