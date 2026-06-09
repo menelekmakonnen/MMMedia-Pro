@@ -13,6 +13,7 @@ export interface ElectronAPI {
     showExportDialog: (options: any) => Promise<{ canceled: boolean; filePath?: string }>;
     exportProject: (args: { filePath: string; clips: any[]; settings: any; isIntermediate?: boolean }) => Promise<{ success: boolean; error?: string }>;
     exportProjectMonolithic: (args: { filePath: string; clips: any[]; settings: any; isIntermediate?: boolean }) => Promise<{ success: boolean; error?: string }>;
+    exportProjectSegment: (args: { filePath: string; clips: any[]; settings: any }) => Promise<{ success: boolean; error?: string }>;
     analyzeRenderParity: (args: { clips: any[]; settings: any }) => Promise<{ ok: boolean; warnings: { level: 'warning' | 'info'; message: string }[] }>;
     cancelExport: () => Promise<{ success: boolean; error?: string }>;
     pauseExport: () => Promise<{ success: boolean; error?: string }>;
@@ -35,6 +36,9 @@ export interface ElectronAPI {
 
     // File path resolution
     getPathForFile: (file: File) => string;
+
+    // File reading (binary buffer for audio/waveform analysis)
+    readFileBuffer: (filePath: string) => Promise<{ success: boolean; buffer?: Uint8Array; error?: string }>;
 }
 
 declare global {

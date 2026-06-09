@@ -16,8 +16,9 @@ build_error.txt
 builder_error.txt
 render_log.txt
 
-# Backup / debug / one-off files
-__*
+# Backup / debug / one-off files (but NOT __tests__)
+__pycache__
+!__tests__/
 *_original*
 *_utf8*
 golden-demo.json

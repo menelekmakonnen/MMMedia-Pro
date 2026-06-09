@@ -307,9 +307,12 @@ export const ExportTab: React.FC = () => {
             } else if (renderEngine === 'monolithic') {
                 addLog('Engine: Monolithic (single-pass filter graph)');
                 result = await window.ipcRenderer.exportProjectMonolithic(exportPayload);
-            } else {
+            } else if (renderEngine === 'per-clip') {
                 addLog('Engine: Per-Clip (intermediate architecture)');
                 result = await window.ipcRenderer.exportProject(exportPayload);
+            } else {
+                addLog('Engine: Segment (duration-capped intermediates + full effects/transitions)');
+                result = await window.ipcRenderer.exportProjectSegment(exportPayload);
             }
 
             if (result.success) {

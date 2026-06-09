@@ -130,6 +130,17 @@ within(d, expectXfade, 0.2) ? ok(`duration ${d.toFixed(2)}s ≈ ${expectXfade}s 
 s = probeStreams(xfFile);
 s.video && s.audio ? ok('has video + audio') : bad('missing a stream');
 
+console.log('\nTest 3 — zoompan does NOT inflate duration (regression: the 31-min bug):');
+// A 2s clip through zoompan. With the bug (d=N) the output is ~minutes; with the
+// fix (d=1) it stays ~2s. This guards the exact failure from the export log.
+const zpFile = path.join(TMP, 'zoom.mp4');
+const zpFrames = 2 * FPS; // 48
+ff(['-y', '-i', clips[0],
+    '-vf', `zoompan=z='lerp(1.0,1.3,min(1,on/${zpFrames}))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${OUT_W}x${OUT_H}:fps=${FPS}`,
+    '-an', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', zpFile]);
+d = probeDuration(zpFile);
+within(d, 2.0, 0.25) ? ok(`zoomed clip duration ${d.toFixed(2)}s ≈ 2s (no inflation)`) : bad(`zoomed clip duration ${d.toFixed(2)}s — zoompan is inflating duration (d must be 1)`);
+
 // ── cleanup ──
 try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
 

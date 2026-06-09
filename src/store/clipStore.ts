@@ -27,7 +27,7 @@ interface ClipStore {
     selectedSegment: SelectedSegment | null;
     globalMute: boolean;
     globalPlaybackSpeed: number;
-    transitionStrategy: 'cut' | 'cross-dissolve' | 'fade-to-black';
+    transitionStrategy: string; // Any xfade name from transitions registry, or 'cut'
     // Per-track mute state: track 2 = Audio 1 (clip-linked), track 101+ = Audio 2 (added audio)
     trackMutes: Record<number, boolean>;
     trackVolumes: Record<number, number>;

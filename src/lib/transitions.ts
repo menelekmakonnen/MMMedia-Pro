@@ -1,109 +1,298 @@
-// ══════════════════════════════════════════════════════════════════════════════
-// Transition Registry — All FFmpeg xfade transition types
-// ══════════════════════════════════════════════════════════════════════════════
+/**
+ * Transitions System
+ * Maps transition types to categories, metadata, and segment-aware selection logic.
+ * Provides deterministic, style-aware transition picking for the Super Editing Engine.
+ */
 
-export type TransitionCategory = 'fades' | 'wipes' | 'slides' | 'shapes' | 'diagonal' | 'slices' | 'special';
+import type { TransitionType, TransitionStyle } from '../types';
+import type { SegmentType } from './audioAnalysis';
+import { SeededRandom } from './random';
 
-export interface TransitionDef {
-    id: string;           // xfade name (e.g., 'fade', 'wipeleft')
-    name: string;         // Display name (e.g., 'Fade', 'Wipe Left')
-    category: TransitionCategory;
-    description: string;  // Short description
-    icon?: string;        // Lucide icon name
-}
+// ═══════════════════════════════════════════════════════
+//  1. TRANSITION CATEGORIES
+// ═══════════════════════════════════════════════════════
 
-export const TRANSITION_REGISTRY: TransitionDef[] = [
-    // ── Fades ──
-    { id: 'cut',        name: 'Hard Cut',     category: 'fades', description: 'Instant cut with no transition effect',              icon: 'Scissors' },
-    { id: 'fade',       name: 'Fade',         category: 'fades', description: 'Classic cross-dissolve between clips',               icon: 'SunDim' },
-    { id: 'fadeblack',  name: 'Fade Black',   category: 'fades', description: 'Fade through black between clips',                   icon: 'Moon' },
-    { id: 'fadewhite',  name: 'Fade White',   category: 'fades', description: 'Fade through white between clips',                   icon: 'Sun' },
-    { id: 'fadegrays',  name: 'Fade Grays',   category: 'fades', description: 'Fade through grayscale between clips',               icon: 'Contrast' },
-    { id: 'dissolve',   name: 'Dissolve',     category: 'fades', description: 'Gradual pixel-level dissolve transition',            icon: 'Sparkles' },
+/** All transition types grouped by visual category for UI presentation. */
+export const TRANSITION_CATEGORIES: Record<string, { label: string; transitions: TransitionType[] }> = {
+    basic:       { label: 'Basic',       transitions: ['cut', 'fade', 'fadewhite', 'fadeblack', 'dissolve'] },
+    directional: { label: 'Directional', transitions: ['wipeleft', 'wiperight', 'wipeup', 'wipedown', 'slideleft', 'slideright', 'slideup', 'slidedown'] },
+    geometric:   { label: 'Geometric',   transitions: ['circlecrop', 'circleopen', 'circleclose', 'radial', 'pixelize'] },
+    smooth:      { label: 'Smooth',      transitions: ['smoothleft', 'smoothright', 'smoothup', 'smoothdown'] },
+    diagonal:    { label: 'Diagonal',    transitions: ['diagtl', 'diagtr', 'diagbl', 'diagbr'] },
+    squeeze:     { label: 'Squeeze',     transitions: ['squeezeh', 'squeezev'] },
+    blur:        { label: 'Blur',        transitions: ['hblur'] },
+    impact:      { label: 'Impact',      transitions: ['flash', 'glitch', 'rgb-split', 'zoom-through', 'spin', 'film-burn', 'whip'] },
+};
 
-    // ── Wipes ──
-    { id: 'wipeleft',    name: 'Wipe Left',     category: 'wipes', description: 'Hard wipe from right to left',                    icon: 'ArrowLeft' },
-    { id: 'wiperight',   name: 'Wipe Right',    category: 'wipes', description: 'Hard wipe from left to right',                    icon: 'ArrowRight' },
-    { id: 'wipeup',      name: 'Wipe Up',       category: 'wipes', description: 'Hard wipe from bottom to top',                    icon: 'ArrowUp' },
-    { id: 'wipedown',    name: 'Wipe Down',     category: 'wipes', description: 'Hard wipe from top to bottom',                    icon: 'ArrowDown' },
-    { id: 'wipetl',      name: 'Wipe TL',       category: 'wipes', description: 'Wipe from bottom-right to top-left corner',       icon: 'ArrowUpLeft' },
-    { id: 'wipetr',      name: 'Wipe TR',       category: 'wipes', description: 'Wipe from bottom-left to top-right corner',       icon: 'ArrowUpRight' },
-    { id: 'wipebl',      name: 'Wipe BL',       category: 'wipes', description: 'Wipe from top-right to bottom-left corner',       icon: 'ArrowDownLeft' },
-    { id: 'wipebr',      name: 'Wipe BR',       category: 'wipes', description: 'Wipe from top-left to bottom-right corner',       icon: 'ArrowDownRight' },
-    { id: 'smoothleft',  name: 'Smooth Left',   category: 'wipes', description: 'Soft-edge wipe from right to left',              icon: 'ChevronsLeft' },
-    { id: 'smoothright', name: 'Smooth Right',  category: 'wipes', description: 'Soft-edge wipe from left to right',              icon: 'ChevronsRight' },
-    { id: 'smoothup',    name: 'Smooth Up',     category: 'wipes', description: 'Soft-edge wipe from bottom to top',              icon: 'ChevronsUp' },
-    { id: 'smoothdown',  name: 'Smooth Down',   category: 'wipes', description: 'Soft-edge wipe from top to bottom',              icon: 'ChevronsDown' },
+// ═══════════════════════════════════════════════════════
+//  2. TRANSITION METADATA
+// ═══════════════════════════════════════════════════════
 
-    // ── Slides ──
-    { id: 'slideleft',  name: 'Slide Left',   category: 'slides', description: 'Next clip slides in from the right',               icon: 'PanelLeft' },
-    { id: 'slideright', name: 'Slide Right',  category: 'slides', description: 'Next clip slides in from the left',                icon: 'PanelRight' },
-    { id: 'slideup',    name: 'Slide Up',     category: 'slides', description: 'Next clip slides in from below',                   icon: 'PanelTop' },
-    { id: 'slidedown',  name: 'Slide Down',   category: 'slides', description: 'Next clip slides in from above',                   icon: 'PanelBottom' },
+/**
+ * The "impact" transitions. These have no identically-named FFmpeg xfade
+ * transition, so on export each is rendered via the closest native xfade look
+ * (see TRANSITION_XFADE_MAP). Tracked here so the render-parity check can tell
+ * the user their transition is approximated rather than pixel-exact.
+ */
+const CUSTOM_TRANSITIONS: ReadonlySet<TransitionType> = new Set([
+    'flash', 'glitch', 'rgb-split', 'zoom-through', 'spin', 'film-burn', 'whip',
+]);
 
-    // ── Shapes ──
-    { id: 'circleopen',  name: 'Circle Open',   category: 'shapes', description: 'Circular iris opening from center',              icon: 'Circle' },
-    { id: 'circleclose', name: 'Circle Close',  category: 'shapes', description: 'Circular iris closing to center',                icon: 'CircleDot' },
-    { id: 'circlecrop',  name: 'Circle Crop',   category: 'shapes', description: 'Circular crop transition',                       icon: 'CircleDashed' },
-    { id: 'vertopen',    name: 'Vert Open',     category: 'shapes', description: 'Vertical blinds opening from center',            icon: 'Columns2' },
-    { id: 'vertclose',   name: 'Vert Close',    category: 'shapes', description: 'Vertical blinds closing to center',              icon: 'Columns3' },
-    { id: 'horzopen',    name: 'Horz Open',     category: 'shapes', description: 'Horizontal blinds opening from center',          icon: 'Rows2' },
-    { id: 'horzclose',   name: 'Horz Close',    category: 'shapes', description: 'Horizontal blinds closing to center',            icon: 'Rows3' },
-    { id: 'rectcrop',    name: 'Rect Crop',     category: 'shapes', description: 'Rectangular crop reveal transition',             icon: 'Square' },
-    { id: 'squeezeh',    name: 'Squeeze H',     category: 'shapes', description: 'Horizontal squeeze transition',                  icon: 'MoveHorizontal' },
-    { id: 'squeezev',    name: 'Squeeze V',     category: 'shapes', description: 'Vertical squeeze transition',                    icon: 'MoveVertical' },
+/**
+ * Metadata for every transition type.
+ * - `label`:    Human-readable display name
+ * - `icon`:     Emoji for quick visual identification
+ * - `isCustom`: `true` when the transition uses a custom filter chain,
+ *               `false` when it maps to FFmpeg's built-in `xfade` filter
+ */
+export const TRANSITION_META: Record<TransitionType, { label: string; icon: string; isCustom: boolean }> = {
+    // ── Basic ──
+    cut:          { label: 'Cut',            icon: '✂️',  isCustom: false },
+    fade:         { label: 'Fade',           icon: '🌅',  isCustom: false },
+    fadewhite:    { label: 'Fade to White',  icon: '⬜',  isCustom: false },
+    fadeblack:    { label: 'Fade to Black',  icon: '⬛',  isCustom: false },
+    dissolve:     { label: 'Dissolve',       icon: '💧',  isCustom: false },
+
+    // ── Directional ──
+    wipeleft:     { label: 'Wipe Left',      icon: '⬅️',  isCustom: false },
+    wiperight:    { label: 'Wipe Right',     icon: '➡️',  isCustom: false },
+    wipeup:       { label: 'Wipe Up',        icon: '⬆️',  isCustom: false },
+    wipedown:     { label: 'Wipe Down',      icon: '⬇️',  isCustom: false },
+    slideleft:    { label: 'Slide Left',     icon: '📤',  isCustom: false },
+    slideright:   { label: 'Slide Right',    icon: '📥',  isCustom: false },
+    slideup:      { label: 'Slide Up',       icon: '🔼',  isCustom: false },
+    slidedown:    { label: 'Slide Down',     icon: '🔽',  isCustom: false },
+
+    // ── Geometric ──
+    circlecrop:   { label: 'Circle Crop',    icon: '⭕',  isCustom: false },
+    circleopen:   { label: 'Circle Open',    icon: '🔵',  isCustom: false },
+    circleclose:  { label: 'Circle Close',   icon: '🟣',  isCustom: false },
+    radial:       { label: 'Radial',         icon: '🌀',  isCustom: false },
+    pixelize:     { label: 'Pixelize',       icon: '🟩',  isCustom: false },
+
+    // ── Smooth ──
+    smoothleft:   { label: 'Smooth Left',    icon: '🎞️',  isCustom: false },
+    smoothright:  { label: 'Smooth Right',   icon: '🎞️',  isCustom: false },
+    smoothup:     { label: 'Smooth Up',      icon: '🎞️',  isCustom: false },
+    smoothdown:   { label: 'Smooth Down',    icon: '🎞️',  isCustom: false },
 
     // ── Diagonal ──
-    { id: 'diagtl',  name: 'Diag TL',  category: 'diagonal', description: 'Diagonal wipe towards top-left',                       icon: 'ArrowUpLeft' },
-    { id: 'diagtr',  name: 'Diag TR',  category: 'diagonal', description: 'Diagonal wipe towards top-right',                      icon: 'ArrowUpRight' },
-    { id: 'diagbl',  name: 'Diag BL',  category: 'diagonal', description: 'Diagonal wipe towards bottom-left',                    icon: 'ArrowDownLeft' },
-    { id: 'diagbr',  name: 'Diag BR',  category: 'diagonal', description: 'Diagonal wipe towards bottom-right',                   icon: 'ArrowDownRight' },
+    diagtl:       { label: 'Diagonal ↖',     icon: '↖️',  isCustom: false },
+    diagtr:       { label: 'Diagonal ↗',     icon: '↗️',  isCustom: false },
+    diagbl:       { label: 'Diagonal ↙',     icon: '↙️',  isCustom: false },
+    diagbr:       { label: 'Diagonal ↘',     icon: '↘️',  isCustom: false },
 
-    // ── Slices ──
-    { id: 'hlslice',  name: 'H-Left Slice',   category: 'slices', description: 'Horizontal left slice transition',                 icon: 'AlignLeft' },
-    { id: 'hrslice',  name: 'H-Right Slice',  category: 'slices', description: 'Horizontal right slice transition',                icon: 'AlignRight' },
-    { id: 'vuslice',  name: 'V-Up Slice',     category: 'slices', description: 'Vertical upward slice transition',                 icon: 'AlignStartVertical' },
-    { id: 'vdslice',  name: 'V-Down Slice',   category: 'slices', description: 'Vertical downward slice transition',               icon: 'AlignEndVertical' },
+    // ── Squeeze ──
+    squeezeh:     { label: 'Squeeze H',      icon: '↔️',  isCustom: false },
+    squeezev:     { label: 'Squeeze V',      icon: '↕️',  isCustom: false },
 
-    // ── Special ──
-    { id: 'pixelize',  name: 'Pixelize',   category: 'special', description: 'Pixelation dissolve effect',                         icon: 'Grid3x3' },
-    { id: 'distance',  name: 'Distance',   category: 'special', description: 'Color-distance based transition',                    icon: 'Radar' },
-    { id: 'radial',    name: 'Radial',     category: 'special', description: 'Radial sweep transition',                            icon: 'RotateCw' },
-    { id: 'hblur',     name: 'H-Blur',     category: 'special', description: 'Horizontal blur transition',                         icon: 'Blend' },
-];
+    // ── Blur ──
+    hblur:        { label: 'Horizontal Blur', icon: '🌫️', isCustom: false },
 
-// ── Helper: group by category ──
-export function getTransitionsByCategory(): Record<TransitionCategory, TransitionDef[]> {
-    const groups: Record<TransitionCategory, TransitionDef[]> = {
-        fades: [],
-        wipes: [],
-        slides: [],
-        shapes: [],
-        diagonal: [],
-        slices: [],
-        special: [],
-    };
-    for (const t of TRANSITION_REGISTRY) {
-        groups[t.category].push(t);
-    }
-    return groups;
-}
-
-// ── Helper: lookup by id ──
-export function getTransitionById(id: string): TransitionDef | undefined {
-    return TRANSITION_REGISTRY.find(t => t.id === id);
-}
-
-// ── Flat list of all IDs ──
-export const ALL_TRANSITION_IDS: string[] = TRANSITION_REGISTRY.map(t => t.id);
-
-// ── Category display labels ──
-export const CATEGORY_LABELS: Record<TransitionCategory, string> = {
-    fades: 'Fades',
-    wipes: 'Wipes',
-    slides: 'Slides',
-    shapes: 'Shapes',
-    diagonal: 'Diagonal',
-    slices: 'Slices',
-    special: 'Special',
+    // ── Impact (Custom filter chains) ──
+    flash:        { label: 'Flash',           icon: '⚡',  isCustom: true },
+    glitch:       { label: 'Glitch',          icon: '📺',  isCustom: true },
+    'rgb-split':  { label: 'RGB Split',       icon: '🌈',  isCustom: true },
+    'zoom-through': { label: 'Zoom Through',  icon: '🔭',  isCustom: true },
+    spin:         { label: 'Spin',            icon: '🔄',  isCustom: true },
+    'film-burn':  { label: 'Film Burn',       icon: '🔥',  isCustom: true },
+    whip:         { label: 'Whip',            icon: '💨',  isCustom: true },
 };
+
+// ═══════════════════════════════════════════════════════
+//  3. SEGMENT → TRANSITION MAP
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Recommended transitions for each song segment type.
+ * The first entry in each list is the "safest" default;
+ * higher-indexed entries are progressively more dramatic.
+ */
+export const SEGMENT_TRANSITION_MAP: Record<SegmentType, TransitionType[]> = {
+    intro:     ['fade', 'dissolve'],
+    verse:     ['cut', 'dissolve', 'smoothleft'],
+    buildup:   ['wipeup', 'slideup', 'radial'],
+    drop:      ['flash', 'glitch', 'zoom-through', 'cut'],
+    chorus:    ['cut', 'slideleft', 'circleopen'],
+    breakdown: ['dissolve', 'fadeblack', 'hblur'],
+    bridge:    ['fade', 'diagtl', 'squeezeh'],
+    outro:     ['fadeblack', 'dissolve'],
+};
+
+// ═══════════════════════════════════════════════════════
+//  4. selectTransition()
+// ═══════════════════════════════════════════════════════
+
+/**
+ * Selects a transition based on the current song segment, user preferences,
+ * and a seeded RNG for deterministic output.
+ *
+ * @param segmentType        The detected segment of the song at this edit point.
+ * @param allowedTransitions User's allowed set (empty / undefined = all allowed).
+ * @param style              User's transition style preference.
+ * @param rng                Seeded random number generator for deterministic picks.
+ * @returns                  The selected `TransitionType`.
+ */
+export function selectTransition(
+    segmentType: SegmentType,
+    allowedTransitions: TransitionType[] | undefined,
+    style: TransitionStyle,
+    rng: SeededRandom,
+): TransitionType {
+    // ── Fast-path: cuts-only ──
+    if (style === 'cuts-only') {
+        return 'cut';
+    }
+
+    // ── Build candidate list from segment map ──
+    let candidates = [...SEGMENT_TRANSITION_MAP[segmentType]];
+
+    // ── Filter by user's allowed list (if provided and non-empty) ──
+    if (allowedTransitions && allowedTransitions.length > 0) {
+        candidates = candidates.filter(t => allowedTransitions.includes(t));
+    }
+
+    // ── Apply style constraint ──
+    if (style === 'transitions-only') {
+        candidates = candidates.filter(t => t !== 'cut');
+    }
+
+    // ── Fallback: if filtering removed all candidates ──
+    if (candidates.length === 0) {
+        if (style === 'transitions-only') {
+            // Pick from allowed transitions that aren't 'cut', or fall back to 'dissolve'
+            const pool = allowedTransitions?.filter(t => t !== 'cut');
+            if (pool && pool.length > 0) {
+                return rng.choice(pool) as TransitionType;
+            }
+            return 'dissolve';
+        }
+        // mixed: pick from allowed list or fall back to segment default
+        if (allowedTransitions && allowedTransitions.length > 0) {
+            return rng.choice(allowedTransitions) as TransitionType;
+        }
+        return SEGMENT_TRANSITION_MAP[segmentType][0];
+    }
+
+    // ── Deterministic weighted selection ──
+    return rng.choice(candidates) as TransitionType;
+}
+
+// ═══════════════════════════════════════════════════════
+//  5. getTransitionFFmpegName()
+// ═══════════════════════════════════════════════════════
+
+/**
+ * SINGLE SOURCE OF TRUTH for transition → FFmpeg rendering.
+ *
+ * Every transition type maps to a real FFmpeg `xfade` built-in. Native xfade
+ * transitions map 1:1. The 7 "impact" transitions have no native xfade
+ * equivalent, so each maps to the closest built-in that preserves its character
+ * (e.g. flash → fadewhite, zoom-through → zoomin). Only `cut` returns null,
+ * because a cut is a direct splice rather than an xfade.
+ *
+ * Because this is a `Record<TransitionType, ...>`, TypeScript forces every
+ * transition type to have an entry — a new transition cannot be added without
+ * deciding how it renders. transitions.test.ts further asserts that every
+ * non-`cut` entry is a valid xfade name, so a transition can NEVER silently
+ * degrade to a hard cut on export again.
+ */
+export const TRANSITION_XFADE_MAP: Record<TransitionType, string | null> = {
+    // ── Direct splice ──
+    cut: null,
+    // ── Basic (native) ──
+    fade: 'fade', fadewhite: 'fadewhite', fadeblack: 'fadeblack', dissolve: 'dissolve',
+    // ── Directional (native) ──
+    wipeleft: 'wipeleft', wiperight: 'wiperight', wipeup: 'wipeup', wipedown: 'wipedown',
+    slideleft: 'slideleft', slideright: 'slideright', slideup: 'slideup', slidedown: 'slidedown',
+    // ── Geometric (native) ──
+    circlecrop: 'circlecrop', circleopen: 'circleopen', circleclose: 'circleclose',
+    radial: 'radial', pixelize: 'pixelize',
+    // ── Smooth (native) ──
+    smoothleft: 'smoothleft', smoothright: 'smoothright', smoothup: 'smoothup', smoothdown: 'smoothdown',
+    // ── Diagonal (native) ──
+    diagtl: 'diagtl', diagtr: 'diagtr', diagbl: 'diagbl', diagbr: 'diagbr',
+    // ── Squeeze (native) ──
+    squeezeh: 'squeezeh', squeezev: 'squeezev',
+    // ── Blur (native) ──
+    hblur: 'hblur',
+    // ── Impact (approximated to the closest native xfade look) ──
+    flash: 'fadewhite',        // white flash dissolve
+    glitch: 'pixelize',        // blocky digital break-up
+    'rgb-split': 'hblur',      // smeary chromatic blur
+    'zoom-through': 'zoomin',  // native push-in zoom
+    spin: 'radial',            // rotational clock sweep
+    'film-burn': 'fadewhite',  // burn-to-white
+    whip: 'smoothleft',        // fast directional smear (whip pan)
+};
+
+/**
+ * Returns the FFmpeg `xfade` transition name for a given transition type, or
+ * `null` for `cut` (a direct splice). See {@link TRANSITION_XFADE_MAP}.
+ */
+export function getTransitionFFmpegName(type: TransitionType): string | null {
+    return TRANSITION_XFADE_MAP[type] ?? null;
+}
+
+/**
+ * Whether a transition is rendered via an approximation rather than a native
+ * xfade of the same name (the 7 "impact" transitions). Used by the render-parity
+ * check to inform the user their flashy transition is mapped to a close cousin.
+ */
+export function isApproximatedTransition(type: TransitionType): boolean {
+    return CUSTOM_TRANSITIONS.has(type);
+}
+
+// ═══════════════════════════════════════════════════════
+//  BACKWARD-COMPATIBLE EXPORTS (for SettingsTab.tsx)
+// ═══════════════════════════════════════════════════════
+
+/** Category key type for the old SettingsTab transition picker */
+export type TransitionCategory = keyof typeof TRANSITION_CATEGORIES;
+
+/** Display labels for each category */
+export const CATEGORY_LABELS: Record<TransitionCategory, string> = Object.fromEntries(
+    Object.entries(TRANSITION_CATEGORIES).map(([key, val]) => [key, val.label])
+) as Record<TransitionCategory, string>;
+
+/** Transition definition object for the old API */
+export interface TransitionDef {
+    id: string;
+    name: string;
+    description: string;
+    category: TransitionCategory;
+}
+
+/** Get all transitions grouped by category (old API) */
+export function getTransitionsByCategory(): Record<TransitionCategory, TransitionDef[]> {
+    const result: Record<string, TransitionDef[]> = {};
+    for (const [catKey, catDef] of Object.entries(TRANSITION_CATEGORIES)) {
+        result[catKey] = catDef.transitions.map(t => ({
+            id: t,
+            name: TRANSITION_META[t]?.label ?? t,
+            description: `${TRANSITION_META[t]?.icon ?? ''} ${TRANSITION_META[t]?.label ?? t} transition`,
+            category: catKey as TransitionCategory,
+        }));
+    }
+    return result as Record<TransitionCategory, TransitionDef[]>;
+}
+
+/** Get a single transition definition by ID (old API) */
+export function getTransitionById(id: string): TransitionDef | undefined {
+    for (const [catKey, catDef] of Object.entries(TRANSITION_CATEGORIES)) {
+        const t = catDef.transitions.find(tr => tr === id);
+        if (t) {
+            return {
+                id: t,
+                name: TRANSITION_META[t as TransitionType]?.label ?? t,
+                description: `${TRANSITION_META[t as TransitionType]?.icon ?? ''} ${TRANSITION_META[t as TransitionType]?.label ?? t} transition`,
+                category: catKey as TransitionCategory,
+            };
+        }
+    }
+    // Fallback for any string ID (e.g. 'cut' which may exist as a transition strategy)
+    if (id === 'cut') {
+        return { id: 'cut', name: 'Cut', description: '✂️ Cut transition', category: 'basic' };
+    }
+    return undefined;
+}

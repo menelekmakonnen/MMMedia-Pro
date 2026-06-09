@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { ExportQuality, ExportOrientation } from '../lib/exportPresets';
 
-export type RenderEngine = 'per-clip' | 'monolithic' | 'both';
+export type RenderEngine = 'segment' | 'per-clip' | 'monolithic' | 'both';
 
 interface ExportSettingsState {
     // Persisted user selections
@@ -37,7 +37,7 @@ export const useExportSettingsStore = create<ExportSettingsState>()(
             selectedFps: 30,
             lastExportPath: null,
             activeTab: 'mp4',
-            renderEngine: 'per-clip',
+            renderEngine: 'segment',
             useGpu: false,
             isExporting: false,
 
@@ -53,6 +53,17 @@ export const useExportSettingsStore = create<ExportSettingsState>()(
         }),
         {
             name: 'mmmedia-export-settings',
+            version: 1,
+            // v1: introduce the Segment engine and make it the default. Move users
+            // off the legacy default ('per-clip') unless they had explicitly chosen
+            // monolithic/both. They can always switch back in the UI.
+            migrate: (persisted: any, fromVersion: number) => {
+                if (fromVersion < 1 && persisted && persisted.renderEngine === 'per-clip') {
+                    persisted.renderEngine = 'segment';
+                }
+                if (persisted && persisted.useGpu === undefined) persisted.useGpu = false;
+                return persisted;
+            },
             partialize: (state) => {
                 // Never persist isExporting — it must always start as false
                 const { isExporting, ...rest } = state;

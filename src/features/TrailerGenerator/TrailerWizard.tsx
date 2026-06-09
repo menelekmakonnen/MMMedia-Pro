@@ -1,14 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useMediaStore } from '../../store/mediaStore';
-import { useUserStore } from '../../store/userStore';
 import { TrailerSettings, DEFAULT_TRAILER_SETTINGS } from '../../lib/trailerGenerator';
-import { Wand2, Clock, Zap, Video, Scissors, PlayCircle, Music, Upload, Play, Pause, Trash2, Loader2, Sparkles, Smartphone, Monitor, Square, ArrowLeftRight, Layers, ChevronDown, ChevronRight, Palette, SlidersHorizontal, Volume2, Plus, X, FlipHorizontal, FlipVertical, Paintbrush, Shield, Eye } from 'lucide-react';
+import { Wand2, Clock, Zap, Video, Scissors, PlayCircle, Music, Upload, Play, Pause, Trash2, Loader2, Sparkles, Smartphone, Monitor, Square, ArrowLeftRight, Layers, ChevronDown, Eye, Palette, Repeat } from 'lucide-react';
 import { analyzeAudio, AudioAnalysisResult, SegmentType as _SegmentType } from '../../lib/audioAnalysis';
-import { TRANSITION_REGISTRY, getTransitionsByCategory, CATEGORY_LABELS, type TransitionCategory } from '../../lib/transitions';
-import { EFFECT_REGISTRY, getEffectsByCategory, getDefaultParams, getEffectById } from '../../lib/effectRegistry';
-import { DEFAULT_COLOR_GRADING, type ColorGrading } from '../../lib/colorGrading';
-import { DEFAULT_AUDIO_EFFECTS, type AudioEffects } from '../../lib/audioEffects';
+import { TRANSITION_CATEGORIES, TRANSITION_META } from '../../lib/transitions';
+import type { TransitionType, SpeedCurvePreset, ShakeType, ShakePolicy, BeatDropIntensity, TransitionStyle, BoomerangPresetId, ZoomSpeed } from '../../types';
 import clsx from 'clsx';
 
 interface SliderProps {
@@ -29,6 +26,67 @@ const SliderControl: React.FC<SliderProps> = ({ label, icon: Icon, value, min, m
         <div className="flex justify-between text-[10px] text-white/30 font-mono">
             <span>{min}{unit}</span><span>{max}{unit}</span>
         </div>
+    </div>
+);
+
+/** Dual-handle range slider for min/max controls. */
+const DualRangeSlider: React.FC<{
+    label: string; icon: React.ElementType;
+    min: number; max: number; step: number;
+    value: [number, number];
+    onChange: (v: [number, number]) => void;
+    unit?: string; disabled?: boolean;
+}> = ({ label, icon: Icon, min, max, step, value, onChange, unit = '', disabled }) => (
+    <div className={clsx("flex flex-col gap-2", disabled && "opacity-50 pointer-events-none")}>
+        <div className="flex justify-between items-center text-xs font-bold uppercase tracking-wider text-white/70">
+            <span className="flex items-center gap-1.5"><Icon size={12} /> {label}</span>
+            <span className="text-primary font-mono">{value[0].toFixed(1)}{unit} — {value[1].toFixed(1)}{unit}</span>
+        </div>
+        <div className="relative h-6 flex items-center">
+            <div className="absolute inset-x-0 h-1.5 bg-white/10 rounded-full" />
+            <div className="absolute h-1.5 bg-purple-500/50 rounded-full" style={{ left: `${((value[0] - min) / (max - min)) * 100}%`, right: `${100 - ((value[1] - min) / (max - min)) * 100}%` }} />
+            <input type="range" min={min} max={max} step={step} value={value[0]}
+                onChange={(e) => { const v = parseFloat(e.target.value); if (v <= value[1]) onChange([v, value[1]]); }}
+                className="absolute w-full appearance-none bg-transparent cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-purple-200 [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(168,85,247,0.5)]" />
+            <input type="range" min={min} max={max} step={step} value={value[1]}
+                onChange={(e) => { const v = parseFloat(e.target.value); if (v >= value[0]) onChange([value[0], v]); }}
+                className="absolute w-full appearance-none bg-transparent cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-400 [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-blue-200 [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
+        </div>
+        <div className="flex justify-between text-[10px] text-white/30 font-mono">
+            <span>{min}{unit}</span><span>{max}{unit}</span>
+        </div>
+    </div>
+);
+
+/** Collapsible section wrapper matching the existing glassmorphism style. */
+const CollapsibleSection: React.FC<{
+    title: string; icon: React.ElementType; iconColor?: string;
+    isOpen: boolean; onToggle: () => void;
+    badge?: string; badgeColor?: string;
+    children: React.ReactNode;
+}> = ({ title, icon: Icon, iconColor = 'text-purple-400', isOpen, onToggle, badge, badgeColor = 'bg-purple-500/20 text-purple-300', children }) => (
+    <div className="border border-white/5 rounded-xl bg-black/20 overflow-hidden">
+        <button onClick={onToggle} className="w-full flex items-center gap-2 p-4 hover:bg-white/5 transition-colors">
+            <Icon size={14} className={iconColor} />
+            <span className="text-sm font-bold text-white">{title}</span>
+            {badge && <span className={clsx("text-[10px] px-2 py-0.5 rounded-full font-bold ml-auto mr-2", badgeColor)}>{badge}</span>}
+            <ChevronDown size={14} className={clsx("text-white/40 transition-transform ml-auto", isOpen && "rotate-180")} />
+        </button>
+        <AnimatePresence initial={false}>
+            {isOpen && (
+                <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.25, ease: 'easeInOut' }}
+                    className="overflow-hidden"
+                >
+                    <div className="px-4 pb-4 space-y-4">
+                        {children}
+                    </div>
+                </motion.div>
+            )}
+        </AnimatePresence>
     </div>
 );
 
@@ -82,16 +140,10 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
 
     const [customSpeedEnabled, setCustomSpeedEnabled] = useState(false);
 
-    // Section expand/collapse state
-    const [showTransitions, setShowTransitions] = useState(false);
-    const [showEffects, setShowEffects] = useState(false);
-    const [showColorGrading, setShowColorGrading] = useState(false);
-    const [showQuickTools, setShowQuickTools] = useState(false);
-    const [showAudioFx, setShowAudioFx] = useState(false);
-    const [showEffectPicker, setShowEffectPicker] = useState(false);
-
-    // Transition state from userStore
-    const { defaultTransition, setDefaultTransition } = useUserStore();
+    // Collapsible section states
+    const [effectsOpen, setEffectsOpen] = useState(true);
+    const [transitionsOpen, setTransitionsOpen] = useState(false);
+    const [colorOpen, setColorOpen] = useState(false);
 
     // Restore persisted audio URL on mount
     const audioRestoredRef = useRef(false);
@@ -330,6 +382,184 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
             window.removeEventListener('mouseup', handleMouseUp);
         };
     }, [isDragging, audioAnalysis, audioTrimStart, audioTrimEnd, dragStartPos]);
+
+    // ── Waveform Canvas Drawing ──────────────────────────────────────────────
+    useEffect(() => {
+        const canvas = waveformRef.current;
+        const wrapper = waveformWrapperRef.current;
+        if (!canvas || !wrapper || !audioAnalysis) return;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        // HiDPI setup — match canvas bitmap size to physical pixels
+        const dpr = window.devicePixelRatio || 1;
+        const rect = wrapper.getBoundingClientRect();
+        const w = rect.width;
+        const h = 80; // matches the h-20 (5rem = 80px) CSS height
+        canvas.width = Math.round(w * dpr);
+        canvas.height = Math.round(h * dpr);
+        canvas.style.width = `${w}px`;
+        canvas.style.height = `${h}px`;
+        ctx.scale(dpr, dpr);
+
+        const { waveformData, beats, energyContour, duration } = audioAnalysis;
+
+        // ── Background ──────────────────────────────────────────────────────
+        ctx.clearRect(0, 0, w, h);
+        const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
+        bgGrad.addColorStop(0, 'rgba(10, 5, 20, 0.9)');
+        bgGrad.addColorStop(1, 'rgba(5, 2, 15, 0.95)');
+        ctx.fillStyle = bgGrad;
+        ctx.fillRect(0, 0, w, h);
+
+        // ── 1. Waveform amplitude bars ──────────────────────────────────────
+        if (waveformData && waveformData.length > 0) {
+            const barCount = waveformData.length;
+            const barWidth = w / barCount;
+            const barGap = Math.max(0.5, barWidth * 0.15);
+
+            for (let i = 0; i < barCount; i++) {
+                const amp = waveformData[i];
+                const barH = Math.max(1, amp * (h * 0.85));
+                const x = i * barWidth;
+                const y = h - barH;
+
+                // Gradient fill: dark purple at base → bright purple at peaks
+                const grad = ctx.createLinearGradient(x, h, x, y);
+                grad.addColorStop(0, 'rgba(88, 28, 135, 0.6)');   // dark purple base
+                grad.addColorStop(0.5, 'rgba(147, 51, 234, 0.8)'); // mid purple
+                grad.addColorStop(1, 'rgba(192, 132, 252, 1)');    // bright purple peak
+
+                ctx.fillStyle = grad;
+                ctx.fillRect(x + barGap / 2, y, Math.max(0.5, barWidth - barGap), barH);
+            }
+
+            // Glow pass — redraw with blur for bloom effect
+            ctx.save();
+            ctx.globalAlpha = 0.3;
+            ctx.filter = 'blur(3px)';
+            for (let i = 0; i < barCount; i++) {
+                const amp = waveformData[i];
+                const barH = Math.max(1, amp * (h * 0.85));
+                const x = i * barWidth;
+                const y = h - barH;
+                ctx.fillStyle = 'rgba(168, 85, 247, 0.6)';
+                ctx.fillRect(x + barGap / 2, y, Math.max(0.5, barWidth - barGap), barH);
+            }
+            ctx.restore();
+        }
+
+        // ── 2. Beat markers ────────────────────────────────────────────────
+        if (beats && beats.length > 0) {
+            const beatColors: Record<string, string> = {
+                kick: '#ef4444',
+                snare: '#f97316',
+                hat: '#06b6d4',
+                bass: '#a855f7',
+                transient: '#ffffff',
+            };
+
+            for (const beat of beats) {
+                const x = (beat.time / duration) * w;
+                const color = beatColors[beat.type] || '#ffffff';
+                const lineH = Math.max(8, beat.energy * h * 0.7);
+
+                // Vertical line
+                ctx.beginPath();
+                ctx.moveTo(x, h);
+                ctx.lineTo(x, h - lineH);
+                ctx.strokeStyle = color;
+                ctx.globalAlpha = 0.55;
+                ctx.lineWidth = 1.2;
+                ctx.stroke();
+
+                // Glow behind the line
+                ctx.beginPath();
+                ctx.moveTo(x, h);
+                ctx.lineTo(x, h - lineH);
+                ctx.strokeStyle = color;
+                ctx.globalAlpha = 0.15;
+                ctx.lineWidth = 4;
+                ctx.stroke();
+
+                // Dot at the top
+                ctx.beginPath();
+                ctx.arc(x, h - lineH, 2, 0, Math.PI * 2);
+                ctx.fillStyle = color;
+                ctx.globalAlpha = 0.8;
+                ctx.fill();
+
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        // ── 3. Energy contour line ─────────────────────────────────────────
+        if (energyContour && energyContour.length > 1) {
+            ctx.save();
+            ctx.globalAlpha = 0.45;
+            ctx.strokeStyle = 'rgba(52, 211, 153, 0.8)'; // emerald-400
+            ctx.lineWidth = 1.5;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+
+            ctx.beginPath();
+            for (let i = 0; i < energyContour.length; i++) {
+                const pt = energyContour[i];
+                const x = (pt.time / duration) * w;
+                const y = h - (pt.energy * h * 0.8);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+
+            // Subtle glow for the energy line
+            ctx.globalAlpha = 0.15;
+            ctx.lineWidth = 5;
+            ctx.filter = 'blur(2px)';
+            ctx.beginPath();
+            for (let i = 0; i < energyContour.length; i++) {
+                const pt = energyContour[i];
+                const x = (pt.time / duration) * w;
+                const y = h - (pt.energy * h * 0.8);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // ── 4. Trim region dimming ─────────────────────────────────────────
+        //    Dim areas outside the active trim region with a dark overlay
+        const trimLeftX = (audioTrimStart / duration) * w;
+        const trimRightX = (audioTrimEnd / duration) * w;
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+        // Left dimmed region
+        if (trimLeftX > 0) {
+            ctx.fillRect(0, 0, trimLeftX, h);
+        }
+        // Right dimmed region
+        if (trimRightX < w) {
+            ctx.fillRect(trimRightX, 0, w - trimRightX, h);
+        }
+
+        // Subtle bright edge glow at trim boundaries
+        const edgeGlow = ctx.createLinearGradient(trimLeftX - 4, 0, trimLeftX + 4, 0);
+        edgeGlow.addColorStop(0, 'rgba(96, 165, 250, 0)');
+        edgeGlow.addColorStop(0.5, 'rgba(96, 165, 250, 0.15)');
+        edgeGlow.addColorStop(1, 'rgba(96, 165, 250, 0)');
+        ctx.fillStyle = edgeGlow;
+        ctx.fillRect(trimLeftX - 4, 0, 8, h);
+
+        const edgeGlowR = ctx.createLinearGradient(trimRightX - 4, 0, trimRightX + 4, 0);
+        edgeGlowR.addColorStop(0, 'rgba(96, 165, 250, 0)');
+        edgeGlowR.addColorStop(0.5, 'rgba(96, 165, 250, 0.15)');
+        edgeGlowR.addColorStop(1, 'rgba(96, 165, 250, 0)');
+        ctx.fillStyle = edgeGlowR;
+        ctx.fillRect(trimRightX - 4, 0, 8, h);
+
+    }, [audioAnalysis, audioTrimStart, audioTrimEnd, audioCurrentTime]);
 
     const autoSelectBestSegment = (targetDur: number) => {
         if (!audioAnalysis || audioAnalysis.segments.length === 0) return;
@@ -817,411 +1047,408 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             Custom Speed
                         </button>
                         {customSpeedEnabled && (
-                            <SliderControl label="Custom Speed" icon={Clock} value={settings.customSpeed ?? 1.0}
-                                min={0.25} max={8} step={0.25} unit="x"
-                                onChange={(v) => update({ customSpeed: v, slowmoPolicy: 'custom' as any })} />
-                        )}
-                    </div>
-                    </div>
-
-                {/* Boomerang Effect */}
-                <div className="border border-cyan-500/10 rounded-xl bg-gradient-to-br from-cyan-900/10 to-teal-900/5 p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            <span className="text-cyan-400 text-sm">🔁</span>
-                            <span className="text-[11px] font-bold uppercase tracking-wider text-cyan-200/70">Boomerang</span>
-                            <span className="text-[9px] text-white/30">Forward ↔ Reverse</span>
-                        </div>
-                        <button
-                            onClick={() => update({ boomerangAll: !settings.boomerangAll })}
-                            className={clsx(
-                                "relative w-10 h-5 rounded-full transition-all",
-                                settings.boomerangAll
-                                    ? "bg-cyan-500/60 shadow-[0_0_10px_rgba(6,182,212,0.3)]"
-                                    : "bg-white/10"
-                            )}>
-                            <span className={clsx(
-                                "absolute top-0.5 w-4 h-4 rounded-full transition-all",
-                                settings.boomerangAll ? "left-5.5 bg-cyan-300" : "left-0.5 bg-white/40"
-                            )} />
-                        </button>
-                    </div>
-                </div>
-
-                {/* ─── Transition Style ─── */}
-                <div className="border border-indigo-500/10 rounded-xl bg-gradient-to-br from-indigo-900/10 to-blue-900/5 overflow-hidden">
-                    <button onClick={() => setShowTransitions(!showTransitions)}
-                        className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors">
-                        <div className="flex items-center gap-2">
-                            <SlidersHorizontal size={14} className="text-indigo-400" />
-                            <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-200/70">Transition Style</span>
-                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono">{defaultTransition}</span>
-                        </div>
-                        {showTransitions ? <ChevronDown size={14} className="text-white/30" /> : <ChevronRight size={14} className="text-white/30" />}
-                    </button>
-                    {showTransitions && (
-                        <div className="px-4 pb-4 space-y-3">
-                            <div className="space-y-2">
-                                {(Object.keys(getTransitionsByCategory()) as TransitionCategory[]).map(cat => {
-                                    const items = getTransitionsByCategory()[cat];
-                                    return (
-                                        <div key={cat}>
-                                            <div className="text-[9px] font-bold uppercase tracking-wider text-white/25 mb-1">{CATEGORY_LABELS[cat]}</div>
-                                            <div className="flex flex-wrap gap-1">
-                                                {items.map(t => (
-                                                    <button key={t.id}
-                                                        onClick={() => setDefaultTransition(t.id)}
-                                                        className={clsx("px-2 py-1 rounded text-[9px] font-bold border transition-all",
-                                                            defaultTransition === t.id
-                                                                ? "bg-indigo-600/30 border-indigo-500/50 text-indigo-200 shadow-[0_0_8px_rgba(99,102,241,0.2)]"
-                                                                : "bg-white/5 border-white/5 text-white/40 hover:text-white/70 hover:bg-white/10")}>
-                                                        {t.name}
-                                                    </button>
-                                                ))}
-                                            </div>
+                            <div className="space-y-3 pl-2 border-l-2 border-blue-500/20 ml-1">
+                                {/* Custom Range Toggle */}
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <span className="text-[10px] font-bold uppercase text-white/50">Custom Range</span>
+                                    <div className="relative ml-auto">
+                                        <input type="checkbox" className="sr-only" checked={settings.customSpeedRangeEnabled ?? false}
+                                            onChange={(e) => update({ customSpeedRangeEnabled: e.target.checked })} />
+                                        <div className={clsx("w-8 h-4 rounded-full transition-colors", settings.customSpeedRangeEnabled ? "bg-blue-500" : "bg-black border border-white/20")}>
+                                            <div className={clsx("w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform", settings.customSpeedRangeEnabled ? "translate-x-4" : "translate-x-0.5")} />
                                         </div>
-                                    );
-                                })}
-                            </div>
-                            <SliderControl label="Transition Duration" icon={Clock}
-                                value={settings.transitionDuration ?? 0.5}
-                                min={0.1} max={2.0} step={0.1} unit="s"
-                                onChange={(v) => update({ transitionDuration: v })} />
-                        </div>
-                    )}
-                </div>
-
-                {/* ─── Visual Effects ─── */}
-                <div className="border border-purple-500/10 rounded-xl bg-gradient-to-br from-purple-900/10 to-fuchsia-900/5 overflow-hidden">
-                    <button onClick={() => setShowEffects(!showEffects)}
-                        className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors">
-                        <div className="flex items-center gap-2">
-                            <Palette size={14} className="text-purple-400" />
-                            <span className="text-[11px] font-bold uppercase tracking-wider text-purple-200/70">Visual Effects</span>
-                            {(settings.globalEffects?.length ?? 0) > 0 && (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-purple-500/30 text-purple-200 font-bold">{settings.globalEffects!.length}</span>
-                            )}
-                        </div>
-                        {showEffects ? <ChevronDown size={14} className="text-white/30" /> : <ChevronRight size={14} className="text-white/30" />}
-                    </button>
-                    {showEffects && (
-                        <div className="px-4 pb-4 space-y-3">
-                            <div className="relative">
-                                <button onClick={() => setShowEffectPicker(!showEffectPicker)}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 text-[10px] font-bold transition-colors">
-                                    <Plus size={12} /> Add Effect
-                                </button>
-                                {showEffectPicker && (
-                                    <div className="absolute z-50 mt-1 left-0 min-w-[220px] bg-black/95 border border-white/10 rounded-lg shadow-2xl backdrop-blur-xl overflow-hidden max-h-64 overflow-y-auto">
-                                        {Object.entries(getEffectsByCategory()).map(([cat, effects]) => (
-                                            <div key={cat}>
-                                                <div className="px-3 py-1 text-[9px] font-bold uppercase tracking-wider text-white/25 bg-white/5">{cat}</div>
-                                                {effects.map(fx => (
-                                                    <button key={fx.id}
-                                                        onClick={() => {
-                                                            const current = settings.globalEffects || [];
-                                                            update({ globalEffects: [...current, { effectId: fx.id, params: getDefaultParams(fx.id) }] });
-                                                            setShowEffectPicker(false);
-                                                        }}
-                                                        className="w-full px-3 py-2 text-left text-xs text-white/70 hover:text-white hover:bg-white/10 transition-colors">
-                                                        {fx.name}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        ))}
                                     </div>
+                                </label>
+
+                                {settings.customSpeedRangeEnabled ? (
+                                    <DualRangeSlider label="Speed Range" icon={Zap}
+                                        min={0.25} max={8} step={0.25} unit="x"
+                                        value={settings.customSpeedRange ?? [0.5, 2.0]}
+                                        onChange={(v) => update({ customSpeedRange: v, slowmoPolicy: 'custom' as any })} />
+                                ) : (
+                                    <SliderControl label="Custom Speed" icon={Clock} value={settings.customSpeed ?? 1.0}
+                                        min={0.25} max={8} step={0.25} unit="x"
+                                        onChange={(v) => update({ customSpeed: v, slowmoPolicy: 'custom' as any })} />
                                 )}
                             </div>
-                            {(settings.globalEffects || []).map((applied, idx) => {
-                                const fx = getEffectById(applied.effectId);
-                                if (!fx) return null;
-                                return (
-                                    <div key={idx} className="border border-white/5 rounded-lg bg-white/5 p-3 space-y-2">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-[10px] font-bold text-white">{fx.name}</span>
-                                                <span className="text-[8px] px-1 py-0.5 rounded bg-purple-500/20 text-purple-300 uppercase">{fx.category}</span>
-                                            </div>
-                                            <button onClick={() => {
-                                                const list = [...(settings.globalEffects || [])];
-                                                list.splice(idx, 1);
-                                                update({ globalEffects: list });
-                                            }} className="p-1 hover:bg-red-500/20 rounded text-white/20 hover:text-red-400 transition-colors">
-                                                <X size={12} />
-                                            </button>
-                                        </div>
-                                        {fx.parameters.map(param => {
-                                            if (param.type === 'toggle') {
-                                                return (
-                                                    <label key={param.key} className="flex items-center justify-between text-[10px] text-white/50">
-                                                        <span>{param.label}</span>
-                                                        <input type="checkbox" checked={!!applied.params[param.key]}
-                                                            onChange={(e) => {
-                                                                const list = [...(settings.globalEffects || [])];
-                                                                list[idx] = { ...list[idx], params: { ...list[idx].params, [param.key]: e.target.checked } };
-                                                                update({ globalEffects: list });
-                                                            }}
-                                                            className="accent-purple-500" />
-                                                    </label>
-                                                );
-                                            }
-                                            if (param.type === 'select') {
-                                                return (
-                                                    <label key={param.key} className="flex items-center justify-between text-[10px] text-white/50">
-                                                        <span>{param.label}</span>
-                                                        <select value={String(applied.params[param.key] ?? param.default)}
-                                                            onChange={(e) => {
-                                                                const list = [...(settings.globalEffects || [])];
-                                                                list[idx] = { ...list[idx], params: { ...list[idx].params, [param.key]: e.target.value } };
-                                                                update({ globalEffects: list });
-                                                            }}
-                                                            className="bg-black/50 border border-white/10 rounded px-2 py-0.5 text-[10px] text-white/70">
-                                                            {/* Options derived from min/max or known presets */}
-                                                            {param.key === 'preset' && ['none','vintage','cross_process','linear_contrast','medium_contrast'].map(p => (
-                                                                <option key={p} value={p}>{p}</option>
-                                                            ))}
-                                                        </select>
-                                                    </label>
-                                                );
-                                            }
+                        )}
+                    </div>
+
+                    {/* Speed Curve Presets */}
+                    <div className="space-y-1.5">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Speed Curve</span>
+                        <div className="flex flex-wrap gap-1.5">
+                            {([
+                                { id: 'constant', label: 'Constant' },
+                                { id: 'ramp-up', label: 'Ramp Up' },
+                                { id: 'ramp-down', label: 'Ramp Down' },
+                                { id: 's-curve', label: 'S-Curve' },
+                                { id: 'ramp-freeze', label: 'Ramp-Freeze' },
+                                { id: 'burst-landing', label: 'Burst-Landing' },
+                                { id: 'oscillating', label: 'Oscillating' },
+                            ] as { id: SpeedCurvePreset; label: string }[]).map(opt => (
+                                <button key={opt.id} onClick={() => update({ speedCurvePreset: opt.id })}
+                                    className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
+                                        (settings.speedCurvePreset ?? 'constant') === opt.id
+                                            ? "bg-blue-600/20 border-blue-500/40 text-blue-200 shadow-[0_0_8px_rgba(59,130,246,0.15)]"
+                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60")}>
+                                    {opt.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+
+                {/* ═══════════════════════════ EFFECTS ═══════════════════════════ */}
+                <CollapsibleSection title="Effects" icon={Sparkles} iconColor="text-cyan-400" isOpen={effectsOpen} onToggle={() => setEffectsOpen(!effectsOpen)}
+                    badge={[settings.boomerangAll && 'Boom', settings.zoomEnabled && 'Zoom', settings.shakePolicy !== 'off' && 'Shake', settings.beatDropImpact !== 'off' && 'Drop'].filter(Boolean).join(' · ') || undefined}
+                    badgeColor="bg-cyan-500/20 text-cyan-300">
+
+                    {/* ── Boomerang ── */}
+                    <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <Repeat size={13} className="text-cyan-400" />
+                                <span className="text-[11px] font-bold uppercase tracking-wider text-white/70">Boomerang</span>
+                                <span className="text-[9px] text-white/30">Forward ↔ Reverse</span>
+                            </div>
+                            <button onClick={() => update({ boomerangAll: !settings.boomerangAll })}
+                                className={clsx("px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
+                                    settings.boomerangAll
+                                        ? "bg-cyan-500/20 border-cyan-500/40 text-cyan-200 shadow-[0_0_8px_rgba(6,182,212,0.2)]"
+                                        : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                {settings.boomerangAll ? 'ON' : 'OFF'}
+                            </button>
+                        </div>
+                        {settings.boomerangAll && (
+                            <div className="flex flex-wrap gap-1.5 pl-5">
+                                {(['classic', 'slowmo', 'echo', 'duo', 'stutter', 'whiplash'] as BoomerangPresetId[]).map(id => (
+                                    <button key={id} onClick={() => update({ boomerangPreset: id })}
+                                        className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border capitalize",
+                                            (settings.boomerangPreset ?? 'classic') === id
+                                                ? "bg-cyan-600/20 border-cyan-500/40 text-cyan-200"
+                                                : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                        {id}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="border-t border-white/5" />
+
+                    {/* ── Zoom ── */}
+                    <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-2">
+                                <span className="text-sm">🔍</span> Zoom
+                            </span>
+                            <button onClick={() => update({ zoomEnabled: !settings.zoomEnabled })}
+                                className={clsx("px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
+                                    settings.zoomEnabled
+                                        ? "bg-purple-500/20 border-purple-500/40 text-purple-200"
+                                        : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                {settings.zoomEnabled ? 'ON' : 'OFF'}
+                            </button>
+                        </div>
+                        {settings.zoomEnabled && (
+                            <div className="space-y-3 pl-5">
+                                {/* Zoom value chips */}
+                                <div className="space-y-1">
+                                    <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Zoom Values</span>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {[100, 125, 150, 175, 200].map(val => {
+                                            const isActive = (settings.zoomValues ?? [100, 125, 150, 175, 200]).includes(val);
                                             return (
-                                                <SliderControl key={param.key} label={param.label} icon={SlidersHorizontal}
-                                                    value={Number(applied.params[param.key] ?? param.default)}
-                                                    min={param.min ?? 0} max={param.max ?? 100} step={param.step ?? 1}
-                                                    unit={param.unit || ''}
-                                                    onChange={(v) => {
-                                                        const list = [...(settings.globalEffects || [])];
-                                                        list[idx] = { ...list[idx], params: { ...list[idx].params, [param.key]: v } };
-                                                        update({ globalEffects: list });
-                                                    }} />
+                                                <button key={val} onClick={() => {
+                                                    const current = settings.zoomValues ?? [100, 125, 150, 175, 200];
+                                                    const next = isActive ? current.filter(v => v !== val) : [...current, val].sort((a, b) => a - b);
+                                                    if (next.length > 0) update({ zoomValues: next });
+                                                }}
+                                                    className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold transition-all border",
+                                                        isActive
+                                                            ? "bg-purple-600/20 border-purple-500/40 text-purple-200"
+                                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                                    {val}%
+                                                </button>
                                             );
                                         })}
                                     </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
-
-                {/* ─── Color Grading ─── */}
-                <div className="border border-amber-500/10 rounded-xl bg-gradient-to-br from-amber-900/10 to-orange-900/5 overflow-hidden">
-                    <button onClick={() => setShowColorGrading(!showColorGrading)}
-                        className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors">
-                        <div className="flex items-center gap-2">
-                            <Paintbrush size={14} className="text-amber-400" />
-                            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-200/70">Color Grading</span>
-                            {settings.globalColorGrading && <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">Active</span>}
-                        </div>
-                        {showColorGrading ? <ChevronDown size={14} className="text-white/30" /> : <ChevronRight size={14} className="text-white/30" />}
-                    </button>
-                    {showColorGrading && (
-                        <div className="px-4 pb-4 space-y-3">
-                            <div className="flex items-center justify-between">
-                                <label className="flex items-center gap-2 text-[10px] text-white/50">
-                                    <input type="checkbox" checked={!!settings.globalColorGrading}
-                                        onChange={(e) => update({ globalColorGrading: e.target.checked ? { ...DEFAULT_COLOR_GRADING } : undefined })}
-                                        className="accent-amber-500" />
-                                    Enable Color Grading
-                                </label>
-                                {settings.globalColorGrading && (
-                                    <button onClick={() => update({ globalColorGrading: { ...DEFAULT_COLOR_GRADING } })}
-                                        className="text-[9px] text-amber-400/50 hover:text-amber-400 transition-colors">Reset</button>
-                                )}
-                            </div>
-                            {settings.globalColorGrading && (
-                                <div className="space-y-2">
-                                    <SliderControl label="Temperature" icon={Paintbrush}
-                                        value={settings.globalColorGrading.temperature}
-                                        min={-100} max={100} step={5} unit=""
-                                        onChange={(v) => update({ globalColorGrading: { ...settings.globalColorGrading!, temperature: v } })} />
-                                    <SliderControl label="Tint" icon={Paintbrush}
-                                        value={settings.globalColorGrading.tint}
-                                        min={-100} max={100} step={5} unit=""
-                                        onChange={(v) => update({ globalColorGrading: { ...settings.globalColorGrading!, tint: v } })} />
-                                    <SliderControl label="Exposure" icon={Paintbrush}
-                                        value={settings.globalColorGrading.exposure}
-                                        min={-2} max={2} step={0.1} unit=""
-                                        onChange={(v) => update({ globalColorGrading: { ...settings.globalColorGrading!, exposure: v } })} />
-                                    <SliderControl label="Contrast" icon={Paintbrush}
-                                        value={settings.globalColorGrading.contrast}
-                                        min={0.5} max={2} step={0.05} unit=""
-                                        onChange={(v) => update({ globalColorGrading: { ...settings.globalColorGrading!, contrast: v } })} />
-                                    <SliderControl label="Saturation" icon={Paintbrush}
-                                        value={settings.globalColorGrading.saturation}
-                                        min={0} max={2} step={0.05} unit=""
-                                        onChange={(v) => update({ globalColorGrading: { ...settings.globalColorGrading!, saturation: v } })} />
-                                    <SliderControl label="Highlights" icon={Paintbrush}
-                                        value={settings.globalColorGrading.highlights}
-                                        min={-100} max={100} step={5} unit=""
-                                        onChange={(v) => update({ globalColorGrading: { ...settings.globalColorGrading!, highlights: v } })} />
-                                    <SliderControl label="Shadows" icon={Paintbrush}
-                                        value={settings.globalColorGrading.shadows}
-                                        min={-100} max={100} step={5} unit=""
-                                        onChange={(v) => update({ globalColorGrading: { ...settings.globalColorGrading!, shadows: v } })} />
                                 </div>
-                            )}
-                        </div>
-                    )}
-                </div>
 
-                {/* ─── Quick Tools ─── */}
-                <div className="border border-emerald-500/10 rounded-xl bg-gradient-to-br from-emerald-900/10 to-green-900/5 overflow-hidden">
-                    <button onClick={() => setShowQuickTools(!showQuickTools)}
-                        className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors">
-                        <div className="flex items-center gap-2">
-                            <Shield size={14} className="text-emerald-400" />
-                            <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-200/70">Quick Tools</span>
-                            {(settings.globalFlipH || settings.globalFlipV || (settings.globalSharpen ?? 0) > 0 || (settings.globalBlurAmount ?? 0) > 0 || settings.globalChromaKey?.enabled || settings.globalStabilize?.enabled) && (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">Active</span>
-                            )}
-                        </div>
-                        {showQuickTools ? <ChevronDown size={14} className="text-white/30" /> : <ChevronRight size={14} className="text-white/30" />}
-                    </button>
-                    {showQuickTools && (
-                        <div className="px-4 pb-4 space-y-3">
-                            <div className="flex gap-4">
-                                <label className="flex items-center gap-2 text-[10px] text-white/50 cursor-pointer">
-                                    <input type="checkbox" checked={!!settings.globalFlipH}
-                                        onChange={(e) => update({ globalFlipH: e.target.checked })}
-                                        className="accent-emerald-500" />
-                                    <FlipHorizontal size={12} /> Flip H
-                                </label>
-                                <label className="flex items-center gap-2 text-[10px] text-white/50 cursor-pointer">
-                                    <input type="checkbox" checked={!!settings.globalFlipV}
-                                        onChange={(e) => update({ globalFlipV: e.target.checked })}
-                                        className="accent-emerald-500" />
-                                    <FlipVertical size={12} /> Flip V
-                                </label>
-                            </div>
-                            <SliderControl label="Sharpen" icon={Eye}
-                                value={settings.globalSharpen ?? 0}
-                                min={0} max={3} step={0.1} unit=""
-                                onChange={(v) => update({ globalSharpen: v || undefined })} />
-                            <SliderControl label="Blur" icon={Eye}
-                                value={settings.globalBlurAmount ?? 0}
-                                min={0} max={20} step={0.5} unit="px"
-                                onChange={(v) => update({ globalBlurAmount: v || undefined })} />
-
-                            {/* Chroma Key */}
-                            <div className="border-t border-white/5 pt-3 space-y-2">
-                                <label className="flex items-center gap-2 text-[10px] text-white/50 cursor-pointer">
-                                    <input type="checkbox" checked={!!settings.globalChromaKey?.enabled}
-                                        onChange={(e) => update({ globalChromaKey: { color: '#00ff00', similarity: 0.3, blend: 0.1, enabled: e.target.checked, ...settings.globalChromaKey, enabled: e.target.checked } })}
-                                        className="accent-emerald-500" />
-                                    Chroma Key (Green Screen)
-                                </label>
-                                {settings.globalChromaKey?.enabled && (
-                                    <div className="space-y-2 pl-4">
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-[9px] text-white/30">Color</span>
-                                            <input type="color" value={settings.globalChromaKey.color || '#00ff00'}
-                                                onChange={(e) => update({ globalChromaKey: { ...settings.globalChromaKey!, color: e.target.value } })}
-                                                className="w-6 h-6 rounded border border-white/10 bg-transparent cursor-pointer" />
+                                {/* Custom Range toggle */}
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <span className="text-[10px] font-bold uppercase text-white/50">Custom Range</span>
+                                    <div className="relative ml-auto">
+                                        <input type="checkbox" className="sr-only" checked={settings.zoomCustomRangeEnabled ?? false}
+                                            onChange={(e) => update({ zoomCustomRangeEnabled: e.target.checked })} />
+                                        <div className={clsx("w-8 h-4 rounded-full transition-colors", settings.zoomCustomRangeEnabled ? "bg-purple-500" : "bg-black border border-white/20")}>
+                                            <div className={clsx("w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform", settings.zoomCustomRangeEnabled ? "translate-x-4" : "translate-x-0.5")} />
                                         </div>
-                                        <SliderControl label="Similarity" icon={Eye}
-                                            value={settings.globalChromaKey.similarity}
-                                            min={0.01} max={1} step={0.01} unit=""
-                                            onChange={(v) => update({ globalChromaKey: { ...settings.globalChromaKey!, similarity: v } })} />
-                                        <SliderControl label="Blend" icon={Eye}
-                                            value={settings.globalChromaKey.blend}
-                                            min={0} max={1} step={0.01} unit=""
-                                            onChange={(v) => update({ globalChromaKey: { ...settings.globalChromaKey!, blend: v } })} />
                                     </div>
-                                )}
-                            </div>
-
-                            {/* Stabilization */}
-                            <div className="border-t border-white/5 pt-3 space-y-2">
-                                <label className="flex items-center gap-2 text-[10px] text-white/50 cursor-pointer">
-                                    <input type="checkbox" checked={!!settings.globalStabilize?.enabled}
-                                        onChange={(e) => update({ globalStabilize: { smoothing: 10, ...settings.globalStabilize, enabled: e.target.checked } })}
-                                        className="accent-emerald-500" />
-                                    Video Stabilization
                                 </label>
-                                {settings.globalStabilize?.enabled && (
-                                    <SliderControl label="Smoothing" icon={SlidersHorizontal}
-                                        value={settings.globalStabilize.smoothing}
-                                        min={1} max={60} step={1} unit=""
-                                        onChange={(v) => update({ globalStabilize: { ...settings.globalStabilize!, smoothing: v } })} />
+                                {settings.zoomCustomRangeEnabled && (
+                                    <DualRangeSlider label="Zoom Range" icon={Eye}
+                                        min={100} max={200} step={5} unit="%"
+                                        value={settings.zoomCustomRange ?? [100, 200]}
+                                        onChange={(v) => update({ zoomCustomRange: v })} />
                                 )}
-                            </div>
-                        </div>
-                    )}
-                </div>
 
-                {/* ─── Audio FX ─── */}
-                <div className="border border-sky-500/10 rounded-xl bg-gradient-to-br from-sky-900/10 to-blue-900/5 overflow-hidden">
-                    <button onClick={() => setShowAudioFx(!showAudioFx)}
-                        className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors">
-                        <div className="flex items-center gap-2">
-                            <Volume2 size={14} className="text-sky-400" />
-                            <span className="text-[11px] font-bold uppercase tracking-wider text-sky-200/70">Audio FX</span>
-                            {settings.globalAudioEffects && <span className="text-[9px] px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300">Active</span>}
-                        </div>
-                        {showAudioFx ? <ChevronDown size={14} className="text-white/30" /> : <ChevronRight size={14} className="text-white/30" />}
-                    </button>
-                    {showAudioFx && (
-                        <div className="px-4 pb-4 space-y-3">
-                            <div className="flex items-center justify-between">
-                                <label className="flex items-center gap-2 text-[10px] text-white/50">
-                                    <input type="checkbox" checked={!!settings.globalAudioEffects}
-                                        onChange={(e) => update({ globalAudioEffects: e.target.checked ? { ...DEFAULT_AUDIO_EFFECTS } : undefined })}
-                                        className="accent-sky-500" />
-                                    Enable Audio FX
-                                </label>
-                                {settings.globalAudioEffects && (
-                                    <button onClick={() => update({ globalAudioEffects: { ...DEFAULT_AUDIO_EFFECTS } })}
-                                        className="text-[9px] text-sky-400/50 hover:text-sky-400 transition-colors">Reset</button>
-                                )}
-                            </div>
-                            {settings.globalAudioEffects && (
-                                <div className="space-y-2">
-                                    <div className="text-[9px] font-bold uppercase tracking-wider text-white/25">Equalizer</div>
-                                    <SliderControl label="Low (100Hz)" icon={Volume2}
-                                        value={settings.globalAudioEffects.eqLow}
-                                        min={-20} max={20} step={1} unit="dB"
-                                        onChange={(v) => update({ globalAudioEffects: { ...settings.globalAudioEffects!, eqLow: v } })} />
-                                    <SliderControl label="Mid (1kHz)" icon={Volume2}
-                                        value={settings.globalAudioEffects.eqMid}
-                                        min={-20} max={20} step={1} unit="dB"
-                                        onChange={(v) => update({ globalAudioEffects: { ...settings.globalAudioEffects!, eqMid: v } })} />
-                                    <SliderControl label="High (8kHz)" icon={Volume2}
-                                        value={settings.globalAudioEffects.eqHigh}
-                                        min={-20} max={20} step={1} unit="dB"
-                                        onChange={(v) => update({ globalAudioEffects: { ...settings.globalAudioEffects!, eqHigh: v } })} />
-
-                                    <div className="text-[9px] font-bold uppercase tracking-wider text-white/25 pt-2">Noise & Dynamics</div>
-                                    <SliderControl label="Noise Reduction" icon={Volume2}
-                                        value={settings.globalAudioEffects.noiseReduction}
-                                        min={0} max={97} step={1} unit=""
-                                        onChange={(v) => update({ globalAudioEffects: { ...settings.globalAudioEffects!, noiseReduction: v } })} />
-                                    <label className="flex items-center gap-2 text-[10px] text-white/50">
-                                        <input type="checkbox" checked={settings.globalAudioEffects.loudnessNorm}
-                                            onChange={(e) => update({ globalAudioEffects: { ...settings.globalAudioEffects!, loudnessNorm: e.target.checked } })}
-                                            className="accent-sky-500" />
-                                        Loudness Normalization (EBU R128)
-                                    </label>
-                                    <label className="flex items-center gap-2 text-[10px] text-white/50">
-                                        <input type="checkbox" checked={settings.globalAudioEffects.compressor}
-                                            onChange={(e) => update({ globalAudioEffects: { ...settings.globalAudioEffects!, compressor: e.target.checked } })}
-                                            className="accent-sky-500" />
-                                        Compressor
-                                    </label>
-
-                                    <div className="text-[9px] font-bold uppercase tracking-wider text-white/25 pt-2">Fades</div>
-                                    <SliderControl label="Fade In" icon={Volume2}
-                                        value={settings.globalAudioEffects.fadeInDuration}
-                                        min={0} max={5} step={0.1} unit="s"
-                                        onChange={(v) => update({ globalAudioEffects: { ...settings.globalAudioEffects!, fadeInDuration: v } })} />
-                                    <SliderControl label="Fade Out" icon={Volume2}
-                                        value={settings.globalAudioEffects.fadeOutDuration}
-                                        min={0} max={5} step={0.1} unit="s"
-                                        onChange={(v) => update({ globalAudioEffects: { ...settings.globalAudioEffects!, fadeOutDuration: v } })} />
+                                {/* Zoom Speed */}
+                                <div className="space-y-1">
+                                    <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Zoom Speed</span>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {(['instant', 'fast', 'slow', 'all'] as const).map(id => (
+                                            <button key={id} onClick={() => update({ zoomSpeed: id })}
+                                                className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border capitalize",
+                                                    (settings.zoomSpeed ?? 'all') === id
+                                                        ? "bg-purple-600/20 border-purple-500/40 text-purple-200"
+                                                        : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                                {id}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
-                            )}
+
+                                {/* Beat Sync toggle */}
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <span className="text-[10px] font-bold uppercase text-white/50">Beat Sync</span>
+                                    <div className="relative ml-auto">
+                                        <input type="checkbox" className="sr-only" checked={settings.zoomBeatSync ?? false}
+                                            onChange={(e) => update({ zoomBeatSync: e.target.checked })} />
+                                        <div className={clsx("w-8 h-4 rounded-full transition-colors", settings.zoomBeatSync ? "bg-emerald-500" : "bg-black border border-white/20")}>
+                                            <div className={clsx("w-3 h-3 bg-white rounded-full absolute top-0.5 transition-transform", settings.zoomBeatSync ? "translate-x-4" : "translate-x-0.5")} />
+                                        </div>
+                                    </div>
+                                </label>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="border-t border-white/5" />
+
+                    {/* ── Beat Drop Impact ── */}
+                    <div className="space-y-1.5">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-2">
+                            <span className="text-sm">💥</span> Beat Drop Impact
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                            {(['off', 'subtle', 'medium', 'heavy', 'maximum'] as BeatDropIntensity[]).map(id => (
+                                <button key={id} onClick={() => update({ beatDropImpact: id })}
+                                    className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border capitalize",
+                                        (settings.beatDropImpact ?? 'off') === id
+                                            ? "bg-orange-600/20 border-orange-500/40 text-orange-200 shadow-[0_0_8px_rgba(249,115,22,0.15)]"
+                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                    {id}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="border-t border-white/5" />
+
+                    {/* ── Shake ── */}
+                    <div className="space-y-2">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-2">
+                            <span className="text-sm">📳</span> Shake
+                        </span>
+                        <div className="space-y-1">
+                            <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Shake Policy</span>
+                            <div className="flex flex-wrap gap-1.5">
+                                {([
+                                    { id: 'off' as ShakePolicy, label: 'Off' },
+                                    { id: 'sparingly' as ShakePolicy, label: 'Sparingly' },
+                                    { id: 'heavy-beats-only' as ShakePolicy, label: 'Heavy Beats' },
+                                    { id: 'on-every-beat' as ShakePolicy, label: 'Every Beat' },
+                                ]).map(opt => (
+                                    <button key={opt.id} onClick={() => update({ shakePolicy: opt.id })}
+                                        className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
+                                            (settings.shakePolicy ?? 'off') === opt.id
+                                                ? "bg-red-600/20 border-red-500/40 text-red-200 shadow-[0_0_8px_rgba(239,68,68,0.15)]"
+                                                : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                        {opt.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        {(settings.shakePolicy ?? 'off') !== 'off' && (
+                            <div className="space-y-3 pl-5">
+                                {/* Shake Type */}
+                                <div className="space-y-1">
+                                    <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Shake Type</span>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {([
+                                            { id: 'impact', label: 'Impact' },
+                                            { id: 'handheld', label: 'Handheld' },
+                                            { id: 'earthquake', label: 'Earthquake' },
+                                            { id: 'vibration', label: 'Vibration' },
+                                            { id: 'whip', label: 'Whip' },
+                                            { id: 'all', label: 'All' },
+                                        ] as { id: ShakeType | 'all'; label: string }[]).map(opt => (
+                                            <button key={opt.id} onClick={() => update({ shakeType: opt.id })}
+                                                className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
+                                                    (settings.shakeType ?? 'impact') === opt.id
+                                                        ? "bg-red-600/20 border-red-500/40 text-red-200"
+                                                        : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                                {opt.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                {/* Intensity slider */}
+                                <SliderControl label="Intensity" icon={Zap} value={settings.shakeIntensity ?? 50}
+                                    min={0} max={100} step={5} unit="%" onChange={(v) => update({ shakeIntensity: v })} />
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="border-t border-white/5" />
+
+                    {/* ── Visual FX ── */}
+                    <div className="space-y-3">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-2">
+                            <Eye size={13} className="text-indigo-400" /> Visual FX
+                        </span>
+                        <SliderControl label="Film Grain" icon={Eye} value={settings.filmGrainAmount ?? 0}
+                            min={0} max={25} step={1} unit="" onChange={(v) => update({ filmGrainAmount: v })} />
+                        <SliderControl label="Vignette" icon={Eye} value={settings.vignetteAmount ?? 0}
+                            min={0} max={100} step={5} unit="%" onChange={(v) => update({ vignetteAmount: v })} />
+                        <SliderControl label="Chromatic Aberration" icon={Eye} value={settings.chromaticAmount ?? 0}
+                            min={0} max={20} step={1} unit="px" onChange={(v) => update({ chromaticAmount: v })} />
+                        <label className="flex items-center justify-between cursor-pointer py-1">
+                            <span className="text-[10px] font-bold uppercase text-white/50">Letterbox (2.39:1)</span>
+                            <div className="relative">
+                                <input type="checkbox" className="sr-only" checked={settings.letterboxEnabled ?? false}
+                                    onChange={(e) => update({ letterboxEnabled: e.target.checked })} />
+                                <div className={clsx("w-10 h-5 rounded-full transition-colors", settings.letterboxEnabled ? "bg-indigo-500" : "bg-black border border-white/20")}>
+                                    <div className={clsx("w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform", settings.letterboxEnabled ? "translate-x-5" : "translate-x-0.5")} />
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+                </CollapsibleSection>
+
+                {/* ═══════════════════════════ TRANSITIONS ═══════════════════════════ */}
+                <CollapsibleSection title="Transitions" icon={Scissors} iconColor="text-amber-400" isOpen={transitionsOpen} onToggle={() => setTransitionsOpen(!transitionsOpen)}
+                    badge={settings.transitionStyle !== 'cuts-only' ? (settings.transitionStyle ?? 'cuts-only') : undefined}
+                    badgeColor="bg-amber-500/20 text-amber-300">
+
+                    {/* Transition Style */}
+                    <div className="space-y-1.5">
+                        <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Style</span>
+                        <div className="flex gap-1.5">
+                            {([
+                                { id: 'cuts-only' as TransitionStyle, label: 'Cuts Only' },
+                                { id: 'mixed' as TransitionStyle, label: 'Mixed' },
+                                { id: 'transitions-only' as TransitionStyle, label: 'Transitions Only' },
+                            ]).map(opt => (
+                                <button key={opt.id} onClick={() => update({ transitionStyle: opt.id })}
+                                    className={clsx("flex-1 py-2 rounded-lg text-[10px] font-bold uppercase transition-all border text-center",
+                                        (settings.transitionStyle ?? 'cuts-only') === opt.id
+                                            ? "bg-amber-600/20 border-amber-500/40 text-amber-200 shadow-[0_0_8px_rgba(245,158,11,0.15)]"
+                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                    {opt.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {(settings.transitionStyle ?? 'cuts-only') !== 'cuts-only' && (
+                        <div className="space-y-4">
+                            {/* Transition Duration */}
+                            <SliderControl label="Transition Duration" icon={Clock} value={settings.transitionDurationMs ?? 200}
+                                min={50} max={1000} step={25} unit="ms" onChange={(v) => update({ transitionDurationMs: v })} />
+
+                            {/* Transition Type Grid by Category */}
+                            <div className="space-y-2">
+                                <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Transition Types</span>
+                                <div className="max-h-[280px] overflow-y-auto custom-scrollbar space-y-3 pr-1">
+                                    {Object.entries(TRANSITION_CATEGORIES).map(([catKey, cat]) => (
+                                        <div key={catKey} className="space-y-1">
+                                            <span className="text-[9px] font-bold uppercase text-white/20 tracking-widest">{cat.label}</span>
+                                            <div className="flex flex-wrap gap-1">
+                                                {cat.transitions.map(t => {
+                                                    const meta = TRANSITION_META[t];
+                                                    const isActive = (settings.transitionTypes ?? []).includes(t);
+                                                    const allEmpty = !(settings.transitionTypes?.length);
+                                                    return (
+                                                        <button key={t} onClick={() => {
+                                                            const current = settings.transitionTypes ?? [];
+                                                            const next = isActive ? current.filter(x => x !== t) : [...current, t];
+                                                            update({ transitionTypes: next });
+                                                        }}
+                                                            className={clsx("px-2 py-0.5 rounded text-[9px] font-bold transition-all border flex items-center gap-1",
+                                                                isActive || allEmpty
+                                                                    ? "bg-amber-600/15 border-amber-500/30 text-amber-200"
+                                                                    : "bg-white/5 border-white/5 text-white/30 hover:bg-white/10 hover:text-white/50")}>
+                                                            <span>{meta?.icon}</span> {meta?.label ?? t}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                {(settings.transitionTypes?.length ?? 0) > 0 && (
+                                    <button onClick={() => update({ transitionTypes: [] })}
+                                        className="text-[9px] font-bold text-amber-400/50 hover:text-amber-300 transition-colors uppercase tracking-wider">
+                                        Clear Selection (use all)
+                                    </button>
+                                )}
+                            </div>
                         </div>
                     )}
-                </div>
+                </CollapsibleSection>
+
+                {/* ═══════════════════════════ COLOR ═══════════════════════════ */}
+                <CollapsibleSection title="Color" icon={Palette} iconColor="text-pink-400" isOpen={colorOpen} onToggle={() => setColorOpen(!colorOpen)}
+                    badge={[settings.colorPerSection && 'Per-Section', settings.desaturationBuildup && 'Desat', settings.beatFlashEnabled && 'Flash'].filter(Boolean).join(' · ') || undefined}
+                    badgeColor="bg-pink-500/20 text-pink-300">
+
+                    <label className="flex items-center justify-between cursor-pointer py-1">
+                        <div className="flex flex-col gap-0.5">
+                            <span className="text-xs font-bold text-white">Auto-Grade by Section</span>
+                            <span className="text-[9px] text-white/30">Apply different color grading per audio segment.</span>
+                        </div>
+                        <div className="relative">
+                            <input type="checkbox" className="sr-only" checked={settings.colorPerSection ?? false}
+                                onChange={(e) => update({ colorPerSection: e.target.checked })} />
+                            <div className={clsx("w-10 h-5 rounded-full transition-colors", settings.colorPerSection ? "bg-pink-500" : "bg-black border border-white/20")}>
+                                <div className={clsx("w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform", settings.colorPerSection ? "translate-x-5" : "translate-x-0.5")} />
+                            </div>
+                        </div>
+                    </label>
+
+                    <label className="flex items-center justify-between cursor-pointer py-1">
+                        <div className="flex flex-col gap-0.5">
+                            <span className="text-xs font-bold text-white">Desaturation Buildup</span>
+                            <span className="text-[9px] text-white/30">Fade to B&W during buildup sections.</span>
+                        </div>
+                        <div className="relative">
+                            <input type="checkbox" className="sr-only" checked={settings.desaturationBuildup ?? false}
+                                onChange={(e) => update({ desaturationBuildup: e.target.checked })} />
+                            <div className={clsx("w-10 h-5 rounded-full transition-colors", settings.desaturationBuildup ? "bg-pink-500" : "bg-black border border-white/20")}>
+                                <div className={clsx("w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform", settings.desaturationBuildup ? "translate-x-5" : "translate-x-0.5")} />
+                            </div>
+                        </div>
+                    </label>
+
+                    <label className="flex items-center justify-between cursor-pointer py-1">
+                        <div className="flex flex-col gap-0.5">
+                            <span className="text-xs font-bold text-white">Beat Flash</span>
+                            <span className="text-[9px] text-white/30">White flash on beat impacts.</span>
+                        </div>
+                        <div className="relative">
+                            <input type="checkbox" className="sr-only" checked={settings.beatFlashEnabled ?? false}
+                                onChange={(e) => update({ beatFlashEnabled: e.target.checked })} />
+                            <div className={clsx("w-10 h-5 rounded-full transition-colors", settings.beatFlashEnabled ? "bg-yellow-500" : "bg-black border border-white/20")}>
+                                <div className={clsx("w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform", settings.beatFlashEnabled ? "translate-x-5" : "translate-x-0.5")} />
+                            </div>
+                        </div>
+                    </label>
+                </CollapsibleSection>
+
+
 
 
                 {/* Generate Button */}

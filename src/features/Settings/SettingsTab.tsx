@@ -21,7 +21,7 @@ export const SettingsTab: React.FC = () => {
     // Transition picker state
     const defaultTransition = useUserStore(s => s.defaultTransition);
     const setDefaultTransition = useUserStore(s => s.setDefaultTransition);
-    const [activeTransitionTab, setActiveTransitionTab] = useState<TransitionCategory>('fades');
+    const [activeTransitionTab, setActiveTransitionTab] = useState<TransitionCategory>('basic');
     const transitionsByCategory = getTransitionsByCategory();
     const categoryKeys = Object.keys(transitionsByCategory) as TransitionCategory[];
 

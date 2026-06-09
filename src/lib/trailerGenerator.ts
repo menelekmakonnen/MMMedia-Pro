@@ -1,11 +1,14 @@
 import { v4 as uuidv4 } from 'uuid';
 import { DEFAULT_FPS } from './time';
-import { expandClipToBoomerang, BOOMERANG_PRESETS } from './boomerang';
+import { expandClipToBoomerang, BOOMERANG_PRESETS, getBoomerangPreset } from './boomerang';
+import { IMPACT_PRESETS } from './effectsEngine';
 import type { SegmentType, AudioAnalysisResult } from './audioAnalysis';
 import { MediaFile } from '../store/mediaStore';
-import { Clip } from '../types';
+import { Clip, TransitionType, ShakeType, ShakePolicy, BeatDropIntensity, TransitionStyle, BoomerangPresetId, ZoomSpeed, SpeedCurvePreset } from '../types';
 import { RHYTHM_PATTERNS, resolveRhythmDuration, RhythmPatternId } from './rhythmPatterns';
 import { SeededRandom, generateSeed } from './random';
+import { selectTransition } from './transitions';
+import { getColorForSection } from './colorEngine';
 import { VideoMode, SegmentEditType, getSectionBehavior, DEFAULT_SECTION_BEHAVIORS, SectionBehavior } from './editingModes';
 import { MixedTemplate, mixTemplates, templateToSettings } from './templateMixer';
 import type { TemplateId } from './editingModes';
@@ -61,6 +64,50 @@ export interface TrailerSettings {
     templateBeatDivisor?: number;
     // Boomerang
     boomerangAll?: boolean; // apply boomerang to ALL clips
+    boomerangPreset?: BoomerangPresetId; // which preset to use
+
+    // ── Super Editing Engine ──────────────────────────────────────
+
+    // Custom Speed Range (system picks within range)
+    customSpeedRange?: [number, number];   // e.g. [0.5, 2.0]
+    customSpeedRangeEnabled?: boolean;     // toggle range vs. single
+
+    // Speed curve (how speed changes are applied within a clip)
+    speedCurvePreset?: SpeedCurvePreset;
+
+    // Zoom controls
+    zoomEnabled?: boolean;
+    zoomValues?: number[];                 // e.g. [100, 125, 150, 175, 200]
+    zoomCustomRange?: [number, number];    // e.g. [100, 200] with 5% steps
+    zoomCustomRangeEnabled?: boolean;
+    zoomSpeed?: ZoomSpeed | 'all';         // speed of zoom application
+    zoomBeatSync?: boolean;               // zoom duration ends on beat
+
+    // Shake controls
+    shakeEnabled?: boolean;
+    shakePolicy?: ShakePolicy;
+    shakeType?: ShakeType | 'all';
+    shakeIntensity?: number;              // 0-100 global intensity
+
+    // Beat Drop Impact Stack
+    beatDropImpact?: BeatDropIntensity;
+
+    // Transition controls
+    transitionStyle?: TransitionStyle;
+    transitionTypes?: TransitionType[];   // which transitions to allow
+    transitionDurationMs?: number;        // default transition duration
+
+    // Visual FX globals
+    filmGrainAmount?: number;             // 0-25
+    vignetteAmount?: number;              // 0-100
+    letterboxEnabled?: boolean;
+    chromaticAmount?: number;             // 0-20
+
+    // Color per section
+    colorPerSection?: boolean;
+    desaturationBuildup?: boolean;        // fade to B&W during buildup
+    beatFlashEnabled?: boolean;           // white flash on beats
+
     // Visual Effects (applied to all generated clips)
     globalEffects?: Array<{ effectId: string; params: Record<string, number | string | boolean> }>;
     globalColorGrading?: import('./colorGrading').ColorGrading;
@@ -73,7 +120,7 @@ export interface TrailerSettings {
     globalAudioEffects?: import('./audioEffects').AudioEffects;
     // Transition override for this trailer (uses defaultTransition from userStore if not set)
     transitionOverride?: string;
-    transitionDuration?: number;
+    // transitionDuration is already above as transitionDurationMs
 }
 
 export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
@@ -109,6 +156,28 @@ export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
     templateBurstOnDrops: undefined,
     templateCameraMotion: undefined,
     templateBeatDivisor: undefined,
+    // Super editing engine defaults
+    boomerangPreset: 'classic',
+    customSpeedRangeEnabled: false,
+    zoomEnabled: false,
+    zoomValues: [100, 125, 150, 175, 200],
+    zoomCustomRangeEnabled: false,
+    zoomSpeed: 'all',
+    zoomBeatSync: false,
+    shakeEnabled: false,
+    shakePolicy: 'off',
+    shakeType: 'impact',
+    shakeIntensity: 50,
+    beatDropImpact: 'off',
+    transitionStyle: 'cuts-only',
+    transitionDurationMs: 200,
+    filmGrainAmount: 0,
+    vignetteAmount: 0,
+    letterboxEnabled: false,
+    chromaticAmount: 0,
+    colorPerSection: false,
+    desaturationBuildup: false,
+    beatFlashEnabled: false,
 };
 
 
@@ -258,13 +327,48 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
      * treats audio-type clips differently from video clips for volume.
      */
     // Helper for dynamic cinematic attributes
-    const getSpeedAndVolume = (rng: SeededRandom) => {
+    const getSpeedAndVolume = (rng: SeededRandom, segType?: SegmentType) => {
         let speed = 1.0;
         // Cinematic Speed: 4 presets + custom
         if (slowmoPolicy === 'slowmo') speed = 0.5;
         else if (slowmoPolicy === 'fast') speed = 1.5;
         else if (slowmoPolicy === 'hyper') speed = 4.0;
         else if (slowmoPolicy === 'custom') speed = settings.customSpeed || 1.0;
+
+        // Custom Speed Range: pick speed from within the range, weighted by segment type
+        if (s.customSpeedRangeEnabled && s.customSpeedRange) {
+            const [lo, hi] = s.customSpeedRange;
+            const range = hi - lo;
+            const seg = segType || 'verse';
+            let t: number; // 0→1 position within the range
+            switch (seg) {
+                case 'drop':
+                case 'chorus':
+                    // Prefer the FASTER end (top 60%)
+                    t = 0.4 + rng.random() * 0.6;
+                    break;
+                case 'buildup':
+                    // Use the middle of the range
+                    t = 0.2 + rng.random() * 0.6;
+                    break;
+                case 'breakdown':
+                case 'bridge':
+                case 'intro':
+                    // Prefer the SLOWER end (bottom 60%)
+                    t = rng.random() * 0.6;
+                    break;
+                case 'outro':
+                    // Prefer slower
+                    t = rng.random() * 0.5;
+                    break;
+                case 'verse':
+                default:
+                    // Full range evenly
+                    t = rng.random();
+                    break;
+            }
+            speed = lo + t * range;
+        }
 
         let volume = 100;
         let isMuted = false;
@@ -426,7 +530,8 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         let expandedClips: Clip[] = [];
         for (const clip of finalClips) {
             if (clip.boomerang) {
-                const expanded = expandClipToBoomerang(clip, BOOMERANG_PRESETS.classic, DEFAULT_FPS);
+                const preset = getBoomerangPreset(s.boomerangPreset);
+                const expanded = expandClipToBoomerang(clip, preset, DEFAULT_FPS);
                 expandedClips.push(...expanded);
             } else {
                 expandedClips.push(clip);
@@ -439,6 +544,109 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             clip.startFrame = head;
             clip.endFrame = head + dur;
             head += dur;
+        }
+
+        // ── TRANSITION ASSIGNMENT ──
+        // Assign transitions to each clip based on settings
+        if (s.transitionStyle && s.transitionStyle !== 'cuts-only') {
+            const transitionRng = new SeededRandom(s.seed ? s.seed + '_transitions' : generateSeed());
+            for (let i = 0; i < expandedClips.length - 1; i++) {
+                const clip = expandedClips[i];
+                const segType: SegmentType = (clip as any)._segType || 'verse';
+                const transType = selectTransition(
+                    segType,
+                    s.transitionTypes ?? [],
+                    s.transitionStyle,
+                    transitionRng,
+                );
+                if (transType !== 'cut') {
+                    const durationMs = s.transitionDurationMs ?? 200;
+                    const durationFrames = Math.round((durationMs / 1000) * DEFAULT_FPS);
+                    clip.transition = {
+                        type: transType,
+                        durationFrames,
+                    };
+                }
+            }
+        }
+
+        // ── COLOR PER SECTION ──
+        if (s.colorPerSection) {
+            for (const clip of expandedClips) {
+                const segType: SegmentType = (clip as any)._segType || 'verse';
+                const colorPreset = getColorForSection(segType);
+                // Apply as color grading if not already graded
+                if (!clip.colorGrading) {
+                    clip.colorGrading = {
+                        temperature: colorPreset.warmth * 100,
+                        tint: 0,
+                        exposure: colorPreset.brightness * 2,
+                        contrast: colorPreset.contrast,
+                        highlights: 0,
+                        shadows: 0,
+                        saturation: colorPreset.saturation,
+                        vibrance: 1.0,
+                    };
+                }
+            }
+        }
+
+        // ── SHAKE ASSIGNMENT ──
+        if (s.shakeEnabled && s.shakePolicy && s.shakePolicy !== 'off') {
+            const shakeRng = new SeededRandom(s.seed ? s.seed + '_shake' : generateSeed());
+            for (const clip of expandedClips) {
+                const segType: SegmentType = (clip as any)._segType || 'verse';
+                const beatMarkers = clip.beatMarkers || [];
+                const maxEnergy = beatMarkers.length > 0 ? Math.max(...beatMarkers.map(b => b.energy)) : 0;
+
+                let shouldShake = false;
+                if (s.shakePolicy === 'on-every-beat' && beatMarkers.length > 0) shouldShake = true;
+                else if (s.shakePolicy === 'heavy-beats-only' && maxEnergy > 0.7) shouldShake = true;
+                else if (s.shakePolicy === 'sparingly' && segType === 'drop' && shakeRng.random() < 0.4) shouldShake = true;
+
+                if (shouldShake && !clip.shake) {
+                    const shakeType = s.shakeType === 'all'
+                        ? (['impact', 'handheld', 'earthquake', 'vibration', 'whip'] as const)[Math.floor(shakeRng.random() * 5)]
+                        : (s.shakeType || 'impact');
+                    clip.shake = {
+                        type: shakeType as any,
+                        intensity: s.shakeIntensity ?? 50,
+                        direction: 'random',
+                        decayRate: 5,
+                        durationFrames: Math.round(DEFAULT_FPS * 0.3),
+                    };
+                }
+            }
+        }
+
+        // ── ZOOM ASSIGNMENT ──
+        if (s.zoomEnabled) {
+            const zoomRng = new SeededRandom(s.seed ? s.seed + '_zoom' : generateSeed());
+            const zoomValues = s.zoomValues ?? [100, 125, 150, 175, 200];
+            for (const clip of expandedClips) {
+                if (clip.zoomStart !== undefined || clip.zoomEnd !== undefined) continue; // Already zoomed
+
+                let zoomVal: number;
+                if (s.zoomCustomRangeEnabled && s.zoomCustomRange) {
+                    const [lo, hi] = s.zoomCustomRange;
+                    // Round to nearest 5%
+                    zoomVal = Math.round((lo + zoomRng.random() * (hi - lo)) / 5) * 5;
+                } else {
+                    zoomVal = zoomValues[Math.floor(zoomRng.random() * zoomValues.length)];
+                }
+
+                if (zoomVal !== 100) {
+                    // 50% chance zoom in, 50% zoom out
+                    if (zoomRng.random() < 0.5) {
+                        clip.zoomStart = 100;
+                        clip.zoomEnd = zoomVal;
+                    } else {
+                        clip.zoomStart = zoomVal;
+                        clip.zoomEnd = 100;
+                    }
+                    clip.zoomOrigin = 'center';
+                }
+            }
         }
 
         const totalOutputFrames = expandedClips.reduce((sum, c) => sum + (c.endFrame - c.startFrame), 0);
@@ -714,7 +922,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             if (syncStrategy === 'cut-on-beat' || syncStrategy === 'transition-on-beat' || syncStrategy === 'groove-ride') {
                 const file = shuffledPool[poolIndex % shuffledPool.length];
                 poolIndex++;
-                const { speed: baseSpeed, volume, isMuted } = getSpeedAndVolume(rng);
+                const { speed: baseSpeed, volume, isMuted } = getSpeedAndVolume(rng, segType);
                 let speed = baseSpeed * speedMult;
                 const clipDuration = Math.min(beatGapFrames, effectiveMax);
                 const sourceReq = Math.max(1, Math.ceil(clipDuration * speed));
@@ -795,6 +1003,25 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                     }
                 }
 
+                // ── VISUAL FX: apply global visual effects to the clip ──
+                if (s.filmGrainAmount && s.filmGrainAmount > 0) clip.filmGrain = s.filmGrainAmount;
+                if (s.vignetteAmount && s.vignetteAmount > 0) clip.vignette = s.vignetteAmount;
+                if (s.chromaticAmount && s.chromaticAmount > 0) clip.chromaticAberration = s.chromaticAmount;
+                if (s.letterboxEnabled) clip.letterbox = true;
+
+                // ── BEAT DROP IMPACT: apply impact preset on drop segments ──
+                if (s.beatDropImpact && s.beatDropImpact !== 'off' && segType === 'drop') {
+                    const impactPreset = IMPACT_PRESETS[s.beatDropImpact];
+                    if (impactPreset) {
+                        clip.beatEffect = {
+                            flash: { intensity: impactPreset.flash, color: '#ffffff', durationFrames: impactPreset.durationFrames },
+                            chromatic: { offset: impactPreset.chromatic, durationFrames: impactPreset.durationFrames },
+                            shake: { type: 'impact' as const, intensity: impactPreset.shake },
+                            zoom: { punchScale: impactPreset.zoom, durationFrames: impactPreset.durationFrames },
+                        };
+                    }
+                }
+
                 // ── BOOMERANG: 'all' mode — apply to every clip if not already boomeranged ──
                 if (s.boomerangAll && !clip.boomerang) {
                     clip.boomerang = true;
@@ -821,7 +1048,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
 
                 const file = shuffledPool[poolIndex % shuffledPool.length];
                 poolIndex++;
-                const { speed: baseSpeed, volume, isMuted } = getSpeedAndVolume(rng);
+                const { speed: baseSpeed, volume, isMuted } = getSpeedAndVolume(rng, segType);
                 const speed = baseSpeed * speedMult;
                 const sourceReq = Math.max(1, Math.ceil(clipDuration * speed));
                 const history = usedSegments.get(file.path) || [];
@@ -832,6 +1059,26 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 const clip = createClip(file, accumulatedFrames + gapFilled, accumulatedFrames + gapFilled + clipDuration, trimStart, trimEnd, speed, volume, isMuted);
                 if (applyEffect) (clip as any)._beatEffect = true;
                 (clip as any)._segType = segType;
+
+                // ── VISUAL FX: apply global visual effects to sub-gap clips ──
+                if (s.filmGrainAmount && s.filmGrainAmount > 0) clip.filmGrain = s.filmGrainAmount;
+                if (s.vignetteAmount && s.vignetteAmount > 0) clip.vignette = s.vignetteAmount;
+                if (s.chromaticAmount && s.chromaticAmount > 0) clip.chromaticAberration = s.chromaticAmount;
+                if (s.letterboxEnabled) clip.letterbox = true;
+
+                // ── BEAT DROP IMPACT: apply impact preset on drop segments ──
+                if (s.beatDropImpact && s.beatDropImpact !== 'off' && segType === 'drop') {
+                    const impactPreset = IMPACT_PRESETS[s.beatDropImpact];
+                    if (impactPreset) {
+                        clip.beatEffect = {
+                            flash: { intensity: impactPreset.flash, color: '#ffffff', durationFrames: impactPreset.durationFrames },
+                            chromatic: { offset: impactPreset.chromatic, durationFrames: impactPreset.durationFrames },
+                            shake: { type: 'impact' as const, intensity: impactPreset.shake },
+                            zoom: { punchScale: impactPreset.zoom, durationFrames: impactPreset.durationFrames },
+                        };
+                    }
+                }
+
                 sequence.push(clip);
                 clipIndex++;
                 gapFilled += clipDuration;

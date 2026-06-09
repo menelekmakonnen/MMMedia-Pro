@@ -262,9 +262,9 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
                     {/* Engine badge */}
                     {activeEngine !== 'both' && (
                         <div className="mt-2 flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 border border-white/10">
-                            {activeEngine === 'monolithic' ? <MonolithicIcon /> : <PerClipIcon />}
+                            {activeEngine === 'per-clip' ? <PerClipIcon /> : <MonolithicIcon />}
                             <span className="text-[9px] font-black uppercase tracking-wider text-white/40">
-                                {activeEngine === 'monolithic' ? 'Monolithic Engine' : 'Per-Clip Engine'}
+                                {activeEngine === 'monolithic' ? 'Monolithic Engine' : activeEngine === 'per-clip' ? 'Per-Clip Engine' : 'Segment Engine'}
                             </span>
                         </div>
                     )}
@@ -449,6 +449,7 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
                     <div className="text-[9px] font-black uppercase tracking-widest text-white/30">Render Engine</div>
                     <div className="flex bg-black/40 rounded-lg border border-white/10 p-0.5 gap-0.5">
                         {([
+                            { key: 'segment' as const, label: 'Segment', icon: <MonolithicIcon />, color: 'from-emerald-500 to-teal-500' },
                             { key: 'per-clip' as const, label: 'Per-Clip', icon: <PerClipIcon />, color: 'from-cyan-500 to-blue-500' },
                             { key: 'monolithic' as const, label: 'Monolithic', icon: <MonolithicIcon />, color: 'from-amber-500 to-orange-500' },
                             { key: 'both' as const, label: 'Both', icon: <BothEnginesIcon />, color: 'from-violet-500 to-pink-500' },
@@ -463,6 +464,9 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
                         ))}
                     </div>
                     <div className="text-[9px] text-white/25 leading-relaxed">
+                        {activeEngine === 'segment' && (
+                            <span>Renders each clip to a duration-capped intermediate, then stitches in one pass. <span className="text-emerald-300/50 font-bold">Recommended — full effects, color, text & transitions; immune to runaway durations.</span></span>
+                        )}
                         {activeEngine === 'per-clip' && (
                             <span>Renders each clip as a lossless intermediate, then concatenates. <span className="text-cyan-300/50 font-bold">Best for large timelines (50+ clips).</span> Per-clip rendering with concat.</span>
                         )}

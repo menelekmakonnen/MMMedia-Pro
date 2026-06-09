@@ -29,46 +29,29 @@ export const GlobalControls: React.FC<GlobalControlsProps> = ({
     const { settings } = useProjectStore();
     const [isGodModeOpen, setIsGodModeOpen] = useState(false);
 
-    // Dynamic Icon Sizing
-    // If width < 60px, shrink icons. Base size is 18px.
-    const iconScale = Math.min(1, Math.max(0.6, containerWidth / 64));
-    const iconSize = Math.floor(18 * iconScale);
-    const compactMode = containerWidth < 140; // Force compact if narrow
-
-    // Override slim based on width if vertical
+    const iconSize = Math.floor(18 * Math.min(1, Math.max(0.6, containerWidth / 64)));
+    const compactMode = containerWidth < 140;
     const isSlim = slim || (orientation === 'vertical' && containerWidth < 180);
+    const isVertical = orientation === 'vertical';
+    const canFitRow = containerWidth >= 260; // Enough space for side-by-side buttons
 
-    const simulateTask = (duration: number) => {
-        return new Promise<void>(resolve => setTimeout(resolve, duration));
-    };
+    const simulateTask = (duration: number) => new Promise<void>(resolve => setTimeout(resolve, duration));
+    const runAutoEdit = async () => { setGlobalFlux(); await simulateTask(1000); };
 
-    const runAutoEdit = async () => {
-        setGlobalFlux();
-        await simulateTask(1000);
-    };
-
-    // Calculate total duration
     const totalDuration = clips.reduce((max, clip) => Math.max(max, clip.endFrame), 0);
     const totalSeconds = totalDuration / (settings.fps || 30);
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = Math.floor(totalSeconds % 60);
 
-    const isVertical = orientation === 'vertical';
-
     return (
         <>
-            <div className={`bg-[#080816] ${isVertical ? 'h-full border-l border-white/10 flex flex-col' : 'border-t border-white/10'} ${slim ? 'p-2 space-y-4 items-center' : 'p-4 space-y-4'} ${className}`}>
+            <div className={`bg-[#080816] ${isVertical ? 'h-full border-l border-white/10 flex flex-col' : 'border-t border-white/10'} ${slim ? 'p-2 space-y-3 items-center' : 'p-3 space-y-3'} ${className}`}>
 
-                {/* Stats Section */}
+                {/* Stats Section (horizontal only) */}
                 {!isVertical && sections.includes('stats') && (
-                    <div className={`flex items-center gap-4 border-b border-white/5 pb-0 order-1`}>
-                        {isVertical && !slim && (
-                            <div className="text-xs font-bold text-white/40 uppercase tracking-widest mb-1">Project Stats</div>
-                        )}
-
+                    <div className="flex items-center gap-4 border-b border-white/5 pb-0 order-1">
                         <div className={`flex ${isVertical ? 'w-full flex-col gap-2' : 'items-center gap-4'}`}>
-                            {/* Total Duration */}
-                            <div className={`flex items-center gap-2 ${isSlim ? 'justify-center p-2' : 'px-3 py-2'} bg-white/5 rounded-lg border border-white/5 ${isVertical && !isSlim ? 'flex-1 mr-2' : ''}`} title="Timeline Duration">
+                            <div className={`flex items-center gap-2 ${isSlim ? 'justify-center p-2' : 'px-3 py-2'} bg-white/5 rounded-lg border border-white/5`} title="Timeline Duration">
                                 <Clock size={iconSize} className="text-white/40" />
                                 {!isSlim && (
                                     <div>
@@ -79,9 +62,7 @@ export const GlobalControls: React.FC<GlobalControlsProps> = ({
                                     </div>
                                 )}
                             </div>
-
-                            {/* Clip Count */}
-                            <div className={`flex items-center gap-2 ${isSlim ? 'justify-center p-2' : 'px-3 py-2'} bg-white/5 rounded-lg border border-white/5 ${isVertical && !isSlim ? 'flex-1' : ''}`} title="Total Assets">
+                            <div className={`flex items-center gap-2 ${isSlim ? 'justify-center p-2' : 'px-3 py-2'} bg-white/5 rounded-lg border border-white/5`} title="Total Assets">
                                 <Layers size={iconSize} className="text-white/40" />
                                 {!isSlim && (
                                     <div>
@@ -91,30 +72,19 @@ export const GlobalControls: React.FC<GlobalControlsProps> = ({
                                 )}
                             </div>
                         </div>
-
-                        {/* Playback Speed */}
-                        {/* Hide speed control in slim mode for now, or just show icon? Let's hide it or make it very compact if feasible. User wants "very slim". */}
                         {!slim && (
-                            <div className={`flex items-center gap-4 ${isVertical ? 'w-full justify-between bg-white/5 p-2 rounded-lg border border-white/5' : 'ml-2'}`}>
+                            <div className={`flex items-center gap-4 ml-2`}>
                                 <label className="text-[10px] text-white/30 uppercase tracking-widest font-bold">Global Speed</label>
-                                <SpeedControl
-                                    value={globalPlaybackSpeed}
-                                    onChange={setGlobalPlaybackSpeed}
-                                    size="sm"
-                                />
+                                <SpeedControl value={globalPlaybackSpeed} onChange={setGlobalPlaybackSpeed} size="sm" />
                             </div>
                         )}
                     </div>
                 )}
 
-                {/* Automation Suite */}
+                {/* Automation Suite (horizontal only) */}
                 {!isVertical && sections.includes('automation') && (
-                    <div className={`order-2 pt-2`}>
-                        {isVertical && !slim && (
-                            <div className="text-xs font-bold text-white/40 uppercase tracking-widest mb-3 mt-2">Automation</div>
-                        )}
-                        <div className={`grid ${isVertical ? 'grid-cols-1 gap-2' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3'}`}>
-                            {/* In slim mode, Automation cards should be icon only? AutomationCard needs support for that or we just map differently */}
+                    <div className="order-2 pt-2">
+                        <div className={`grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3`}>
                             <AutomationCard title="Auto-Edit" description="Trim & arrange clips" icon={Scissors} color="text-pink-500" onRun={runAutoEdit} compact={compactMode} iconSize={iconSize} />
                             <AutomationCard title="Viral 9:16" description="Vertical reformat" icon={Smartphone} color="text-primary" onRun={async () => await simulateTask(2000)} compact={compactMode} iconSize={iconSize} />
                             <AutomationCard title="Silence" description="Strip dead air" icon={Activity} color="text-emerald-500" onRun={async () => await simulateTask(1200)} compact={compactMode} iconSize={iconSize} />
@@ -127,83 +97,71 @@ export const GlobalControls: React.FC<GlobalControlsProps> = ({
 
                 {/* Actions & Mute Section */}
                 {(sections.includes('actions') || sections.includes('mute')) && (
-                    <div className={`order-3 ${isVertical ? 'flex flex-col gap-4 my-auto w-full pt-4' : 'flex flex-wrap items-center justify-between gap-4 border-t border-white/5 pt-4'}`}>
+                    <div className={`order-3 ${isVertical ? 'flex flex-col gap-3 w-full pt-2' : 'flex flex-wrap items-center justify-between gap-4 border-t border-white/5 pt-4'}`}>
 
-                        {/* Center Section: Actions */}
+                        {/* Shuffle / Flux / Chaos — side-by-side when room */}
                         {sections.includes('actions') && (
-                            <div className={`flex w-full ${isVertical ? 'flex-col gap-4' : 'items-center gap-3'}`}>
+                            <div className={`flex w-full ${isVertical ? (canFitRow ? 'flex-row gap-2' : 'flex-col gap-2') : 'items-center gap-3'}`}>
                                 <button
                                     onClick={() => useClipStore.getState().shuffleClips()}
-                                    className={`${isVertical ? 'h-14 w-full flex-col justify-center px-0 rounded-xl' : 'h-10 px-6 ' + (slim ? 'w-10 justify-center px-0' : '') + ' rounded-xl'} bg-white/5 hover:bg-white/10 flex items-center justify-center gap-2 transition-all border border-white/5 hover:border-white/20 active:scale-95 group`}
+                                    className={`${isVertical ? `flex-1 ${canFitRow ? 'h-10' : 'h-10'} rounded-lg` : `h-10 px-6 ${slim ? 'w-10 px-0' : ''} rounded-xl`} bg-white/5 hover:bg-white/10 flex items-center justify-center gap-1.5 transition-all border border-white/5 hover:border-white/20 active:scale-95 group`}
                                     title="Shuffle Clip Order"
                                 >
-                                    <div className="flex items-center justify-center gap-2">
-                                        <ArrowRightLeft size={isVertical ? 20 : iconSize} className="text-white/60 group-hover:text-white" />
-                                        {!isVertical && !isSlim && <span className="text-[10px] font-black uppercase tracking-wider text-white/60 group-hover:text-white">Shuffle</span>}
-                                    </div>
+                                    <ArrowRightLeft size={15} className="text-white/60 group-hover:text-white flex-shrink-0" />
+                                    {(!isSlim || canFitRow) && <span className="text-[10px] font-bold uppercase tracking-wider text-white/60 group-hover:text-white truncate">Shuffle</span>}
                                 </button>
 
                                 <button
                                     onClick={() => useClipStore.getState().setGlobalFlux()}
-                                    className={`${isVertical ? 'h-14 w-full flex-col justify-center px-0 rounded-xl' : 'h-10 px-6 ' + (slim ? 'w-10 justify-center px-0' : '') + ' rounded-xl'} bg-primary/20 hover:bg-primary/40 text-primary-light flex items-center justify-center gap-2 transition-all border border-primary/20 hover:border-primary/40 active:scale-95 group shadow-[0_0_10px_rgba(var(--color-primary),0.1)]`}
+                                    className={`${isVertical ? `flex-1 ${canFitRow ? 'h-10' : 'h-10'} rounded-lg` : `h-10 px-6 ${slim ? 'w-10 px-0' : ''} rounded-xl`} bg-primary/20 hover:bg-primary/40 text-primary-light flex items-center justify-center gap-1.5 transition-all border border-primary/20 hover:border-primary/40 active:scale-95 group shadow-[0_0_10px_rgba(var(--color-primary),0.1)]`}
                                     title="Randomize All Durations & Segments"
                                 >
-                                    <div className="flex items-center justify-center gap-2">
-                                        <Sparkles size={isVertical ? 20 : iconSize} className="group-hover:scale-110 transition-transform" />
-                                        {!isVertical && !isSlim && <span className="text-[10px] font-black uppercase tracking-wider">Flux</span>}
-                                    </div>
+                                    <Sparkles size={15} className="group-hover:scale-110 transition-transform flex-shrink-0" />
+                                    {(!isSlim || canFitRow) && <span className="text-[10px] font-bold uppercase tracking-wider truncate">Flux</span>}
                                 </button>
 
                                 <button
                                     onClick={() => useClipStore.getState().chaos()}
-                                    className={`${isVertical ? 'h-14 w-full flex-col justify-center px-0 rounded-xl' : 'h-10 px-6 ' + (slim ? 'w-10 justify-center px-0' : '') + ' rounded-xl'} bg-red-500/10 hover:bg-red-500/20 text-red-500 flex items-center justify-center gap-2 transition-all border border-red-500/10 hover:border-red-500/30 active:scale-95 group`}
+                                    className={`${isVertical ? `flex-1 ${canFitRow ? 'h-10' : 'h-10'} rounded-lg` : `h-10 px-6 ${slim ? 'w-10 px-0' : ''} rounded-xl`} bg-red-500/10 hover:bg-red-500/20 text-red-500 flex items-center justify-center gap-1.5 transition-all border border-red-500/10 hover:border-red-500/30 active:scale-95 group`}
                                     title="Shuffle + Flux Everything"
                                 >
-                                    <div className="flex items-center justify-center gap-2">
-                                        <Zap size={isVertical ? 20 : iconSize} fill="currentColor" className="group-hover:animate-pulse" />
-                                        {!isVertical && !isSlim && <span className="text-[10px] font-black uppercase tracking-wider">Chaos</span>}
-                                    </div>
+                                    <Zap size={15} fill="currentColor" className="group-hover:animate-pulse flex-shrink-0" />
+                                    {(!isSlim || canFitRow) && <span className="text-[10px] font-bold uppercase tracking-wider truncate">Chaos</span>}
                                 </button>
                             </div>
                         )}
 
-
-
-
-                        {/* Right/Bottom Section: God Mode & Mute */}
+                        {/* Mute + God Mode — always side-by-side */}
                         {(sections.includes('mute') || sections.includes('actions')) && (
-                            <div className={`flex ${isVertical ? (slim ? 'flex-col-reverse gap-3 items-center mt-2' : 'items-center justify-between mt-2') : 'items-center gap-3'}`}>
-                                <div className={`flex items-center gap-3 w-full ${slim ? 'flex-col gap-3' : 'justify-end'}`}>
-                                    {sections.includes('mute') && (
-                                        <button
-                                            onClick={() => setGlobalMute(!globalMute)}
-                                            className={`h-10 ${slim ? 'w-10 px-0' : 'px-4 flex-1'} rounded-xl flex items-center gap-2 transition-all active:scale-95 justify-center border ${globalMute
-                                                ? 'bg-red-500/20 hover:bg-red-500/30 text-red-400 border-red-500/20'
-                                                : 'bg-white/5 hover:bg-white/10 text-white/60 border-white/5 hover:border-white/20'
-                                                }`}
-                                            title={globalMute ? "Unmute All Clips" : "Mute All Clips"}
-                                        >
-                                            {globalMute ? <VolumeX size={iconSize} /> : <Volume2 size={iconSize} />}
-                                            {isVertical && !isSlim && <span className="text-[10px] font-bold ml-1 uppercase tracking-wider">{globalMute ? 'Muted' : 'Mute'}</span>}
-                                        </button>
-                                    )}
+                            <div className={`flex ${isVertical ? 'flex-row gap-2 w-full' : 'items-center gap-3'}`}>
+                                {sections.includes('mute') && (
+                                    <button
+                                        onClick={() => setGlobalMute(!globalMute)}
+                                        className={`h-10 ${isVertical ? 'flex-1' : (slim ? 'w-10 px-0' : 'px-4 flex-1')} rounded-lg flex items-center gap-2 transition-all active:scale-95 justify-center border ${globalMute
+                                            ? 'bg-red-500/20 hover:bg-red-500/30 text-red-400 border-red-500/20'
+                                            : 'bg-white/5 hover:bg-white/10 text-white/60 border-white/5 hover:border-white/20'
+                                            }`}
+                                        title={globalMute ? "Unmute All Clips" : "Mute All Clips"}
+                                    >
+                                        {globalMute ? <VolumeX size={15} /> : <Volume2 size={15} />}
+                                        {!isSlim && <span className="text-[10px] font-bold uppercase tracking-wider truncate">{globalMute ? 'Muted' : 'Mute'}</span>}
+                                    </button>
+                                )}
 
-                                    {/* Show God Mode button if actions are enabled, or if explicitly desired. I'll tie it to actions for now as it's a control. */}
-                                    {sections.includes('actions') && (
-                                        <button
-                                            onClick={() => setIsGodModeOpen(true)}
-                                            className="h-10 w-10 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/10 hover:border-purple-500/30 rounded-xl flex items-center justify-center transition-all active:scale-95 flex-shrink-0"
-                                            title="State Control & State Inspector"
-                                        >
-                                            <Wand2 size={iconSize} />
-                                        </button>
-                                    )}
-                                </div>
+                                {sections.includes('actions') && (
+                                    <button
+                                        onClick={() => setIsGodModeOpen(true)}
+                                        className={`h-10 ${isVertical ? 'flex-1' : 'w-10'} bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/10 hover:border-purple-500/30 rounded-lg flex items-center justify-center gap-2 transition-all active:scale-95 flex-shrink-0`}
+                                        title="State Control & State Inspector"
+                                    >
+                                        <Wand2 size={15} />
+                                        {isVertical && !isSlim && <span className="text-[10px] font-bold uppercase tracking-wider truncate">Inspector</span>}
+                                    </button>
+                                )}
                             </div>
                         )}
                     </div>
                 )}
-
             </div>
 
             {/* God Mode Modal */}

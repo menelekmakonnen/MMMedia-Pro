@@ -268,68 +268,57 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
             {/* Transport Controls - Optionally hidden */}
             {!hideTransport && !bgOnly && (
-                <div className="bg-[#0a0a15] border-t border-white/10 px-4 py-2 flex-shrink-0">
-                    <div className="flex items-center gap-4 h-12">
+                <div className="bg-[#0a0a15] border-t border-white/10 px-3 py-1.5 flex-shrink-0">
+                    <div className="flex items-center gap-2 min-h-[40px] flex-wrap">
                         {/* Left: Playback Controls */}
-                        <div className="flex items-center gap-2 flex-shrink-0">
+                        <div className="flex items-center gap-1 flex-shrink-0">
                             <button
                                 onClick={skipBackward}
                                 title="Skip Backward 1s"
-                                className="h-8 w-8 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded transition-colors"
+                                className="h-7 w-7 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded transition-colors"
                             >
-                                <SkipBack size={16} />
+                                <SkipBack size={14} />
                             </button>
                             <button
                                 onClick={togglePlayPause}
                                 disabled={!videoPath}
                                 title={isPlaying ? "Pause" : "Play"}
-                                className="h-10 w-10 flex items-center justify-center bg-primary hover:bg-primary/80 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="h-8 w-8 flex items-center justify-center bg-primary hover:bg-primary/80 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                {isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}
+                                {isPlaying ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
                             </button>
                             <button
                                 onClick={skipForward}
                                 title="Skip Forward 1s"
-                                className="h-8 w-8 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded transition-colors"
+                                className="h-7 w-7 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded transition-colors"
                             >
-                                <SkipForward size={16} />
+                                <SkipForward size={14} />
                             </button>
                         </div>
 
                         {/* Center: Custom Controls (Segment Selector) */}
-                        <div className="flex-1 flex justify-center min-w-0">
+                        <div className="flex-1 flex justify-center min-w-[120px] overflow-hidden">
                             {centerControls && (
-                                <div className="w-full max-w-2xl">
+                                <div className="w-full max-w-2xl overflow-hidden">
                                     {centerControls}
                                 </div>
                             )}
                         </div>
 
-                        {/* Right: Info & Volume */}
-                        <div className="flex items-center gap-4 flex-shrink-0">
-                            {/* Audio Visualizer */}
-                            <div className="h-8 w-24 bg-black/20 rounded overflow-hidden flex items-center border border-white/5 hidden xl:flex">
-                                <AudioVisualizer
-                                    videoElement={videoRef.current}
-                                    width={96}
-                                    height={32}
-                                    barColor="#06b6d4"
-                                />
-                            </div>
-
-                            {/* Timecode */}
-                            <div className="text-right hidden lg:block">
-                                <div className="font-mono text-sm text-white/90">
+                        {/* Right: Timecode + Volume — wraps on narrow screens */}
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                            {/* Timecode — compact */}
+                            <div className="text-right hidden md:block">
+                                <div className="font-mono text-xs text-white/80 whitespace-nowrap">
                                     {Math.floor(currentFrame / fps / 60).toString().padStart(2, '0')}:
                                     {Math.floor((currentFrame / fps) % 60).toString().padStart(2, '0')}:
                                     {(currentFrame % fps).toString().padStart(2, '0')}
                                 </div>
-                                <div className="text-[10px] text-white/40">Frame {currentFrame}</div>
                             </div>
 
                             {/* Volume */}
-                            <div className="flex items-center gap-2">
-                                <Volume2 size={16} className="text-white/60" />
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                                <Volume2 size={14} className="text-white/50 flex-shrink-0" />
                                 <input
                                     type="range"
                                     min="0"
@@ -345,7 +334,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                                             videoRef.current.volume = newVolume;
                                         }
                                     }}
-                                    className="w-16 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
+                                    className="w-14 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
                                 />
                             </div>
                         </div>

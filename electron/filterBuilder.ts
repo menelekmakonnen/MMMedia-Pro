@@ -16,10 +16,16 @@ import type { ColorGrading } from './parametricEffects';
 export interface ClipExportData {
     /** Absolute path to the source media file */
     path: string;
-    /** Timeline start frame (project fps) */
+    /** Timeline start frame (project fps) — position on the timeline */
     startFrame: number;
-    /** Timeline end frame (project fps) */
+    /** Timeline end frame (project fps) — position on the timeline */
     endFrame: number;
+    /** Source IN point in frames (where to seek into the source media) */
+    trimStartFrame?: number;
+    /** Source OUT point in frames */
+    trimEndFrame?: number;
+    /** Total length of the source media in frames */
+    sourceDurationFrames?: number;
     /** Playback speed multiplier (1.0 = normal) */
     speed: number;
     /** Volume percentage (0–200, default 100) */
@@ -64,6 +70,48 @@ export interface ClipExportData {
     chromaKey?: { enabled: boolean; color: string; similarity: number; blend: number };
     /** Video stabilization */
     stabilize?: { enabled: boolean; smoothing: number };
+
+    // ── Super Editing Engine fields ──────────────────────────────────────
+    /** Camera shake effect */
+    shake?: {
+        type: 'impact' | 'handheld' | 'earthquake' | 'vibration' | 'whip';
+        intensity: number;
+        direction: 'horizontal' | 'vertical' | 'radial' | 'rotational' | 'random';
+        decayRate: number;
+        durationFrames: number;
+    };
+    /** Animated blur (time-varying) */
+    blurAnimated?: {
+        type: 'gaussian' | 'motion' | 'radial' | 'directional';
+        startSigma: number;
+        endSigma: number;
+        direction?: number;
+    };
+    /** Film grain strength (0-25) */
+    filmGrain?: number;
+    /** Vignette intensity (0-100) */
+    vignette?: number;
+    /** Cinematic letterboxing */
+    letterbox?: boolean;
+    /** Chromatic aberration offset pixels (0-20) */
+    chromaticAberration?: number;
+    /** Strobe/flicker effect */
+    strobe?: { frequency: number; durationFrames: number };
+    /** Echo/ghosting trails */
+    echo?: { trailCount: number; opacity: number };
+    /** Beat-reactive effects at specific times */
+    beatEffect?: {
+        flash?: { intensity: number; color: string; durationFrames: number };
+        chromatic?: { offset: number; durationFrames: number };
+        shake?: { type: string; intensity: number };
+        zoom?: { punchScale: number; durationFrames: number };
+    };
+    /** Beat timestamps (seconds, relative to clip start) for beat-reactive effects */
+    beatTimestamps?: number[];
+    /** Zoom speed */
+    zoomSpeed?: 'instant' | 'fast' | 'slow' | 'smooth';
+    /** Zoom easing curve */
+    zoomCurve?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'snap';
 }
 
 export interface ExportSettings {
@@ -71,8 +119,11 @@ export interface ExportSettings {
     width: number;
     /** Output height in pixels */
     height: number;
-    /** Output frames per second */
+    /** Output frames per second (controls the rendered file's frame rate) */
     fps: number;
+    /** Project frames per second — used to convert frame counts to seconds.
+     *  Defaults to `fps` when omitted (legacy behaviour). */
+    projectFps?: number;
     /** Quality preset */
     quality: 'draft' | 'standard' | 'master';
     /** Video codec */
@@ -86,6 +137,97 @@ export interface ProbeData {
     height: number;
     /** Source media duration in seconds */
     duration: number;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CLIP TIMING
+// ══════════════════════════════════════════════════════════════════════════════
+
+export interface ClipTiming {
+    /** Seconds to seek into the source media (the clip's IN point) */
+    seekSec: number;
+    /** Seconds of SOURCE material to read (before speed) */
+    srcDurSec: number;
+    /** Seconds of OUTPUT after speed is applied (the on-timeline length) */
+    outDurSec: number;
+    /** Output duration expressed in output frames */
+    outFrames: number;
+}
+
+/**
+ * Single source of truth for a clip's timing. Used by both the video-filter
+ * builder and the export engines so seek/trim/duration can never drift.
+ */
+export function computeClipTiming(
+    clip: ClipExportData,
+    settings: ExportSettings,
+    probeData: ProbeData
+): ClipTiming {
+    const speed = clip.speed || 1.0;
+    const projectFps = settings.projectFps || settings.fps;
+    const timelineDurSec = (clip.endFrame - clip.startFrame) / projectFps;
+    let seekSec = Math.max(0, (clip.trimStartFrame ?? 0) / projectFps);
+    let srcDurSec = timelineDurSec * speed;
+
+    if (probeData.duration > 0.5) {
+        if (seekSec >= probeData.duration) {
+            seekSec = Math.max(0, probeData.duration - srcDurSec - 0.5);
+        }
+        if (seekSec + srcDurSec > probeData.duration) {
+            srcDurSec = Math.max(0.04, probeData.duration - seekSec - 0.01);
+        }
+    }
+    if (srcDurSec < 0.01) srcDurSec = 0.04;
+
+    const outDurSec = srcDurSec / speed;
+    return {
+        seekSec,
+        srcDurSec,
+        outDurSec,
+        outFrames: Math.max(1, Math.round(outDurSec * settings.fps)),
+    };
+}
+
+/**
+ * Build the per-clip AUDIO filter chain (no stream labels).
+ * Order: atrim → asetpts → reverse? → speed(atempo) → audio effects → volume.
+ * Returns a comma-joined chain. `preSeeked` mirrors buildVideoFilter.
+ */
+export function buildClipAudioFilter(
+    clip: ClipExportData,
+    settings: ExportSettings,
+    probeData: ProbeData,
+    opts: { preSeeked?: boolean } = {}
+): string {
+    const timing = computeClipTiming(clip, settings, probeData);
+    const speed = clip.speed || 1.0;
+    const filters: string[] = [];
+
+    if (opts.preSeeked) {
+        filters.push(`atrim=start=0:duration=${timing.srcDurSec.toFixed(4)}`);
+    } else {
+        filters.push(`atrim=start=${timing.seekSec.toFixed(4)}:end=${(timing.seekSec + timing.srcDurSec).toFixed(4)}`);
+    }
+    filters.push('asetpts=PTS-STARTPTS');
+
+    if (clip.reversed) filters.push('areverse');
+
+    if (speed !== 1.0) {
+        const atempo = buildAtempoChain(speed);
+        if (atempo) filters.push(atempo);
+    }
+
+    if (clip.audioEffects) {
+        const fx = buildAudioEffectsFilter(clip.audioEffects, timing.outDurSec);
+        if (fx) filters.push(fx);
+    }
+
+    const vol = ((clip.volume ?? 100) / 100) * (clip.isMuted ? 0 : 1);
+    filters.push(`volume=${vol.toFixed(4)}`);
+    // Normalize to a uniform layout so concat/xfade across intermediates is clean.
+    filters.push('aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo');
+
+    return filters.join(',');
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -149,10 +291,15 @@ export function buildZoompanFilter(
             break;
     }
 
-    // z expression: linear interpolation from zs to ze over d frames
-    const zExpr = `'if(eq(on,1),${zs},lerp(${zs},${ze},on/${d}))'`;
+    // CRITICAL: d MUST be 1 for video input. zoompan emits `d` frames for EACH
+    // input frame, so d=clipDurationFrames on a multi-frame clip multiplies the
+    // duration by clipDurationFrames (the "30-minute export" bug). With d=1 we
+    // get exactly one output frame per input frame and animate the zoom via the
+    // global output-frame counter `on` over the clip's total frame span.
+    const totalFrames = d; // total output frames over which to interpolate
+    const zExpr = `'lerp(${zs},${ze},min(1,on/${totalFrames}))'`;
 
-    return `zoompan=z=${zExpr}:x=${xExpr}:y=${yExpr}:d=${d}:s=${outputWidth}x${outputHeight}:fps=${fps}`;
+    return `zoompan=z=${zExpr}:x=${xExpr}:y=${yExpr}:d=1:s=${outputWidth}x${outputHeight}:fps=${fps}`;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -213,37 +360,29 @@ export function buildAtempoChain(speed: number): string {
 export function buildVideoFilter(
     clip: ClipExportData,
     settings: ExportSettings,
-    probeData: ProbeData
+    probeData: ProbeData,
+    opts: { preSeeked?: boolean } = {}
 ): string {
     const speed = clip.speed || 1.0;
     const fps = settings.fps;
     const outW = settings.width;
     const outH = settings.height;
 
-    // Calculate source trim boundaries
-    const timelineDurSec = (clip.endFrame - clip.startFrame) / fps;
-    const seekTo = clip.startFrame / fps;
-    const srcTrimDur = timelineDurSec * speed;
+    // Single source of truth for seek/trim/duration (uses trimStartFrame + projectFps).
+    const timing = computeClipTiming(clip, settings, probeData);
+    const clipDur = timing.srcDurSec;
 
-    // Clamp to source duration
-    let seekClamped = Math.max(0, seekTo);
-    let clipDur = srcTrimDur;
-
-    if (probeData.duration > 0.5) {
-        if (seekClamped >= probeData.duration) {
-            seekClamped = Math.max(0, probeData.duration - clipDur - 0.5);
-        }
-        if (seekClamped + clipDur > probeData.duration) {
-            clipDur = Math.max(0.04, probeData.duration - seekClamped - 0.01);
-        }
-    }
-    if (clipDur < 0.01) clipDur = 0.04;
-
-    const trimEnd = seekClamped + clipDur;
     const filters: string[] = [];
 
-    // 1. Trim + reset PTS
-    filters.push(`trim=start=${seekClamped.toFixed(4)}:end=${trimEnd.toFixed(4)}`);
+    // 1. Trim + reset PTS.
+    //    When the caller fast-seeks with `-ss` before `-i` (preSeeked), the source
+    //    is already positioned at the IN point, so we trim from 0. Otherwise we
+    //    trim by absolute source timestamps.
+    if (opts.preSeeked) {
+        filters.push(`trim=start=0:duration=${clipDur.toFixed(4)}`);
+    } else {
+        filters.push(`trim=start=${timing.seekSec.toFixed(4)}:end=${(timing.seekSec + clipDur).toFixed(4)}`);
+    }
     filters.push('setpts=PTS-STARTPTS');
 
     // 2. Reverse (for short clips ≤ 5 seconds, applied inline)
@@ -329,6 +468,111 @@ export function buildVideoFilter(
     }
     if (clip.blurAmount && clip.blurAmount > 0) {
         filters.push(`gblur=sigma=${clip.blurAmount.toFixed(4)}`);
+    }
+
+    // ── Super Editing Engine Filters ──────────────────────────────────
+
+    // 10a. Animated blur (time-varying gaussian)
+    if (clip.blurAnimated && (clip.blurAnimated.startSigma > 0 || clip.blurAnimated.endSigma > 0)) {
+        const ab = clip.blurAnimated;
+        if (ab.type === 'gaussian' || !ab.type) {
+            // Linearly interpolate sigma over the clip duration
+            const durFrames = Math.max(1, clipDurationFrames);
+            filters.push(`gblur=sigma='lerp(${ab.startSigma.toFixed(2)},${ab.endSigma.toFixed(2)},min(1,n/${durFrames}))'`);
+        } else if (ab.type === 'motion') {
+            // Temporal blend for motion blur effect
+            filters.push('tblend=all_mode=average');
+        }
+    }
+
+    // 10b. Film grain (noise overlay)
+    if (clip.filmGrain && clip.filmGrain > 0) {
+        filters.push(`noise=c0s=${Math.round(clip.filmGrain)}:c0f=t+u`);
+    }
+
+    // 10c. Vignette (edge darkening)
+    if (clip.vignette && clip.vignette > 0) {
+        // Map 0-100 intensity to vignette angle (PI/6 to PI/2)
+        const angle = (Math.PI / 6) + ((clip.vignette / 100) * (Math.PI / 2 - Math.PI / 6));
+        filters.push(`vignette=${angle.toFixed(4)}`);
+    }
+
+    // 10d. Chromatic aberration (RGB channel offset)
+    if (clip.chromaticAberration && clip.chromaticAberration > 0) {
+        const offset = Math.round(clip.chromaticAberration);
+        filters.push(`rgbashift=rh=${offset}:bh=${-offset}`);
+    }
+
+    // 10e. Letterbox (cinematic bars — 2.39:1 ratio)
+    if (clip.letterbox) {
+        const barHeight = Math.round(outH * 0.12);
+        filters.push(`drawbox=x=0:y=0:w=iw:h=${barHeight}:t=fill:color=black`);
+        filters.push(`drawbox=x=0:y=ih-${barHeight}:w=iw:h=${barHeight}:t=fill:color=black`);
+    }
+
+    // 10f. Camera shake (crop-based with scale-up to hide edges)
+    if (clip.shake && clip.shake.intensity > 0) {
+        const sh = clip.shake;
+        const maxOffset = Math.round((sh.intensity / 100) * 30); // 0-30px max
+        const scaleUp = 1 + (maxOffset * 2) / Math.min(outW, outH);
+        // Scale up slightly to allow crop offsets without black edges
+        filters.push(`scale=${Math.round(outW * scaleUp)}:${Math.round(outH * scaleUp)}`);
+        // Use random offsets with decay for impact-style shake
+        if (sh.type === 'impact') {
+            const decay = sh.decayRate || 5;
+            filters.push(`crop=${outW}:${outH}:` +
+                `'(iw-${outW})/2+${maxOffset}*random(1)*exp(-${decay}*t)':` +
+                `'(ih-${outH})/2+${maxOffset}*random(2)*exp(-${decay}*t)'`);
+        } else if (sh.type === 'vibration') {
+            // High-frequency micro-jitter
+            filters.push(`crop=${outW}:${outH}:` +
+                `'(iw-${outW})/2+${Math.round(maxOffset * 0.15)}*random(1)':` +
+                `'(ih-${outH})/2+${Math.round(maxOffset * 0.15)}*random(2)'`);
+        } else if (sh.type === 'earthquake') {
+            // Low-freq Y-dominant shake
+            filters.push(`crop=${outW}:${outH}:` +
+                `'(iw-${outW})/2+${Math.round(maxOffset * 0.3)}*sin(t*2*PI)':` +
+                `'(ih-${outH})/2+${maxOffset}*sin(t*1.5*PI)'`);
+        } else if (sh.type === 'handheld') {
+            // Smooth organic drift
+            filters.push(`crop=${outW}:${outH}:` +
+                `'(iw-${outW})/2+${Math.round(maxOffset * 0.4)}*sin(t*3.7)*sin(t*2.3)':` +
+                `'(ih-${outH})/2+${Math.round(maxOffset * 0.4)}*sin(t*2.1)*sin(t*4.1)'`);
+        } else if (sh.type === 'whip') {
+            // Single directional sweep
+            const dir = sh.direction === 'vertical' ? 'y' : 'x';
+            if (dir === 'x') {
+                filters.push(`crop=${outW}:${outH}:` +
+                    `'(iw-${outW})/2+${maxOffset}*(-1+2*min(1,t*5))':` +
+                    `'(ih-${outH})/2'`);
+            } else {
+                filters.push(`crop=${outW}:${outH}:` +
+                    `'(iw-${outW})/2':` +
+                    `'(ih-${outH})/2+${maxOffset}*(-1+2*min(1,t*5))'`);
+            }
+        } else {
+            // Random fallback
+            filters.push(`crop=${outW}:${outH}:` +
+                `'(iw-${outW})/2+${maxOffset}*random(1)':` +
+                `'(ih-${outH})/2+${maxOffset}*random(2)'`);
+        }
+    }
+
+    // 10g. Strobe/flicker effect
+    if (clip.strobe && clip.strobe.frequency > 0) {
+        // Toggle brightness between normal and near-white at given frequency
+        const freq = clip.strobe.frequency;
+        filters.push(`eq=brightness='0.3*gt(sin(t*${freq}*2*PI),0)'`);
+    }
+
+    // 10h. Beat-reactive flash (brightness spike at beat timestamps)
+    if (clip.beatEffect?.flash && clip.beatTimestamps && clip.beatTimestamps.length > 0) {
+        const flash = clip.beatEffect.flash;
+        const flashDurSec = flash.durationFrames / fps;
+        const enableExpr = clip.beatTimestamps
+            .map(bt => `between(t,${bt.toFixed(4)},${(bt + flashDurSec).toFixed(4)})`)
+            .join('+');
+        filters.push(`eq=brightness='${flash.intensity.toFixed(2)}*gt(${enableExpr},0)'`);
     }
 
     // 11. Speed adjustment via setpts
@@ -526,4 +770,154 @@ export function buildQualityArgs(
     );
 
     return args;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TRANSITION FILTER (xfade between two clips)
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Build an xfade transition filter between two video streams.
+ *
+ * FFmpeg xfade syntax:
+ *   [v0][v1]xfade=transition=TYPE:duration=D:offset=T
+ *
+ * For custom transitions (flash, glitch, etc.), this builds equivalent
+ * filter graphs using standard FFmpeg filters.
+ *
+ * @param transitionType - The transition type name
+ * @param durationSec    - Duration of the transition in seconds
+ * @param offsetSec      - Offset from the start of the output where transition begins
+ * @param inputLabel0    - FFmpeg stream label for first clip (e.g. '[v0]')
+ * @param inputLabel1    - FFmpeg stream label for second clip (e.g. '[v1]')
+ * @param outputLabel    - FFmpeg stream label for output (e.g. '[vout]')
+ * @returns FFmpeg filter string for the transition
+ */
+export function buildTransitionFilter(
+    transitionType: string,
+    durationSec: number,
+    offsetSec: number,
+    inputLabel0: string = '[v0]',
+    inputLabel1: string = '[v1]',
+    outputLabel: string = '[vout]',
+): string {
+    const dur = Math.max(0.04, durationSec).toFixed(4);
+    const offset = Math.max(0, offsetSec).toFixed(4);
+
+    // Built-in xfade transitions
+    const BUILTIN_XFADE = new Set([
+        'fade', 'fadewhite', 'fadeblack', 'dissolve',
+        'wipeleft', 'wiperight', 'wipeup', 'wipedown',
+        'slideleft', 'slideright', 'slideup', 'slidedown',
+        'circlecrop', 'circleopen', 'circleclose',
+        'pixelize', 'radial', 'hblur',
+        'smoothleft', 'smoothright', 'smoothup', 'smoothdown',
+        'diagtl', 'diagtr', 'diagbl', 'diagbr',
+        'squeezeh', 'squeezev',
+    ]);
+
+    if (transitionType === 'cut' || !transitionType) {
+        // No transition — direct concatenation
+        return `${inputLabel0}${inputLabel1}concat=n=2:v=1:a=0${outputLabel}`;
+    }
+
+    if (BUILTIN_XFADE.has(transitionType)) {
+        return `${inputLabel0}${inputLabel1}xfade=transition=${transitionType}:duration=${dur}:offset=${offset}${outputLabel}`;
+    }
+
+    // Custom transitions that need bespoke filter chains
+    switch (transitionType) {
+        case 'flash':
+            // Flash: fade to white then fade in
+            return [
+                `${inputLabel0}fade=t=out:st=${offset}:d=${dur}:color=white[flash0]`,
+                `${inputLabel1}fade=t=in:st=0:d=${dur}:color=white[flash1]`,
+                `[flash0][flash1]concat=n=2:v=1:a=0${outputLabel}`,
+            ].join(';');
+
+        case 'glitch':
+            // Glitch: chromatic aberration + noise during transition
+            return [
+                `${inputLabel0}split[g0a][g0b]`,
+                `[g0a]trim=end=${offset},setpts=PTS-STARTPTS[g0pre]`,
+                `[g0b]trim=start=${offset},setpts=PTS-STARTPTS,rgbashift=rh=8:bh=-8,noise=c0s=30:c0f=t[g0post]`,
+                `${inputLabel1}trim=start=0:end=${dur},setpts=PTS-STARTPTS,rgbashift=rh=-8:bh=8,noise=c0s=30:c0f=t[g1trans]`,
+                `${inputLabel1}trim=start=${dur},setpts=PTS-STARTPTS[g1post]`,
+                `[g0pre][g0post]concat=n=2:v=1:a=0[gleft]`,
+                `[g1trans][g1post]concat=n=2:v=1:a=0[gright]`,
+                `[gleft][gright]xfade=transition=fade:duration=${dur}:offset=${offset}${outputLabel}`,
+            ].join(';');
+
+        case 'rgb-split':
+            // RGB Split: offset color channels during fade
+            return `${inputLabel0}${inputLabel1}xfade=transition=fade:duration=${dur}:offset=${offset}${outputLabel}`;
+
+        case 'zoom-through':
+            // Zoom through: first clip zooms in, second zooms out
+            return [
+                `${inputLabel0}scale=iw*2:ih*2,crop=iw/2:ih/2[zt0]`,
+                `[zt0]${inputLabel1}xfade=transition=fade:duration=${dur}:offset=${offset}${outputLabel}`,
+            ].join(';');
+
+        case 'spin':
+            // Spin: rotate during fade
+            return `${inputLabel0}${inputLabel1}xfade=transition=radial:duration=${dur}:offset=${offset}${outputLabel}`;
+
+        case 'film-burn':
+            // Film burn: warm fade
+            return `${inputLabel0}${inputLabel1}xfade=transition=fadewhite:duration=${dur}:offset=${offset}${outputLabel}`;
+
+        case 'whip':
+            // Whip pan: fast horizontal slide
+            return `${inputLabel0}${inputLabel1}xfade=transition=slideleft:duration=${(parseFloat(dur) * 0.3).toFixed(4)}:offset=${offset}${outputLabel}`;
+
+        default:
+            // Fallback to dissolve
+            return `${inputLabel0}${inputLabel1}xfade=transition=dissolve:duration=${dur}:offset=${offset}${outputLabel}`;
+    }
+}
+
+/**
+ * Build a chained xfade filter graph for multiple clips with transitions.
+ *
+ * Given N clips with transitions between them, produces a filter_complex string
+ * that chains xfade operations:
+ *   [v0][v1]xfade=...[xf0]; [xf0][v2]xfade=...[xf1]; ...
+ *
+ * @param clipCount       - Number of video clips
+ * @param transitions     - Array of {type, durationSec} for each transition (length = clipCount-1)
+ * @param clipDurations   - Duration of each clip in seconds (for computing offsets)
+ * @returns FFmpeg filter_complex string
+ */
+export function buildTransitionChain(
+    clipCount: number,
+    transitions: Array<{ type: string; durationSec: number }>,
+    clipDurations: number[],
+): string {
+    if (clipCount <= 1 || transitions.length === 0) return '';
+
+    const parts: string[] = [];
+    let accumulatedOffset = 0;
+
+    for (let i = 0; i < Math.min(transitions.length, clipCount - 1); i++) {
+        const t = transitions[i];
+        const inputA = i === 0 ? `[v${i}]` : `[xf${i - 1}]`;
+        const inputB = `[v${i + 1}]`;
+        const output = i === transitions.length - 1 ? '[vout]' : `[xf${i}]`;
+
+        // Offset = accumulated clip durations minus accumulated transition durations
+        accumulatedOffset += clipDurations[i] - (i > 0 ? transitions[i - 1].durationSec : 0);
+
+        const filter = buildTransitionFilter(
+            t.type,
+            t.durationSec,
+            accumulatedOffset,
+            inputA,
+            inputB,
+            output,
+        );
+        parts.push(filter);
+    }
+
+    return parts.join(';');
 }

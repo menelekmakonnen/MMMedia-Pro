@@ -49,6 +49,62 @@ export interface Effect extends Asset {
     parameters: Record<string, number | string | boolean>;
 }
 
+// ─── Super Editing Engine Types ───────────────────────────────────────────────
+
+export type TransitionType =
+    | 'cut' | 'fade' | 'fadewhite' | 'fadeblack' | 'dissolve'
+    | 'wipeleft' | 'wiperight' | 'wipeup' | 'wipedown'
+    | 'slideleft' | 'slideright' | 'slideup' | 'slidedown'
+    | 'circlecrop' | 'circleopen' | 'circleclose'
+    | 'pixelize' | 'radial' | 'hblur'
+    | 'smoothleft' | 'smoothright' | 'smoothup' | 'smoothdown'
+    | 'diagtl' | 'diagtr' | 'diagbl' | 'diagbr'
+    | 'squeezeh' | 'squeezev'
+    | 'flash' | 'glitch' | 'rgb-split' | 'zoom-through'
+    | 'spin' | 'film-burn' | 'whip';
+
+export type ShakeType = 'impact' | 'handheld' | 'earthquake' | 'vibration' | 'whip';
+export type ZoomSpeed = 'instant' | 'fast' | 'slow' | 'smooth';
+export type ZoomCurve = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'snap';
+export type SpeedCurvePreset = 'constant' | 'ramp-up' | 'ramp-down' | 's-curve' | 'ramp-freeze' | 'burst-landing' | 'oscillating';
+export type BoomerangPresetId = 'classic' | 'slowmo' | 'echo' | 'duo' | 'stutter' | 'whiplash';
+export type BeatDropIntensity = 'off' | 'subtle' | 'medium' | 'heavy' | 'maximum';
+export type ShakePolicy = 'off' | 'sparingly' | 'on-every-beat' | 'heavy-beats-only';
+export type TransitionStyle = 'cuts-only' | 'mixed' | 'transitions-only';
+
+export interface ShakeConfig {
+    type: ShakeType;
+    intensity: number;         // 0-100
+    direction: 'horizontal' | 'vertical' | 'radial' | 'rotational' | 'random';
+    decayRate: number;         // 1-10 (how fast shake diminishes)
+    durationFrames: number;    // How many frames the shake lasts
+}
+
+export interface BeatEffectConfig {
+    flash?: { intensity: number; color: string; durationFrames: number };
+    chromatic?: { offset: number; durationFrames: number };
+    shake?: { type: ShakeType; intensity: number };
+    zoom?: { punchScale: number; durationFrames: number };
+}
+
+export interface AnimatedBlurConfig {
+    type: 'gaussian' | 'motion' | 'radial' | 'directional';
+    startSigma: number;
+    endSigma: number;
+    direction?: number;        // degrees, for directional blur
+}
+
+export interface ClipTransition {
+    type: TransitionType;
+    durationFrames: number;
+    params?: Record<string, number | string>;
+}
+
+export interface SpeedKeyframe {
+    time: number;   // 0-1 normalized position within clip
+    speed: number;  // multiplier
+}
+
 export interface Clip {
     id: string;
     type: ClipType;
@@ -80,7 +136,33 @@ export interface Clip {
     zoomEnd?: number;     // Dynamic zoom end percentage
     zoomOrigin?: 'center' | 'top' | 'bottom' | 'left' | 'right'; // Anchor point for zoom
 
+    // ── Zoom enhancements ──
+    zoomSpeed?: ZoomSpeed;          // How quickly zoom is applied
+    zoomCurve?: ZoomCurve;          // Easing curve for zoom animation
 
+    // ── Speed system ──
+    speedCurvePreset?: SpeedCurvePreset;   // Pre-baked curve shape (Option B)
+    speedCurve?: SpeedKeyframe[];          // Keyframed speed (Option A — future graph editor)
+
+    // ── Shake system ──
+    shake?: ShakeConfig;
+
+    // ── Beat-reactive effects ──
+    beatEffect?: BeatEffectConfig;
+
+    // ── Animated blur ──
+    blurAnimated?: AnimatedBlurConfig;
+
+    // ── Visual effects ──
+    filmGrain?: number;            // 0-25 grain strength
+    vignette?: number;             // 0-100 vignette intensity
+    letterbox?: boolean;           // Cinematic bars (2.39:1)
+    chromaticAberration?: number;  // 0-20 RGB offset pixels
+    strobe?: { frequency: number; durationFrames: number };
+    echo?: { trailCount: number; opacity: number };
+
+    // ── Transition to next clip ──
+    transition?: ClipTransition;
 
     // Audio Analysis
     bpm?: number;
@@ -111,6 +193,7 @@ export interface Clip {
 
     // Boomerang (damped-bounce forward↔reverse effect)
     boomerang?: boolean;
+    boomerangPreset?: BoomerangPresetId;
 
     // Parametric effects (new system — each with adjustable params)
     parametricEffects?: Array<{

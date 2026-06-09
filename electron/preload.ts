@@ -26,6 +26,7 @@ try {
         exportProject: (args: { filePath: string, clips: any[], settings: any, isIntermediate?: boolean }) => ipcRenderer.invoke('export-project', args),
         exportProjectMonolithic: (args: { filePath: string, clips: any[], settings: any, isIntermediate?: boolean }) => ipcRenderer.invoke('export-project-monolithic', args),
         randomRender: (args: { filePath: string, clips: any[], settings: any }) => ipcRenderer.invoke('random-render', args),
+        exportProjectSegment: (args: { filePath: string, clips: any[], settings: any }) => ipcRenderer.invoke('export-project-segment', args),
         analyzeRenderParity: (args: { clips: any[], settings: any }) => ipcRenderer.invoke('analyze-render-parity', args),
         cancelExport: () => ipcRenderer.invoke('cancel-export'),
         pauseExport: () => ipcRenderer.invoke('pause-export'),

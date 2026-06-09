@@ -151,36 +151,36 @@ export const SegmentSelector: React.FC<SegmentSelectorProps> = ({ clipId, onScru
     };
 
     return (
-        <div className="px-3 py-2 bg-surface-dark/30 border-t border-white/5">
-            <div className="flex items-center justify-between mb-1">
-                <span className="text-xs text-white/40 flex items-center gap-2">
-                    Source Range
-                    <div className="flex items-center gap-1 bg-black/20 rounded border border-white/5 px-1 py-0.5">
+        <div className="px-3 py-1.5 bg-surface-dark/30 border-t border-white/5">
+            <div className="flex items-center justify-between gap-1 mb-1 flex-wrap">
+                <span className="text-[10px] text-white/40 flex items-center gap-1 flex-shrink-0">
+                    Src
+                    <div className="flex items-center gap-0.5 bg-black/20 rounded border border-white/5 px-0.5 py-0.5">
                         <button onClick={shiftSegmentBackward} title="Shift segment backward by duration" className="hover:bg-white/10 rounded p-0.5 text-white/50 hover:text-white">
-                            <ChevronLeft size={12} />
+                            <ChevronLeft size={10} />
                         </button>
                         <button onClick={shiftSegmentForward} title="Shift segment forward by duration" className="hover:bg-white/10 rounded p-0.5 text-white/50 hover:text-white">
-                            <ChevronRight size={12} />
+                            <ChevronRight size={10} />
                         </button>
-                        <div className="w-px h-3 bg-white/10 mx-0.5" />
+                        <div className="w-px h-2.5 bg-white/10 mx-0.5" />
                         <button
                             onClick={() => setIsZoomed(!isZoomed)}
                             title={isZoomed ? "Zoom Out to Full Clip" : "Zoom In to Selection"}
                             className={`hover:bg-white/10 rounded p-0.5 ${isZoomed ? 'text-accent' : 'text-white/50 hover:text-white'}`}
                         >
-                            {isZoomed ? <ZoomOut size={12} /> : <ZoomIn size={12} />}
+                            {isZoomed ? <ZoomOut size={10} /> : <ZoomIn size={10} />}
                         </button>
                         <button
                             onClick={() => setIsDurationLocked(!isDurationLocked)}
                             title={isDurationLocked ? "Unlock Duration" : "Freeze Segment Duration"}
                             className={`hover:bg-white/10 rounded p-0.5 ${isDurationLocked ? 'text-amber-500' : 'text-white/50 hover:text-white'}`}
                         >
-                            {isDurationLocked ? <Lock size={12} /> : <Unlock size={12} />}
+                            {isDurationLocked ? <Lock size={10} /> : <Unlock size={10} />}
                         </button>
                     </div>
                 </span>
-                <span className="text-xs text-white/60">
-                    {segmentStart} - {segmentEnd} ({segmentDuration} frames)
+                <span className="text-[10px] text-white/50 whitespace-nowrap truncate">
+                    {segmentStart}–{segmentEnd} ({segmentDuration}f)
                 </span>
             </div>
 
