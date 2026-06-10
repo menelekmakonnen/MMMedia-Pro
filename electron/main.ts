@@ -972,8 +972,15 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                 event.sender.send('export-progress', 100);
                 resolve({ success: true });
             } else {
-                log(`Segment export FAILED (code ${r.code}): ${r.stderr.slice(-500)}`);
-                resolve({ success: false, error: r.stderr.slice(-500).trim() || `FFmpeg exited with code ${r.code}` });
+                // Distinguish cancellation from real failure
+                const wasCancelled = (activeExportProc as any)?.__cancelled || r.stderr.includes('[q] command received');
+                if (wasCancelled) {
+                    log('Export cancelled by user during final encode.');
+                    resolve({ success: false, error: 'Export cancelled by user' });
+                } else {
+                    log(`Segment export FAILED (code ${r.code}): ${r.stderr.slice(-500)}`);
+                    resolve({ success: false, error: r.stderr.slice(-500).trim() || `FFmpeg exited with code ${r.code}` });
+                }
             }
         } catch (err: any) {
             cleanup();
@@ -1141,7 +1148,7 @@ ipcMain.handle('export-project', async (event, { filePath, clips: rawClips, sett
 
                     // d=1: one output frame per input frame (avoids zoompan's per-input-frame
                     // duration multiplication — the cause of multi-minute exports on zoomed clips).
-                    vf += `,zoompan=z='${zs}+(${ze}-${zs})*min(1,on/${clipDurFrames})':x=${zx}:y=${zy}:d=1:s=${outW}x${outH}:fps=${fps}`;
+                    vf += `,zoompan=z='${zs}+(${ze}-${zs})*min(1,on/${clipDurFrames})':x=${zx}:y=${zy}:d=1:s=${outW}x${outH}`;
                     zoompanUsed = true;
                 }
 
@@ -1599,7 +1606,7 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
 
                         // d=1: one output frame per input frame (avoids zoompan's per-input-frame
                     // duration multiplication — the cause of multi-minute exports on zoomed clips).
-                    vf += `,zoompan=z='${zs}+(${ze}-${zs})*min(1,on/${clipDurFrames})':x=${zx}:y=${zy}:d=1:s=${outW}x${outH}:fps=${fps}`;
+                    vf += `,zoompan=z='${zs}+(${ze}-${zs})*min(1,on/${clipDurFrames})':x=${zx}:y=${zy}:d=1:s=${outW}x${outH}`;
                         zoompanUsed = true;
                     }
 

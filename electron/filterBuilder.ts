@@ -327,7 +327,7 @@ export function buildZoompanFilter(
     // Interpolate: zs + (ze - zs) * eased_t
     const zExpr = `'${zs}+(${ze}-${zs})*${tExpr}'`;
 
-    return `zoompan=z=${zExpr}:x=${xExpr}:y=${yExpr}:d=1:s=${outputWidth}x${outputHeight}:fps=${fps}`;
+    return `zoompan=z=${zExpr}:x=${xExpr}:y=${yExpr}:d=1:s=${outputWidth}x${outputHeight}`;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -506,7 +506,7 @@ export function buildVideoFilter(
         if (ab.type === 'gaussian' || !ab.type) {
             // Linearly interpolate sigma over the clip duration
             const durFrames = Math.max(1, clipDurationFrames);
-            filters.push(`gblur=sigma='lerp(${ab.startSigma.toFixed(2)},${ab.endSigma.toFixed(2)},min(1,n/${durFrames}))'`);
+            filters.push(`gblur=sigma='${ab.startSigma.toFixed(2)}+(${ab.endSigma.toFixed(2)}-${ab.startSigma.toFixed(2)})*min(1,n/${durFrames})'`);
         } else if (ab.type === 'motion') {
             // Temporal blend for motion blur effect
             filters.push('tblend=all_mode=average');
