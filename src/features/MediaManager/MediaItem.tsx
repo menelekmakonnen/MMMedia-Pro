@@ -60,8 +60,10 @@ export const MediaItem: React.FC<MediaItemProps> = ({ clip, isSelected, isMultiS
                 {clip.type === 'video' || clip.type === 'image' ? (
                     <video
                         src={clip.path}
-                        className="w-full h-full object-cover"
-                        style={clip.rotation ? { transform: `rotate(${clip.rotation}deg)` } : undefined}
+                        className="w-full h-full object-cover transition-transform duration-300"
+                        style={clip.rotation ? {
+                            transform: `rotate(${clip.rotation}deg)${(clip.rotation === 90 || clip.rotation === 270) ? ' scale(0.5625)' : ''}`,
+                        } : undefined}
                         muted
                         preload="metadata"
                     />

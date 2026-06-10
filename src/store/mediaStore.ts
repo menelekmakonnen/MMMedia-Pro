@@ -98,7 +98,22 @@ export const useMediaStore = create<MediaState>()(
                 files: state.files.map(f => {
                     if (f.id !== id) return f;
                     const nextRotation = (((f.rotation || 0) + 90) % 360) as 0 | 90 | 180 | 270;
-                    return { ...f, rotation: nextRotation };
+
+                    // For 90° and 270° rotations, the effective dimensions swap.
+                    // For 0° and 180°, they stay the same as the source.
+                    const isOrthogonal = nextRotation === 90 || nextRotation === 270;
+                    const origW = f.width || 1920;
+                    const origH = f.height || 1080;
+                    // Effective dimensions after rotation
+                    const effectiveW = isOrthogonal ? origH : origW;
+                    const effectiveH = isOrthogonal ? origW : origH;
+
+                    // Recalculate orientation based on effective dimensions
+                    const orientation: 'horizontal' | 'vertical' | 'square' =
+                        effectiveW > effectiveH ? 'horizontal' :
+                        effectiveH > effectiveW ? 'vertical' : 'square';
+
+                    return { ...f, rotation: nextRotation, orientation };
                 })
             })),
 

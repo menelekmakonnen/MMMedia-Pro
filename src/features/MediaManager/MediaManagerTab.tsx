@@ -107,7 +107,9 @@ export const MediaManagerTab: React.FC = () => {
                     isMuted: false,
                     isPinned: false,
                     origin: 'auto',
-                    locked: false
+                    locked: false,
+                    rotation: file.rotation || 0,
+                    sourceOrientation: file.orientation || 'horizontal',
                 });
             } else if (file.type === 'audio') {
                 addClip({
@@ -447,8 +449,59 @@ export const MediaManagerTab: React.FC = () => {
         }
     };
 
-    const handleRotate = (fileId: string) => {
+    const handleRotate = async (fileId: string) => {
+        const file = files.find(f => f.id === fileId);
+        if (!file) return;
+
+        // Compute what the new rotation and orientation will be
+        const currentRotation = file.rotation || 0;
+        const nextRotation = ((currentRotation + 90) % 360) as 0 | 90 | 180 | 270;
+        const isOrthogonal = nextRotation === 90 || nextRotation === 270;
+        const origW = file.width || 1920;
+        const origH = file.height || 1080;
+        const effectiveW = isOrthogonal ? origH : origW;
+        const effectiveH = isOrthogonal ? origW : origH;
+        const newOrientation: 'horizontal' | 'vertical' | 'square' =
+            effectiveW > effectiveH ? 'horizontal' :
+            effectiveH > effectiveW ? 'vertical' : 'square';
+        const oldOrientation = file.orientation || 'horizontal';
+
+        const orientationLabels: Record<string, string> = {
+            horizontal: 'Landscape', vertical: 'Portrait', square: 'Square'
+        };
+        const movesGroup = oldOrientation !== newOrientation;
+
+        // Confirmation dialog
+        const message = movesGroup
+            ? `Rotate "${file.filename}" to ${nextRotation}°?\n\nThis will change orientation from ${orientationLabels[oldOrientation]} (${origW}×${origH}) → ${orientationLabels[newOrientation]} (${effectiveW}×${effectiveH}).\n\nThe clip will move to the ${orientationLabels[newOrientation]} group.`
+            : `Rotate "${file.filename}" to ${nextRotation}°?\n\nOrientation stays ${orientationLabels[oldOrientation]} (${effectiveW}×${effectiveH}).`;
+
+        const approved = await confirm(message, {
+            title: 'Rotate & Fit',
+            confirmText: movesGroup ? `Rotate → ${orientationLabels[newOrientation]}` : 'Rotate',
+            cancelText: 'Cancel',
+            variant: movesGroup ? 'warning' : 'info',
+        });
+        if (!approved) return;
+
+        // Apply rotation in the media store (updates orientation + dims)
         rotateFile(fileId);
+
+        // Propagate rotation to any clips already on the timeline linked to this media file
+        const { clips, updateClip } = useClipStore.getState();
+        clips.forEach(clip => {
+            if (clip.mediaLibraryId === fileId || clip.path === file.path) {
+                updateClip(clip.id, {
+                    rotation: nextRotation,
+                    sourceOrientation: newOrientation,
+                });
+            }
+        });
+
+        const suffix = movesGroup
+            ? ` → moved to ${orientationLabels[newOrientation]}`
+            : '';
+        toast.success(`${file.filename} rotated to ${nextRotation}°${suffix}`);
     };
 
     const showSidebar = true; // Always show sidebar

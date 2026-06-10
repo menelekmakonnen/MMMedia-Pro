@@ -292,8 +292,11 @@ export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, medi
                         <video
                             ref={videoRef}
                             src={`file://${clip.path}`}
-                            className="w-full h-full object-contain"
-                            style={rotation ? { transform: `rotate(${rotation}deg)` } : undefined}
+                            className="w-full h-full object-contain transition-transform duration-300"
+                            style={rotation ? {
+                                transform: `rotate(${rotation}deg)${(rotation === 90 || rotation === 270) ? ' scale(0.5625)' : ''}`,
+                                // For 90°/270°, scale down so the rotated video fits within the 16:9 container
+                            } : undefined}
                             controls={clip.type === 'video'}
                             onLoadedMetadata={(e) => {
                                 const dur = e.currentTarget.duration;
@@ -438,12 +441,23 @@ export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, medi
                         <div>
                             <div className="text-xs text-white/40 mb-1">Resolution</div>
                             <div className="text-sm text-white/80 font-mono">
-                                {mediaFile?.width && mediaFile?.height ? `${mediaFile.width}×${mediaFile.height}` : '-'}
+                                {mediaFile?.width && mediaFile?.height
+                                    ? (rotation === 90 || rotation === 270)
+                                        ? <>{mediaFile.height}×{mediaFile.width} <span className="text-[9px] text-blue-400/60">(rotated)</span></>
+                                        : `${mediaFile.width}×${mediaFile.height}`
+                                    : '-'}
                             </div>
                         </div>
                         <div>
                             <div className="text-xs text-white/40 mb-1">Rotation</div>
-                            <div className="text-sm text-white/80 font-mono">{rotation}°</div>
+                            <div className="text-sm text-white/80 font-mono">
+                                {rotation}°
+                                {rotation > 0 && (
+                                    <span className="text-[9px] text-blue-400/60 ml-1">
+                                        {mediaFile?.orientation === 'horizontal' ? 'Landscape' : mediaFile?.orientation === 'vertical' ? 'Portrait' : 'Square'}
+                                    </span>
+                                )}
+                            </div>
                         </div>
                     </div>
 
