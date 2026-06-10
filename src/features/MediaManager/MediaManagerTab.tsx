@@ -16,7 +16,7 @@ import { confirm } from '../../components/ConfirmDialog';
 export const MediaManagerTab: React.FC = () => {
     const { addClip, magnetizeClips, createGrid, setClips, detectBeats } = useClipStore();
     const { setActiveTab } = useViewStore();
-    const { files, addFiles, removeFile, clearLibrary, orientationFilter, setOrientationFilter, selectedFileIds, toggleFileSelection, selectAllFiles, clearSelection, setPreloadedAudio, rotateFile, addRecentFolder, addRecentAudio, removeRecentFolder, removeRecentAudio, recentFolders, recentAudioFiles } = useMediaStore();
+    const { files, addFiles, removeFile, clearLibrary, orientationFilter, setOrientationFilter, selectedFileIds, toggleFileSelection, selectAllFiles, clearSelection, setPreloadedAudio, rotateFile, confirmRotation, cancelRotation, addRecentFolder, addRecentAudio, removeRecentFolder, removeRecentAudio, recentFolders, recentAudioFiles } = useMediaStore();
     const { mediaManagerView, mediaSidebarWidth, setMediaSidebarWidth } = useUserStore();
     const [viewMode, setViewMode] = useState<'grid' | 'list'>(mediaManagerView);
     const [searchQuery, setSearchQuery] = useState('');
@@ -423,7 +423,7 @@ export const MediaManagerTab: React.FC = () => {
             isPinned: false,
             origin: 'manual',
             locked: false,
-            rotation: file.rotation || 0,
+            rotation: file.pendingRotation ?? file.rotation ?? 0,
             sourceOrientation: file.orientation || 'horizontal',
         };
     };
@@ -449,13 +449,16 @@ export const MediaManagerTab: React.FC = () => {
         }
     };
 
-    const handleRotate = async (fileId: string) => {
-        const file = files.find(f => f.id === fileId);
-        if (!file) return;
+    const handleRotate = (fileId: string) => {
+        // Sets pendingRotation — visual preview only, no commit
+        rotateFile(fileId);
+    };
 
-        // Compute what the new rotation and orientation will be
-        const currentRotation = file.rotation || 0;
-        const nextRotation = ((currentRotation + 90) % 360) as 0 | 90 | 180 | 270;
+    const handleConfirmRotation = (fileId: string) => {
+        const file = files.find(f => f.id === fileId);
+        if (!file || file.pendingRotation === undefined) return;
+
+        const nextRotation = file.pendingRotation;
         const isOrthogonal = nextRotation === 90 || nextRotation === 270;
         const origW = file.width || 1920;
         const origH = file.height || 1080;
@@ -465,29 +468,15 @@ export const MediaManagerTab: React.FC = () => {
             effectiveW > effectiveH ? 'horizontal' :
             effectiveH > effectiveW ? 'vertical' : 'square';
         const oldOrientation = file.orientation || 'horizontal';
-
+        const movesGroup = oldOrientation !== newOrientation;
         const orientationLabels: Record<string, string> = {
             horizontal: 'Landscape', vertical: 'Portrait', square: 'Square'
         };
-        const movesGroup = oldOrientation !== newOrientation;
 
-        // Confirmation dialog
-        const message = movesGroup
-            ? `Rotate "${file.filename}" to ${nextRotation}°?\n\nThis will change orientation from ${orientationLabels[oldOrientation]} (${origW}×${origH}) → ${orientationLabels[newOrientation]} (${effectiveW}×${effectiveH}).\n\nThe clip will move to the ${orientationLabels[newOrientation]} group.`
-            : `Rotate "${file.filename}" to ${nextRotation}°?\n\nOrientation stays ${orientationLabels[oldOrientation]} (${effectiveW}×${effectiveH}).`;
+        // Commit the rotation
+        confirmRotation(fileId);
 
-        const approved = await confirm(message, {
-            title: 'Rotate & Fit',
-            confirmText: movesGroup ? `Rotate → ${orientationLabels[newOrientation]}` : 'Rotate',
-            cancelText: 'Cancel',
-            variant: movesGroup ? 'warning' : 'info',
-        });
-        if (!approved) return;
-
-        // Apply rotation in the media store (updates orientation + dims)
-        rotateFile(fileId);
-
-        // Propagate rotation to any clips already on the timeline linked to this media file
+        // Propagate to timeline clips
         const { clips, updateClip } = useClipStore.getState();
         clips.forEach(clip => {
             if (clip.mediaLibraryId === fileId || clip.path === file.path) {
@@ -502,6 +491,10 @@ export const MediaManagerTab: React.FC = () => {
             ? ` → moved to ${orientationLabels[newOrientation]}`
             : '';
         toast.success(`${file.filename} rotated to ${nextRotation}°${suffix}`);
+    };
+
+    const handleCancelRotation = (fileId: string) => {
+        cancelRotation(fileId);
     };
 
     const showSidebar = true; // Always show sidebar
@@ -668,10 +661,13 @@ export const MediaManagerTab: React.FC = () => {
                                         isTrimmed={file.trimIn != null && file.trimOut != null}
                                         trimDurationLabel={file.trimIn != null && file.trimOut != null ? `${(file.trimOut - file.trimIn).toFixed(1)}s` : undefined}
                                         viewMode={viewMode}
+                                        hasPendingRotation={file.pendingRotation !== undefined}
                                         onSelect={(e) => handleItemClick(file.id, e)}
                                         onAdd={() => handleAddClipToTimeline(file.id)}
                                         onGridAdd={() => handleCreateGridFromMedia(file.id)}
                                         onRotate={() => handleRotate(file.id)}
+                                        onConfirmRotation={() => handleConfirmRotation(file.id)}
+                                        onCancelRotation={() => handleCancelRotation(file.id)}
                                         onDelete={() => {
                                             removeFile(file.id);
                                             if (detailFileId === file.id) setDetailFileId(null);
@@ -927,6 +923,9 @@ export const MediaManagerTab: React.FC = () => {
                                             onClose={() => setDetailFileId(null)}
                                             onAdd={selectedFile ? () => setActiveTab('trailer') : undefined}
                                             onRotate={selectedFile ? () => handleRotate(selectedFile.id) : undefined}
+                                            hasPendingRotation={selectedFile?.pendingRotation !== undefined}
+                                            onConfirmRotation={selectedFile ? () => handleConfirmRotation(selectedFile.id) : undefined}
+                                            onCancelRotation={selectedFile ? () => handleCancelRotation(selectedFile.id) : undefined}
                                         />
                                     </div>
                                 </div>

@@ -23,7 +23,8 @@ export interface MediaFile {
     width?: number;
     height?: number;
     orientation?: 'horizontal' | 'vertical' | 'square';
-    rotation?: 0 | 90 | 180 | 270;  // Persistent rotation applied in preview + export
+    rotation?: 0 | 90 | 180 | 270;  // Committed rotation applied in preview + export
+    pendingRotation?: 0 | 90 | 180 | 270;  // Uncommitted rotation awaiting user approval
     format?: string;
     size?: number;
     createdAt?: number;
@@ -51,6 +52,8 @@ interface MediaState {
     clearLibrary: () => void;
     updateFile: (id: string, updates: Partial<MediaFile>) => void;
     rotateFile: (id: string) => void;
+    confirmRotation: (id: string) => void;
+    cancelRotation: (id: string) => void;
     setOrientationFilter: (filter: 'all' | 'horizontal' | 'vertical' | 'square') => void;
     setPreloadedAudio: (path: string | null, name: string | null) => void;
     // Trim constraints
@@ -94,27 +97,43 @@ export const useMediaStore = create<MediaState>()(
                 files: state.files.map(f => f.id === id ? { ...f, ...updates } : f)
             })),
 
+            // Sets a pending (preview-only) rotation — NOT committed until confirmRotation.
             rotateFile: (id) => set((state) => ({
                 files: state.files.map(f => {
                     if (f.id !== id) return f;
-                    const nextRotation = (((f.rotation || 0) + 90) % 360) as 0 | 90 | 180 | 270;
+                    // Rotate from the current pending (if mid-rotate) or committed rotation
+                    const base = f.pendingRotation ?? f.rotation ?? 0;
+                    const nextRotation = ((base + 90) % 360) as 0 | 90 | 180 | 270;
+                    return { ...f, pendingRotation: nextRotation };
+                })
+            })),
+
+            // Commits pendingRotation → rotation, recalculates orientation.
+            confirmRotation: (id) => set((state) => ({
+                files: state.files.map(f => {
+                    if (f.id !== id || f.pendingRotation === undefined) return f;
+                    const nextRotation = f.pendingRotation;
 
                     // For 90° and 270° rotations, the effective dimensions swap.
-                    // For 0° and 180°, they stay the same as the source.
                     const isOrthogonal = nextRotation === 90 || nextRotation === 270;
                     const origW = f.width || 1920;
                     const origH = f.height || 1080;
-                    // Effective dimensions after rotation
                     const effectiveW = isOrthogonal ? origH : origW;
                     const effectiveH = isOrthogonal ? origW : origH;
 
-                    // Recalculate orientation based on effective dimensions
                     const orientation: 'horizontal' | 'vertical' | 'square' =
                         effectiveW > effectiveH ? 'horizontal' :
                         effectiveH > effectiveW ? 'vertical' : 'square';
 
-                    return { ...f, rotation: nextRotation, orientation };
+                    return { ...f, rotation: nextRotation, orientation, pendingRotation: undefined };
                 })
+            })),
+
+            // Cancels pending rotation — reverts to the committed value.
+            cancelRotation: (id) => set((state) => ({
+                files: state.files.map(f =>
+                    f.id === id ? { ...f, pendingRotation: undefined } : f
+                )
             })),
 
             setOrientationFilter: (filter) => set({ orientationFilter: filter }),

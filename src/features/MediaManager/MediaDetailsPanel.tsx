@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Clip, useClipStore } from '../../store/clipStore';
 import { useMediaStore, MediaFile } from '../../store/mediaStore';
-import { Wand2, FileVideo, FileAudio, Image as ImageIcon, X, RotateCw, Scissors, RotateCcw, ChevronRight, ChevronLeft } from 'lucide-react';
+import { Wand2, FileVideo, FileAudio, Image as ImageIcon, X, RotateCw, Scissors, RotateCcw, ChevronRight, ChevronLeft, Check } from 'lucide-react';
 import clsx from 'clsx';
 
 interface MediaDetailsPanelProps {
@@ -10,6 +10,9 @@ interface MediaDetailsPanelProps {
     onClose: () => void;
     onAdd?: () => void;
     onRotate?: () => void;
+    hasPendingRotation?: boolean;
+    onConfirmRotation?: () => void;
+    onCancelRotation?: () => void;
 }
 
 /* ── Timecode Formatter ──────────────────────────────────────────── */
@@ -190,7 +193,7 @@ const TrimSlider: React.FC<{
 /* ═══════════════════════════════════════════════════════════════════
  * MediaDetailsPanel — Right Sidebar
  * ═══════════════════════════════════════════════════════════════════ */
-export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, mediaFile, onClose, onAdd, onRotate }) => {
+export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, mediaFile, onClose, onAdd, onRotate, hasPendingRotation, onConfirmRotation, onCancelRotation }) => {
     const { addClip } = useClipStore();
     const { setFileTrim, clearFileTrim } = useMediaStore();
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -472,6 +475,27 @@ export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, medi
 
             {/* Actions Footer */}
             <div className="p-4 border-t border-white/5 bg-white/5 space-y-2">
+                {/* Pending rotation: Approve / Decline row */}
+                {hasPendingRotation && (
+                    <div className="flex gap-2 mb-2">
+                        {onConfirmRotation && (
+                            <button
+                                onClick={onConfirmRotation}
+                                className="flex-1 flex items-center justify-center gap-2 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 p-2.5 rounded-lg font-bold text-xs uppercase tracking-wider transition-colors border border-emerald-500/30 hover:border-emerald-500/50"
+                            >
+                                <Check size={16} strokeWidth={3} /> Approve {rotation}°
+                            </button>
+                        )}
+                        {onCancelRotation && (
+                            <button
+                                onClick={onCancelRotation}
+                                className="flex items-center justify-center gap-2 bg-red-600/20 hover:bg-red-600/40 text-red-300 p-2.5 rounded-lg font-bold text-xs uppercase tracking-wider transition-colors border border-red-500/30 hover:border-red-500/50"
+                            >
+                                <X size={16} strokeWidth={3} />
+                            </button>
+                        )}
+                    </div>
+                )}
                 <div className="flex gap-2">
                     <button
                         onClick={() => {

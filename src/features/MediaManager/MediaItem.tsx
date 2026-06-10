@@ -1,7 +1,7 @@
 import React from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Clip } from '../../store/clipStore';
-import { Plus, FileVideo, FileAudio, LayoutGrid, Trash2, CheckSquare, Square as SquareIcon, RotateCw, Scissors } from 'lucide-react';
+import { Plus, FileVideo, FileAudio, LayoutGrid, Trash2, CheckSquare, Square as SquareIcon, RotateCw, Scissors, Check, X } from 'lucide-react';
 
 interface MediaItemProps {
     clip: Clip;
@@ -10,14 +10,17 @@ interface MediaItemProps {
     isTrimmed?: boolean;
     trimDurationLabel?: string;
     viewMode: 'grid' | 'list';
+    hasPendingRotation?: boolean;
     onSelect: (e: React.MouseEvent) => void;
     onAdd: () => void;
     onGridAdd?: () => void;
     onRotate?: () => void;
+    onConfirmRotation?: () => void;
+    onCancelRotation?: () => void;
     onDelete?: () => void;
 }
 
-export const MediaItem: React.FC<MediaItemProps> = ({ clip, isSelected, isMultiSelected, isTrimmed, trimDurationLabel, viewMode, onSelect, onAdd, onGridAdd, onRotate, onDelete }) => {
+export const MediaItem: React.FC<MediaItemProps> = ({ clip, isSelected, isMultiSelected, isTrimmed, trimDurationLabel, viewMode, hasPendingRotation, onSelect, onAdd, onGridAdd, onRotate, onConfirmRotation, onCancelRotation, onDelete }) => {
     return (
         <motion.div
             onClick={onSelect}
@@ -25,11 +28,13 @@ export const MediaItem: React.FC<MediaItemProps> = ({ clip, isSelected, isMultiS
             whileTap={{ scale: 0.98 }}
             className={`
                 group relative border rounded-lg overflow-hidden cursor-pointer transition-all duration-200
-                ${isSelected
-                    ? 'border-accent ring-1 ring-accent bg-accent/5'
-                    : isMultiSelected
-                        ? 'border-purple-500/60 ring-1 ring-purple-500/40 bg-purple-500/5'
-                        : 'border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10'}
+                ${hasPendingRotation
+                    ? 'border-blue-500/60 ring-1 ring-blue-500/40 bg-blue-500/5'
+                    : isSelected
+                        ? 'border-accent ring-1 ring-accent bg-accent/5'
+                        : isMultiSelected
+                            ? 'border-purple-500/60 ring-1 ring-purple-500/40 bg-purple-500/5'
+                            : 'border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10'}
                 ${viewMode === 'list' ? 'flex items-center gap-4 p-2' : 'p-3'}
             `}
         >
@@ -86,8 +91,62 @@ export const MediaItem: React.FC<MediaItemProps> = ({ clip, isSelected, isMultiS
                     </div>
                 )}
 
-                {/* Hover Overlay — GRID VIEW ONLY */}
-                {viewMode === 'grid' && (
+                {/* ── Pending Rotation: Approve / Decline Overlay ── */}
+                <AnimatePresence>
+                    {hasPendingRotation && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.15 }}
+                            className="absolute inset-0 z-30 flex items-end justify-center pb-2 pointer-events-none"
+                        >
+                            {/* Gradient scrim behind buttons */}
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+
+                            {/* Rotation badge */}
+                            <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded-md bg-blue-600/90 text-[9px] font-bold text-white shadow-lg backdrop-blur-sm border border-blue-400/40">
+                                <RotateCw size={10} className="animate-spin" style={{ animationDuration: '2s' }} />
+                                {clip.rotation}°
+                            </div>
+
+                            {/* Approve / Decline buttons */}
+                            <div className="relative flex items-center gap-2 pointer-events-auto">
+                                {onConfirmRotation && (
+                                    <motion.button
+                                        whileHover={{ scale: 1.15 }}
+                                        whileTap={{ scale: 0.9 }}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onConfirmRotation();
+                                        }}
+                                        className="p-2 bg-emerald-500 rounded-full text-white shadow-lg shadow-emerald-500/30 border border-emerald-400/50"
+                                        title="Approve rotation"
+                                    >
+                                        <Check size={16} strokeWidth={3} />
+                                    </motion.button>
+                                )}
+                                {onCancelRotation && (
+                                    <motion.button
+                                        whileHover={{ scale: 1.15 }}
+                                        whileTap={{ scale: 0.9 }}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onCancelRotation();
+                                        }}
+                                        className="p-2 bg-red-500 rounded-full text-white shadow-lg shadow-red-500/30 border border-red-400/50"
+                                        title="Cancel rotation"
+                                    >
+                                        <X size={16} strokeWidth={3} />
+                                    </motion.button>
+                                )}
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Hover Overlay — GRID VIEW ONLY (hidden when pending rotation is active) */}
+                {viewMode === 'grid' && !hasPendingRotation && (
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 backdrop-blur-[1px]">
                         {onGridAdd && (clip.type === 'video' || clip.type === 'image') && (
                             <motion.button
@@ -150,7 +209,7 @@ export const MediaItem: React.FC<MediaItemProps> = ({ clip, isSelected, isMultiS
             {/* Info */}
             <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2">
-                    <h4 className={`font-medium text-white/90 truncate ${isSelected ? 'text-accent' : isMultiSelected ? 'text-purple-300' : ''}`}>
+                    <h4 className={`font-medium text-white/90 truncate ${hasPendingRotation ? 'text-blue-300' : isSelected ? 'text-accent' : isMultiSelected ? 'text-purple-300' : ''}`}>
                         {clip.filename}
                     </h4>
                 </div>
@@ -158,68 +217,106 @@ export const MediaItem: React.FC<MediaItemProps> = ({ clip, isSelected, isMultiS
                     <span className="text-[10px] uppercase tracking-wider text-white/40 font-medium px-1.5 py-0.5 bg-white/5 rounded border border-white/5">
                         {clip.type}
                     </span>
-                    <span className="text-xs text-white/40 truncate font-mono">
-                        {/* Placeholder resolution */}
-                    </span>
+                    {hasPendingRotation && (
+                        <span className="text-[10px] uppercase tracking-wider text-blue-400 font-bold px-1.5 py-0.5 bg-blue-500/10 rounded border border-blue-500/20 animate-pulse">
+                            {clip.rotation}° pending
+                        </span>
+                    )}
                 </div>
             </div>
 
             {/* LIST VIEW: Action Buttons in Row */}
             {viewMode === 'list' && (
                 <div className="flex items-center gap-1.5 flex-shrink-0 ml-auto">
-                    {onGridAdd && (clip.type === 'video' || clip.type === 'image') && (
-                        <motion.button
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onGridAdd();
-                            }}
-                            className="p-1.5 bg-white/5 hover:bg-primary/20 rounded-md text-white/40 hover:text-primary transition-colors border border-white/5 hover:border-primary/30"
-                            title="Create Grid with Item"
-                        >
-                            <LayoutGrid size={14} />
-                        </motion.button>
-                    )}
-                    {onRotate && clip.type === 'video' && (
-                        <motion.button
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onRotate();
-                            }}
-                            className="p-1.5 bg-white/5 hover:bg-blue-500/20 rounded-md text-white/40 hover:text-blue-400 transition-colors border border-white/5 hover:border-blue-500/30"
-                            title={`Rotate (${clip.rotation || 0}°)`}
-                        >
-                            <RotateCw size={14} />
-                        </motion.button>
-                    )}
-                    <motion.button
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onAdd();
-                        }}
-                        className="p-1.5 bg-white/5 hover:bg-primary/20 rounded-md text-white/40 hover:text-primary transition-colors border border-white/5 hover:border-primary/30"
-                        title="Add to Timeline"
-                    >
-                        <Plus size={14} />
-                    </motion.button>
-                    {onDelete && (
-                        <motion.button
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onDelete();
-                            }}
-                            className="p-1.5 bg-white/5 hover:bg-red-500/20 rounded-md text-white/40 hover:text-red-400 transition-colors border border-white/5 hover:border-red-500/30"
-                            title="Remove from Library"
-                        >
-                            <Trash2 size={14} />
-                        </motion.button>
+                    {/* When pending rotation: show approve/decline inline */}
+                    {hasPendingRotation ? (
+                        <>
+                            {onConfirmRotation && (
+                                <motion.button
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.9 }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onConfirmRotation();
+                                    }}
+                                    className="p-1.5 bg-emerald-500/20 hover:bg-emerald-500/40 rounded-md text-emerald-400 transition-colors border border-emerald-500/30"
+                                    title="Approve rotation"
+                                >
+                                    <Check size={14} strokeWidth={3} />
+                                </motion.button>
+                            )}
+                            {onCancelRotation && (
+                                <motion.button
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.9 }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onCancelRotation();
+                                    }}
+                                    className="p-1.5 bg-red-500/20 hover:bg-red-500/40 rounded-md text-red-400 transition-colors border border-red-500/30"
+                                    title="Cancel rotation"
+                                >
+                                    <X size={14} strokeWidth={3} />
+                                </motion.button>
+                            )}
+                        </>
+                    ) : (
+                        <>
+                            {onGridAdd && (clip.type === 'video' || clip.type === 'image') && (
+                                <motion.button
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.9 }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onGridAdd();
+                                    }}
+                                    className="p-1.5 bg-white/5 hover:bg-primary/20 rounded-md text-white/40 hover:text-primary transition-colors border border-white/5 hover:border-primary/30"
+                                    title="Create Grid with Item"
+                                >
+                                    <LayoutGrid size={14} />
+                                </motion.button>
+                            )}
+                            {onRotate && clip.type === 'video' && (
+                                <motion.button
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.9 }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onRotate();
+                                    }}
+                                    className="p-1.5 bg-white/5 hover:bg-blue-500/20 rounded-md text-white/40 hover:text-blue-400 transition-colors border border-white/5 hover:border-blue-500/30"
+                                    title={`Rotate (${clip.rotation || 0}°)`}
+                                >
+                                    <RotateCw size={14} />
+                                </motion.button>
+                            )}
+                            <motion.button
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onAdd();
+                                }}
+                                className="p-1.5 bg-white/5 hover:bg-primary/20 rounded-md text-white/40 hover:text-primary transition-colors border border-white/5 hover:border-primary/30"
+                                title="Add to Timeline"
+                            >
+                                <Plus size={14} />
+                            </motion.button>
+                            {onDelete && (
+                                <motion.button
+                                    whileHover={{ scale: 1.1 }}
+                                    whileTap={{ scale: 0.9 }}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onDelete();
+                                    }}
+                                    className="p-1.5 bg-white/5 hover:bg-red-500/20 rounded-md text-white/40 hover:text-red-400 transition-colors border border-white/5 hover:border-red-500/30"
+                                    title="Remove from Library"
+                                >
+                                    <Trash2 size={14} />
+                                </motion.button>
+                            )}
+                        </>
                     )}
                 </div>
             )}
