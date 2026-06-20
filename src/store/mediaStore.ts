@@ -32,6 +32,9 @@ export interface MediaFile {
     // (trailer, godmode, timeline, flux) only use this portion of the source.
     trimIn?: number;   // Start of usable region (default: 0)
     trimOut?: number;  // End of usable region (default: duration)
+    /** Asset tags for the music-video generator (intro person-pull, "more shots
+     *  on the stairs", per-scene grades). */
+    tags?: { people?: string[]; scene?: string; location?: string; color?: string };
 }
 
 interface MediaState {

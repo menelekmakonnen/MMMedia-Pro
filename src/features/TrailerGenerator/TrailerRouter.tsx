@@ -6,6 +6,8 @@ import { generateSeed } from '../../lib/random';
 import { useClipStore } from '../../store/clipStore';
 import { useMediaStore } from '../../store/mediaStore';
 import { useGodModeStore } from '../../store/godModeStore';
+import { useProjectStore } from '../../store/projectStore';
+import { generateMusicVideoSequence } from '../../lib/musicVideoBuild';
 
 export const TrailerRouter: React.FC = () => {
     const [activeView, setActiveView] = useState<'wizard' | 'player'>('wizard');
@@ -67,16 +69,41 @@ export const TrailerRouter: React.FC = () => {
             ? files.filter(f => selectedFileIds.includes(f.id))
             : files;
 
-        const clips = generateTrailerSequence(pool, { ...newSettings, beatTimestamps });
+        let clips: any[];
+        if (newSettings.generatorMode === 'music-video' && newSettings.audioAnalysis) {
+            // Music-video mode: structure-driven, full-song edit (downbeat-anchored,
+            // auto intro/outro), with the editorial rules engine applied.
+            const projFps = useProjectStore.getState().settings.fps || 30;
+            const seedNum = typeof newSettings.seed === 'number' ? newSettings.seed : Math.abs(String(newSettings.seed || '1').split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7)) || 1;
+            const mv = generateMusicVideoSequence(pool, newSettings.audioAnalysis, {
+                fps: projFps,
+                beatAnchor: newSettings.mvBeatAnchor || 'downbeat',
+                introEnabled: newSettings.mvIntroEnabled ?? true,
+                outroEnabled: newSettings.mvOutroEnabled ?? true,
+                btsSlot: newSettings.mvBtsSlot ?? true,
+                outroCornerScale: newSettings.mvOutroCornerScale ?? 0.4,
+                seed: seedNum,
+            });
+            clips = mv.clips;
+            console.log('[TrailerRouter] Music-video mode:', mv.report);
+        } else {
+            clips = generateTrailerSequence(pool, { ...newSettings, beatTimestamps });
+        }
         setPreGeneratedClips(clips);
         if (clips.length > 0) {
-            // ⚠ EXPORT PIPELINE: Preserve existing audio clips (track 2) from the store.
-            // generateTrailerSequence() only produces video clips. If the user imported
-            // background music via the Media Manager, those audio clips live on track 2
-            // and must NOT be wiped when replacing the video sequence.
+            // ⚠ EXPORT PIPELINE: Preserve existing MANUALLY-IMPORTED audio clips
+            // from the store (e.g., background music added via the Media Manager).
+            // generateTrailerSequence() only produces video clips.
+            //
+            // IMPORTANT: Do NOT preserve wizard-generated audio clips (track 101,
+            // origin='auto') — those are created by TrailerPlayer.handleSave()
+            // and must be recreated from the NEW wizard settings. Blindly keeping
+            // them causes the "double audio" bug where both old and new songs play.
             const { clips: existingClips } = useClipStore.getState();
-            const existingAudioClips = existingClips.filter(c => c.type === 'audio');
-            setClips([...clips as any, ...existingAudioClips]);
+            const manualAudioClips = existingClips.filter(c =>
+                c.type === 'audio' && !(c.origin === 'auto' && c.track === 101)
+            );
+            setClips([...clips as any, ...manualAudioClips]);
         }
 
         setActiveView('player');

@@ -3,6 +3,7 @@ export interface ElectronAPI {
     saveProject: (content: string) => Promise<{ success: boolean; filePath?: string; error?: string }>;
     loadProject: () => Promise<{ success?: boolean; content?: string; filePath?: string; error?: string; canceled?: boolean }>;
     exportManifest: (content: string) => Promise<{ success: boolean; filePath?: string; error?: string }>;
+    exportIcuniEdit: (content: string) => Promise<{ success: boolean; filePath?: string; error?: string }>;
     importManifest: () => Promise<{ success?: boolean; content?: string; filePath?: string; error?: string; canceled?: boolean }>;
     saveManifest: (content: string) => Promise<{ success: boolean; filePath?: string; error?: string }>;
     // Window controls

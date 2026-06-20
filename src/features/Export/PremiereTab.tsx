@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { useClipStore } from '../../store/clipStore';
 import { useProjectStore } from '../../store/projectStore';
 import { generateManifest } from '../../lib/manifestBridge';
+import { generateIcuniEdit } from '../../lib/icuniBridge';
 import { toast } from '../../components/Toast';
 
 interface Props { isExporting: boolean; onExport: () => void; disabled: boolean; }
@@ -15,6 +16,21 @@ export const PremiereTab: React.FC<Props> = ({ isExporting, onExport, disabled }
     const audioClips = clips.filter(c => c.type === 'audio');
     const maxFrame = videoClips.length > 0 ? Math.max(...videoClips.map(c => c.endFrame)) : 0;
     const dur = maxFrame / (settings.fps || 30);
+
+    const [icuniBusy, setIcuniBusy] = React.useState(false);
+    const handleExportIcuni = async () => {
+        setIcuniBusy(true);
+        try {
+            const edit = generateIcuniEdit();
+            const res = await window.ipcRenderer.exportIcuniEdit(JSON.stringify(edit, null, 2));
+            if (res?.success) toast.success('Exported ICUNI Edit — open it in Edia to rebuild in Premiere');
+            else if (!(res as any)?.canceled) toast.error('ICUNI export failed');
+        } catch {
+            toast.error('ICUNI export failed');
+        } finally {
+            setIcuniBusy(false);
+        }
+    };
 
     return (
         <div className="flex-1 flex flex-col lg:flex-row gap-6 p-6 overflow-y-auto custom-scrollbar">
@@ -78,6 +94,12 @@ export const PremiereTab: React.FC<Props> = ({ isExporting, onExport, disabled }
                     className="w-full py-3.5 rounded-xl text-xs font-black uppercase tracking-wider text-white bg-gradient-to-r from-blue-600 to-indigo-600 shadow-[0_0_30px_rgba(59,130,246,0.3)] hover:shadow-[0_0_40px_rgba(59,130,246,0.5)] flex items-center justify-center gap-2 disabled:opacity-40 disabled:grayscale transition-all">
                     <FileJson size={16} /> {isExporting ? 'Saving...' : 'Export Manifest for Premiere'}
                 </motion.button>
+
+                <motion.button onClick={handleExportIcuni} disabled={icuniBusy} whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}
+                    className="w-full py-3 rounded-xl text-xs font-black uppercase tracking-wider text-indigo-200 bg-indigo-600/15 border border-indigo-500/30 hover:bg-indigo-600/25 flex items-center justify-center gap-2 disabled:opacity-40 transition-all">
+                    <FileCode size={16} /> {icuniBusy ? 'Saving…' : 'Export for Edia (ICUNI Edit)'}
+                </motion.button>
+                <p className="text-[9px] text-white/30 text-center">Edia (ChaosEdit) is the official bridge — it rebuilds this edit natively in Premiere, approximating effects and reporting anything that can’t transfer.</p>
             </div>
         </div>
     );

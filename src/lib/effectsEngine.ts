@@ -17,6 +17,7 @@ import type {
     ShakeType,
     ZoomCurve,
     SpeedCurvePreset,
+    SpeedKeyframe,
     BeatEffectConfig,
     BeatDropIntensity,
 } from '../types';
@@ -209,128 +210,198 @@ export function generateZoomKeyframes(
     return keyframes;
 }
 
-// ─── 4. Speed Sub-Clip Generation (Option B) ──────────────────────────────────
+// ─── 4. Speed Curve Engine (Option A — true keyframed time-remap) ─────────────
+//
+// A speed curve is a NORMALIZED velocity SHAPE over the clip's source window
+// (position u ∈ [0,1] → relative speed). At render time the shape is rescaled so
+// the clip still consumes exactly its source window and fills exactly its
+// timeline slot — only the *velocity* varies. This means:
+//   • ramps are continuous (smooth) instead of 3–5 visible speed steps,
+//   • the clip's duration / beat-alignment never drifts, and
+//   • the clip's audio is unaffected (its average speed is preserved).
+//
+// The render path consumes `buildSpeedRemapSetpts` (a single continuous FFmpeg
+// `setpts` expression). `generateSpeedSubClips` is kept as a baking fallback for
+// code paths that prefer discrete clips, but now subdivides finely.
 
-/**
- * Definition for a single segment in a speed curve.
- */
-interface SpeedSegment {
-    /** Fraction of total source duration this segment occupies (0-1) */
-    fraction: number;
-    /** Playback speed multiplier */
-    speed: number;
+const SPEED_MIN = 0.05;
+const SPEED_MAX = 16;
+
+/** Normalized velocity shapes (source position 0→1 ⇒ relative speed). */
+export const SPEED_CURVE_KEYFRAMES: Record<SpeedCurvePreset, SpeedKeyframe[]> = {
+    'constant':      [{ time: 0, speed: 1.0 }, { time: 1, speed: 1.0 }],
+    'ramp-up':       [{ time: 0, speed: 0.5 }, { time: 1, speed: 1.6 }],
+    'ramp-down':     [{ time: 0, speed: 1.6 }, { time: 1, speed: 0.5 }],
+    's-curve':       [{ time: 0, speed: 0.7 }, { time: 0.5, speed: 1.4 }, { time: 1, speed: 0.7 }],
+    'ramp-freeze':   [{ time: 0, speed: 1.2 }, { time: 0.45, speed: 1.0 }, { time: 0.5, speed: 0.12 }, { time: 0.55, speed: 1.0 }, { time: 1, speed: 1.2 }],
+    'burst-landing': [{ time: 0, speed: 2.4 }, { time: 0.32, speed: 0.3 }, { time: 0.55, speed: 0.5 }, { time: 1, speed: 1.0 }],
+    'oscillating':   [{ time: 0, speed: 1.6 }, { time: 0.25, speed: 0.5 }, { time: 0.5, speed: 1.6 }, { time: 0.75, speed: 0.5 }, { time: 1, speed: 1.6 }],
+};
+
+/** Get the keyframe shape for a preset (falls back to constant). */
+export function presetToKeyframes(preset: SpeedCurvePreset): SpeedKeyframe[] {
+    return SPEED_CURVE_KEYFRAMES[preset] ?? SPEED_CURVE_KEYFRAMES.constant;
 }
 
-/**
- * Get the speed segments for a given curve preset.
- */
-function getSpeedSegments(preset: SpeedCurvePreset, fps: number, sourceDurationFrames: number): SpeedSegment[] {
-    switch (preset) {
-        case 'constant':
-            return [{ fraction: 1.0, speed: 1.0 }];
+/** Sanitize a keyframe list: clamp speeds, sort, and guarantee 0/1 endpoints. */
+export function normalizeKeyframes(curve: SpeedKeyframe[]): SpeedKeyframe[] {
+    if (!curve || curve.length === 0) return [{ time: 0, speed: 1 }, { time: 1, speed: 1 }];
+    const pts = curve
+        .map(k => ({ time: Math.max(0, Math.min(1, k.time)), speed: Math.max(SPEED_MIN, Math.min(SPEED_MAX, k.speed)) }))
+        .sort((a, b) => a.time - b.time);
+    if (pts[0].time > 0) pts.unshift({ time: 0, speed: pts[0].speed });
+    if (pts[pts.length - 1].time < 1) pts.push({ time: 1, speed: pts[pts.length - 1].speed });
+    return pts;
+}
 
-        case 'ramp-up':
-            return [
-                { fraction: 1 / 3, speed: 0.5 },
-                { fraction: 1 / 3, speed: 1.0 },
-                { fraction: 1 / 3, speed: 1.5 },
-            ];
-
-        case 'ramp-down':
-            return [
-                { fraction: 1 / 3, speed: 1.5 },
-                { fraction: 1 / 3, speed: 1.0 },
-                { fraction: 1 / 3, speed: 0.5 },
-            ];
-
-        case 's-curve':
-            return [
-                { fraction: 0.2, speed: 0.7 },
-                { fraction: 0.2, speed: 1.0 },
-                { fraction: 0.2, speed: 1.3 },
-                { fraction: 0.2, speed: 1.0 },
-                { fraction: 0.2, speed: 0.7 },
-            ];
-
-        case 'ramp-freeze': {
-            // Middle segment is a near-freeze for ~0.5 seconds of real time
-            const freezeSourceFrames = Math.max(2, Math.round(fps * 0.5 * 0.1)); // 0.1× speed
-            const freezeFraction = Math.min(0.5, freezeSourceFrames / sourceDurationFrames);
-            const remainFraction = (1 - freezeFraction) / 2;
-            return [
-                { fraction: remainFraction, speed: 1.0 },
-                { fraction: freezeFraction, speed: 0.1 },
-                { fraction: remainFraction, speed: 1.0 },
-            ];
+/** Sample the (piecewise-linear) speed shape at normalized position u ∈ [0,1]. */
+export function sampleSpeedAt(curve: SpeedKeyframe[], u: number): number {
+    const pts = normalizeKeyframes(curve);
+    const x = Math.max(0, Math.min(1, u));
+    for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i], b = pts[i + 1];
+        if (x >= a.time && x <= b.time) {
+            const span = b.time - a.time;
+            if (span <= 1e-9) return a.speed;
+            const f = (x - a.time) / span;
+            return a.speed + (b.speed - a.speed) * f;
         }
-
-        case 'burst-landing':
-            return [
-                { fraction: 1 / 3, speed: 2.0 },
-                { fraction: 1 / 3, speed: 0.3 },
-                { fraction: 1 / 3, speed: 1.0 },
-            ];
-
-        case 'oscillating':
-            return [
-                { fraction: 0.25, speed: 1.5 },
-                { fraction: 0.25, speed: 0.5 },
-                { fraction: 0.25, speed: 1.5 },
-                { fraction: 0.25, speed: 0.5 },
-            ];
-
-        default:
-            return [{ fraction: 1.0, speed: 1.0 }];
     }
+    return pts[pts.length - 1].speed;
+}
+
+/** ∫₀¹ du / s(u) for the shape — used to rescale so the clip fits its slot. */
+function integrateInverseShape(pts: SpeedKeyframe[]): number {
+    let R = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i], b = pts[i + 1];
+        const du = b.time - a.time;
+        if (du <= 1e-9) continue;
+        const m = (b.speed - a.speed) / du;
+        // ∫ du/(a + m·u') over the segment width du:
+        R += Math.abs(m) > 1e-9
+            ? (1 / m) * Math.log(b.speed / a.speed)
+            : du / a.speed;
+    }
+    return R;
 }
 
 /**
- * Pre-bake a speed curve into sequential sub-clips (Option B implementation).
+ * Build a continuous FFmpeg `setpts` value implementing a true variable-speed
+ * time-remap that maps the source window (0…srcDurSec) onto an output of
+ * srcDurSec/avgSpeed seconds. The expression is exact for piecewise-linear
+ * shapes (the integral of 1/speed), so motion ramps are perfectly smooth.
  *
- * Mirrors `expandClipToBoomerang` — each sub-clip preserves the parent clip's
- * effects, path, metadata, etc. IDs follow `{id}_spd_{i}`.
- *
- * @param clip        Source clip
- * @param curvePreset Speed-curve preset name
- * @param fps         Frames per second
- * @returns Array of Clip objects with constant speeds approximating the curve
+ * @returns the value string to use as `setpts=<value>`, or null for constant.
+ */
+export function buildSpeedRemapSetpts(
+    curve: SpeedKeyframe[],
+    srcDurSec: number,
+    avgSpeed = 1.0,
+): string | null {
+    const pts = normalizeKeyframes(curve);
+    // Detect trivial (flat) curves → caller should use the constant path.
+    const flat = pts.every(p => Math.abs(p.speed - pts[0].speed) < 1e-6);
+    if (flat || srcDurSec <= 0) return null;
+
+    const R = integrateInverseShape(pts);
+    if (R <= 0) return null;
+    // Scale so total output = srcDurSec / avgSpeed (clip fits its slot exactly).
+    const k = R * Math.max(SPEED_MIN, avgSpeed);
+
+    // Build per-segment data in SOURCE SECONDS with rescaled actual speeds.
+    const t: number[] = pts.map(p => p.time * srcDurSec);
+    const a: number[] = pts.map(p => k * p.speed);
+    const C: number[] = [0]; // cumulative output seconds at each breakpoint
+    for (let i = 0; i < pts.length - 1; i++) {
+        const dt = t[i + 1] - t[i];
+        const m = dt > 1e-9 ? (a[i + 1] - a[i]) / dt : 0;
+        const seg = Math.abs(m) > 1e-9 ? (1 / m) * Math.log(a[i + 1] / a[i]) : dt / a[i];
+        C.push(C[i] + seg);
+    }
+
+    const f = (n: number) => n.toFixed(6);
+    // Output-seconds expression for source-time T within segment i.
+    const within = (i: number): string => {
+        const dt = t[i + 1] - t[i];
+        const m = dt > 1e-9 ? (a[i + 1] - a[i]) / dt : 0;
+        if (Math.abs(m) > 1e-9) {
+            // C_i + (1/m)·ln( (a_i + m·(T - t_i)) / a_i )
+            return `(${f(C[i])}+(${f(1 / m)})*log((${f(a[i])}+(${f(m)})*(T-${f(t[i])}))/${f(a[i])}))`;
+        }
+        // C_i + (T - t_i)/a_i
+        return `(${f(C[i])}+(T-${f(t[i])})/${f(a[i])})`;
+    };
+
+    // Nested if() selecting the segment by source time T (last segment clamps).
+    let expr = within(pts.length - 2);
+    for (let i = pts.length - 3; i >= 0; i--) {
+        expr = `if(lt(T,${f(t[i + 1])}),${within(i)},${expr})`;
+    }
+    // setpts expects output PTS in timebase units. CRITICAL: the expression
+    // contains commas (if()/lt()), and in an FFmpeg filtergraph a bare comma ends
+    // the filter — so every comma inside the expression must be escaped as "\,".
+    // This escaping is honored identically by -vf, -filter_complex, and
+    // -filter_complex_script.
+    return `(${expr})/TB`.replace(/,/g, '\\,');
+}
+
+/** Does this preset/curve actually slow the footage below 1× anywhere? */
+export function curveHasSlowdown(curve: SpeedKeyframe[]): boolean {
+    return normalizeKeyframes(curve).some(p => p.speed < 0.98);
+}
+
+/**
+ * Attach a speed curve to a clip for the continuous render path.
+ * The clip keeps its timeline slot; only its internal velocity ramps.
+ */
+export function applySpeedCurve(clip: Clip, preset: SpeedCurvePreset): Clip {
+    if (preset === 'constant') return { ...clip, speedCurvePreset: 'constant', speedCurve: undefined };
+    return { ...clip, speedCurvePreset: preset, speedCurve: presetToKeyframes(preset) };
+}
+
+/**
+ * Bake a speed curve into finely-subdivided constant-speed sub-clips.
+ * Kept for code paths that prefer discrete clips; uses many small steps so the
+ * ramp still reads as smooth. Preserves the clip's source window and overall
+ * duration (average speed = clip.speed). IDs follow `{id}_spd_{i}`.
  */
 export function generateSpeedSubClips(
     clip: Clip,
     curvePreset: SpeedCurvePreset,
     fps: number,
+    steps = 16,
 ): Clip[] {
     if (curvePreset === 'constant') return [clip];
 
     const sourceDurationFrames = clip.trimEndFrame - clip.trimStartFrame;
     if (sourceDurationFrames <= 0) return [clip];
 
-    const segments = getSpeedSegments(curvePreset, fps, sourceDurationFrames);
-    const minSubDuration = Math.max(2, Math.round(fps * 0.066)); // ~2 frames min
+    const pts = presetToKeyframes(curvePreset);
+    const R = integrateInverseShape(pts);
+    if (R <= 0) return [clip];
+    const baseSpeed = clip.speed || 1.0;
+    const k = R * baseSpeed; // rescale so overall duration matches a constant-speed clip
 
+    const minSubDuration = Math.max(2, Math.round(fps * 0.066));
+    const n = Math.max(2, Math.min(64, steps));
     const subClips: Clip[] = [];
     let sourceHead = clip.trimStartFrame;
     let timelineHead = clip.startFrame;
 
-    for (let i = 0; i < segments.length; i++) {
-        const seg = segments[i];
+    for (let i = 0; i < n; i++) {
+        const u0 = i / n;
+        const u1 = (i + 1) / n;
+        const uMid = (u0 + u1) / 2;
+        const segSpeed = Math.max(SPEED_MIN, Math.min(SPEED_MAX, k * sampleSpeedAt(pts, uMid)));
 
-        // How many source frames this segment covers
-        const segSourceFrames = Math.max(
-            minSubDuration,
-            Math.round(sourceDurationFrames * seg.fraction),
-        );
-
-        // Clamp to remaining source
-        const actualSourceEnd = Math.min(sourceHead + segSourceFrames, clip.trimEndFrame);
+        const actualSourceEnd = i === n - 1
+            ? clip.trimEndFrame
+            : Math.min(clip.trimStartFrame + Math.round(sourceDurationFrames * u1), clip.trimEndFrame);
         const actualSourceFrames = actualSourceEnd - sourceHead;
-        if (actualSourceFrames < 1) break;
+        if (actualSourceFrames < 1) continue;
 
-        // Timeline duration after speed adjustment
-        const timelineDuration = Math.max(
-            minSubDuration,
-            Math.round(actualSourceFrames / seg.speed),
-        );
+        const timelineDuration = Math.max(minSubDuration, Math.round(actualSourceFrames / segSpeed));
 
         subClips.push({
             ...clip,
@@ -339,8 +410,7 @@ export function generateSpeedSubClips(
             trimEndFrame: actualSourceEnd,
             startFrame: timelineHead,
             endFrame: timelineHead + timelineDuration,
-            speed: seg.speed,
-            // Preserve parent effects but clear speed-curve to prevent recursion
+            speed: Math.round(segSpeed * 1000) / 1000,
             speedCurvePreset: 'constant',
             speedCurve: undefined,
             origin: 'auto' as const,
@@ -386,11 +456,6 @@ function scalePreset(preset: ImpactPreset, factor: number): BeatEffectConfig {
  * For each clip, finds beats that fall within its timeline range and stamps
  * a `BeatEffectConfig` based on beat energy and the chosen impact preset.
  *
- * Energy thresholds:
- *  - > 0.7 (strong): 100% of impact preset
- *  - > 0.4 (medium):  60% of impact preset
- *  - ≤ 0.4 (weak):    30% of impact preset (or skip if preset is 'subtle')
- *
  * @param clips        Array of clips to process
  * @param beats        Beat timestamps with energy `{ time: number, energy: number }[]`
  * @param impactPreset Impact intensity tier name
@@ -405,27 +470,24 @@ export function applyBeatEffects(
     if (!preset || impactPreset === 'off') return clips;
 
     return clips.map((clip) => {
-        // Find the strongest beat that falls within this clip's timeline
         const clipBeats = beats.filter((beat) => {
             return beat.time >= clip.startFrame && beat.time < clip.endFrame;
         });
 
         if (clipBeats.length === 0) return clip;
 
-        // Use the strongest beat in the clip's range
         const strongestBeat = clipBeats.reduce(
             (best, b) => (b.energy > best.energy ? b : best),
             clipBeats[0],
         );
 
-        // Determine scale factor from energy
         let factor: number;
         if (strongestBeat.energy > 0.7) {
-            factor = 1.0;   // Full impact
+            factor = 1.0;
         } else if (strongestBeat.energy > 0.4) {
-            factor = 0.6;   // Medium
+            factor = 0.6;
         } else {
-            factor = 0.3;   // Weak
+            factor = 0.3;
         }
 
         return {

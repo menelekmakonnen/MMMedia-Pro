@@ -5,7 +5,7 @@
  */
 
 import type { TransitionType, TransitionStyle } from '../types';
-import type { SegmentType } from './audioAnalysis';
+import type { SegmentType } from './audioAnalysisCore';
 import { SeededRandom } from './random';
 
 // ═══════════════════════════════════════════════════════

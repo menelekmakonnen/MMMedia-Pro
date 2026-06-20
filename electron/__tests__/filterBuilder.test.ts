@@ -136,6 +136,25 @@ describe('buildVideoFilter', () => {
         const result = buildVideoFilter(clip, baseSettings, baseProbe);
         expect(result).toContain('setpts=0.5000*PTS');
     });
+    it('wraps speed curve setpts in FFmpeg single quotes', () => {
+        // Speed remap expressions use if()/lt()/log() which contain commas.
+        // Without single quotes, FFmpeg's filter_complex parser splits on those
+        // commas, producing "No such filter: '0.5)'" errors.
+        const clip = {
+            ...baseClip,
+            speed: 1.2,
+            speedCurve: [
+                { time: 0, speed: 0.8 },
+                { time: 0.5, speed: 1.0 },
+                { time: 1.0, speed: 1.6 },
+            ],
+        };
+        const result = buildVideoFilter(clip, baseSettings, baseProbe);
+        // The setpts value must be wrapped in single quotes
+        expect(result).toMatch(/setpts='[^']+'/);
+        // Must contain the nested if() expression (not the simple X*PTS form)
+        expect(result).toMatch(/setpts='.*if\(/);
+    });
     it('includes rotation filter', () => {
         const clip = { ...baseClip, rotation: 90 };
         const result = buildVideoFilter(clip, baseSettings, baseProbe);

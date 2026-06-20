@@ -6,6 +6,7 @@ import ffmpeg from 'fluent-ffmpeg';
 import ffmpegStatic from 'ffmpeg-static';
 import { resolveEffectFilter, getUnexportableEffects } from './effectCompiler';
 import { buildAtempoChain, shouldUseIntermediateForReverse, buildVideoFilter, buildClipAudioFilter, computeClipTiming } from './filterBuilder';
+import { buildDoubleExposureGraph } from '../src/lib/editEffectFilters';
 import { getTransitionFFmpegName, isApproximatedTransition } from '../src/lib/transitions';
 import { getGridLayout } from '../src/lib/gridTemplates';
 import type { GridCellLayout } from '../src/lib/gridTemplates';
@@ -260,6 +261,21 @@ ipcMain.handle('export-manifest', async (_event, content: string) => {
     const { canceled, filePath } = await dialog.showSaveDialog(win!, {
         defaultPath: 'manifest.json',
         filters: [{ name: 'JSON Manifest', extensions: ['json'] }]
+    })
+    if (canceled || !filePath) return { success: false }
+    try {
+        await fs.promises.writeFile(filePath, content, 'utf-8')
+        return { success: true, filePath }
+    } catch (e) {
+        return { success: false, error: String(e) }
+    }
+})
+
+// ICUNI Edit — the shared interchange consumed by Edia (ChaosEdit / Premiere bridge).
+ipcMain.handle('export-icuni-edit', async (_event, content: string) => {
+    const { canceled, filePath } = await dialog.showSaveDialog(win!, {
+        defaultPath: 'edit.icuni.json',
+        filters: [{ name: 'ICUNI Edit', extensions: ['json'] }]
     })
     if (canceled || !filePath) return { success: false }
     try {
@@ -828,7 +844,22 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                     ? ['-loop', '1', '-t', (timing.srcDurSec + 0.1).toFixed(4), '-i', clip.path]
                     : ['-ss', timing.seekSec.toFixed(4), '-i', clip.path];
                 let fc: string, vmap: string, amap: string;
-                if (hasAudio) {
+                const de: any = (clip as any).doubleExposure;
+                const hasDE = !!(de && de.overlayPath);
+                if (hasDE) {
+                    // True double exposure: layer a SECOND clip over this one as a
+                    // two-input graph (optionally confined to a moving shape mask).
+                    const ovSeek = Math.max(0, (de.overlayTrimStart || 0) / projectFps);
+                    inputs.push('-ss', ovSeek.toFixed(4), '-i', de.overlayPath); // input 1 = overlay
+                    const deChains = buildDoubleExposureGraph(de, { width: outW, height: outH, fps, baseLabel: 'debase', overlayLabel: '1:v', outLabel: 'v' });
+                    const videoFc = `[0:v]${vf}[debase];` + deChains.join(';');
+                    if (hasAudio) {
+                        fc = `${videoFc};[0:a]${af}[a]`; vmap = '[v]'; amap = '[a]';
+                    } else {
+                        inputs.push('-f', 'lavfi', '-t', (timing.outDurSec + 0.25).toFixed(4), '-i', 'anullsrc=r=48000:cl=stereo'); // input 2 = silence
+                        fc = videoFc; vmap = '[v]'; amap = '2:a';
+                    }
+                } else if (hasAudio) {
                     fc = `[0:v]${vf}[v];[0:a]${af}[a]`; vmap = '[v]'; amap = '[a]';
                 } else {
                     inputs.push('-f', 'lavfi', '-t', (timing.outDurSec + 0.25).toFixed(4), '-i', 'anullsrc=r=48000:cl=stereo');
@@ -887,26 +918,60 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                 stitchV = 'cv'; stitchA = 'ca';
                 log(`Stitching ${N} clips via concat (hard cuts)`);
             } else {
-                const nv: string[] = []; const na: string[] = [];
+                // Normalize every clip to a common format/timebase first.
                 intermediates.forEach((_, i) => {
                     chains.push(`[${i}:v]format=yuv420p,fps=${fps},settb=AVTB,setpts=PTS-STARTPTS[nv${i}]`);
                     chains.push(`[${i}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,asetpts=PTS-STARTPTS[na${i}]`);
-                    nv.push(`[nv${i}]`); na.push(`[na${i}]`);
                 });
-                let prevV = nv[0]; let prevA = na[0]; let cum = outDurs[0];
+
+                // CRITICAL: do NOT chain an xfade per clip. A 125-deep xfade chain
+                // (with 1-frame "fades" for cuts) drifts on float offsets and, on the
+                // very short clips a beat-synced edit produces, freezes the timeline
+                // (xfade holds the last frame once an offset outruns a 2-frame clip).
+                // Instead: group consecutive CUT-joined clips into frame-exact concat
+                // runs, and xfade ONLY at real transition boundaries — so the xfade
+                // chain depth equals the number of real transitions, not the clip count.
+                const runs: number[][] = [];
+                let curRun: number[] = [0];
                 for (let i = 1; i < N; i++) {
-                    const b = boundaries[i - 1];
-                    const D = b.name ? b.dur : 1 / fps;          // cut boundary → ~1 frame splice
-                    const name = b.name || 'fade';
-                    const offset = Math.max(0, cum - D);
-                    const ov = i === N - 1 ? 'xv_out' : `xv${i}`;
-                    const oa = i === N - 1 ? 'xa_out' : `xa${i}`;
-                    chains.push(`${prevV}${nv[i]}xfade=transition=${name}:duration=${D.toFixed(4)}:offset=${offset.toFixed(4)}[${ov}]`);
-                    chains.push(`${prevA}${na[i]}acrossfade=d=${D.toFixed(4)}:c1=qsin:c2=qsin[${oa}]`);
-                    prevV = `[${ov}]`; prevA = `[${oa}]`; cum = cum + outDurs[i] - D;
+                    if (boundaries[i - 1].name) { runs.push(curRun); curRun = [i]; }
+                    else curRun.push(i);
                 }
-                stitchV = prevV.replace(/[\[\]]/g, ''); stitchA = prevA.replace(/[\[\]]/g, '');
-                log(`Stitching ${N} clips with transitions (${boundaries.filter(b => b.name).length} crossfades)`);
+                runs.push(curRun);
+
+                const runV: string[] = []; const runA: string[] = []; const runDur: number[] = [];
+                runs.forEach((idxs, r) => {
+                    if (idxs.length === 1) {
+                        runV.push(`[nv${idxs[0]}]`); runA.push(`[na${idxs[0]}]`);
+                    } else {
+                        const pv = idxs.map(i => `[nv${i}]`).join('');
+                        const pa = idxs.map(i => `[na${i}]`).join('');
+                        chains.push(`${pv}concat=n=${idxs.length}:v=1:a=0[rv${r}]`);
+                        chains.push(`${pa}concat=n=${idxs.length}:v=0:a=1[ra${r}]`);
+                        runV.push(`[rv${r}]`); runA.push(`[ra${r}]`);
+                    }
+                    runDur.push(idxs.reduce((a, i) => a + outDurs[i], 0));
+                });
+
+                if (runV.length === 1) {
+                    stitchV = runV[0].replace(/[\[\]]/g, ''); stitchA = runA[0].replace(/[\[\]]/g, '');
+                } else {
+                    const transB = boundaries.filter(b => b.name); // one per run gap
+                    let prevV = runV[0]; let prevA = runA[0]; let cum = runDur[0];
+                    for (let r = 1; r < runV.length; r++) {
+                        const b = transB[r - 1];
+                        // Cap the transition against the (longer, robust) run durations.
+                        const D = Math.max(1 / fps, Math.min(b.dur, 0.4 * Math.min(runDur[r - 1], runDur[r])));
+                        const offset = Math.max(0, cum - D);
+                        const ov = r === runV.length - 1 ? 'xv_out' : `xv${r}`;
+                        const oa = r === runV.length - 1 ? 'xa_out' : `xa${r}`;
+                        chains.push(`${prevV}${runV[r]}xfade=transition=${b.name}:duration=${D.toFixed(4)}:offset=${offset.toFixed(4)}[${ov}]`);
+                        chains.push(`${prevA}${runA[r]}acrossfade=d=${D.toFixed(4)}:c1=qsin:c2=qsin[${oa}]`);
+                        prevV = `[${ov}]`; prevA = `[${oa}]`; cum = cum + runDur[r] - D;
+                    }
+                    stitchV = prevV.replace(/[\[\]]/g, ''); stitchA = prevA.replace(/[\[\]]/g, '');
+                }
+                log(`Stitching ${N} clips → ${runs.length} concat run(s) with ${runs.length - 1} crossfade(s)`);
             }
 
             // ── Background music mix ──

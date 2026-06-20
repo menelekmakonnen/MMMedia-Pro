@@ -199,6 +199,9 @@ export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, medi
     const videoRef = useRef<HTMLVideoElement>(null);
     const [currentTime, setCurrentTime] = useState(0);
     const [videoDuration, setVideoDuration] = useState(0);
+    // Scale applied when the preview is rotated 90/270 so it fits the 16:9 box by
+    // height regardless of the source aspect (portrait clips need scale-UP, not 0.5625).
+    const [rotFitScale, setRotFitScale] = useState(0.5625);
 
     // Trim state — sourced from mediaFile, falls back to full duration
     const trimIn = mediaFile?.trimIn ?? 0;
@@ -297,13 +300,15 @@ export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, medi
                             src={`file://${clip.path}`}
                             className="w-full h-full object-contain transition-transform duration-300"
                             style={rotation ? {
-                                transform: `rotate(${rotation}deg)${(rotation === 90 || rotation === 270) ? ' scale(0.5625)' : ''}`,
+                                transform: `rotate(${rotation}deg)${(rotation === 90 || rotation === 270) ? ` scale(${rotFitScale})` : ''}`,
                                 // For 90°/270°, scale down so the rotated video fits within the 16:9 container
                             } : undefined}
                             controls={clip.type === 'video'}
                             onLoadedMetadata={(e) => {
                                 const dur = e.currentTarget.duration;
                                 setVideoDuration(dur);
+                                const vw = e.currentTarget.videoWidth, vh = e.currentTarget.videoHeight;
+                                if (vw && vh) { const av = vw / vh; setRotFitScale(av >= 16 / 9 ? 9 / 16 : Math.min(16 / 9, 1 / av)); }
                                 if (clip.sourceDurationFrames === 0 && dur > 0) {
                                     useClipStore.getState().setClipDuration(clip.id, dur);
                                 }

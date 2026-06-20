@@ -1,10 +1,11 @@
 import { v4 as uuidv4 } from 'uuid';
 import { DEFAULT_FPS } from './time';
 import { expandClipToBoomerang, BOOMERANG_PRESETS, getBoomerangPreset } from './boomerang';
-import { IMPACT_PRESETS } from './effectsEngine';
+import { IMPACT_PRESETS, presetToKeyframes } from './effectsEngine';
+import { pickDoubleExposureShape } from './editEffectFilters';
 import type { SegmentType, AudioAnalysisResult } from './audioAnalysis';
 import { MediaFile } from '../store/mediaStore';
-import { Clip, TransitionType, ShakeType, ShakePolicy, BeatDropIntensity, TransitionStyle, BoomerangPresetId, ZoomSpeed, SpeedCurvePreset } from '../types';
+import { Clip, TransitionType, ShakeType, ShakePolicy, BeatDropIntensity, TransitionStyle, BoomerangPresetId, ZoomSpeed, SpeedCurvePreset, EffectApplyPolicy } from '../types';
 import { RHYTHM_PATTERNS, resolveRhythmDuration, RhythmPatternId } from './rhythmPatterns';
 import { SeededRandom, generateSeed } from './random';
 import { selectTransition } from './transitions';
@@ -27,6 +28,7 @@ export interface TrailerSettings {
     audioMixStrategy: 'muted' | 'subtle' | 'original' | 'ducking';
     // Cinematic Speed: 4 presets + custom
     slowmoPolicy: 'none' | 'slowmo' | 'fast' | 'hyper' | 'custom';
+    slowmoPolicies?: ('none' | 'slowmo' | 'fast' | 'hyper')[]; // multi-select; one picked per clip for variety
     customSpeed?: number; // User-specified speed when slowmoPolicy is 'custom'
     seed?: string;
     templates: string[];
@@ -36,12 +38,19 @@ export interface TrailerSettings {
     audioFilePath?: string;
     audioTrimStart?: number;
     audioTrimEnd?: number;
-    matchAudioDuration?: boolean;
-    audioTimelineStrategy?: 'loop' | 'fade' | 'continue';
+
     beatSensitivity?: number;
     orientationFilter?: 'all' | 'horizontal' | 'vertical' | 'square';
     // Beat sync intelligence
-    beatPattern: 'auto' | 'every' | 'half' | 'quarter' | 'drops' | 'risers-drops' | 'custom';
+    beatPattern: 'auto' | 'every' | 'half' | 'quarter' | 'drops' | 'risers-drops' | 'downbeats' | 'custom';
+
+    // ── Generator mode (Trailer vs Music Video) ──
+    generatorMode?: 'trailer' | 'music-video';
+    mvBeatAnchor?: 'downbeat' | 'beat';
+    mvIntroEnabled?: boolean;
+    mvOutroEnabled?: boolean;
+    mvBtsSlot?: boolean;
+    mvOutroCornerScale?: number;
     beatSyncStrategy: 'auto' | 'cut-on-beat' | 'transition-on-beat' | 'effect-on-drop' | 'riser-buildup' | 'groove-ride';
     selectedSegments: SegmentType[];
     audioAnalysis?: AudioAnalysisResult | null;
@@ -63,8 +72,10 @@ export interface TrailerSettings {
     templateCameraMotion?: number;
     templateBeatDivisor?: number;
     // Boomerang
-    boomerangAll?: boolean; // apply boomerang to ALL clips
-    boomerangPreset?: BoomerangPresetId; // which preset to use
+    boomerangAll?: boolean; // apply boomerang to ALL clips (overrides frequency)
+    boomerangPreset?: BoomerangPresetId; // legacy single preset
+    boomerangFrequency?: number; // 0-100: % of clips that get a boomerang (when not boomerangAll)
+    boomerangPresets?: BoomerangPresetId[]; // multi-select; rotated one-at-a-time across clips
 
     // ── Super Editing Engine ──────────────────────────────────────
 
@@ -87,7 +98,28 @@ export interface TrailerSettings {
     shakeEnabled?: boolean;
     shakePolicy?: ShakePolicy;
     shakeType?: ShakeType | 'all';
-    shakeIntensity?: number;              // 0-100 global intensity
+    shakeIntensity?: number;
+
+    // ── Advanced edit-effects: intelligent application policies + params ──
+    motionBlurPolicy?: EffectApplyPolicy;
+    motionBlurAmount?: number;            // 0-100
+    glowPolicy?: EffectApplyPolicy;
+    glowIntensity?: number;               // 0-100
+    glowRadius?: number;                  // 0-100
+    doubleExposurePolicy?: EffectApplyPolicy;
+    doubleExposureOpacity?: number;       // 0-100
+    doubleExposureBlend?: 'screen' | 'lighten' | 'overlay' | 'add' | 'softlight' | 'multiply';
+    doubleExposureShapeMode?: 'full' | 'shaped' | 'mix'; // full-frame / always-shaped / healthy mix
+    vibrationFlashPolicy?: EffectApplyPolicy;
+    vibrationFlashIntensity?: number;     // 0-100
+    smoothSlowmoPolicy?: EffectApplyPolicy;
+    // Music-video-flavored effects (work in trailer too)
+    rgbSplitPolicy?: EffectApplyPolicy;
+    rgbSplitAmount?: number;       // 0-100
+    hueCyclePolicy?: EffectApplyPolicy;
+    hueCycleSpeed?: number;        // 0-100
+    vhsPolicy?: EffectApplyPolicy;
+    vhsAmount?: number;            // 0-100              // 0-100 global intensity
 
     // Beat Drop Impact Stack
     beatDropImpact?: BeatDropIntensity;
@@ -118,9 +150,6 @@ export interface TrailerSettings {
     globalChromaKey?: { enabled: boolean; color: string; similarity: number; blend: number };
     globalStabilize?: { enabled: boolean; smoothing: number };
     globalAudioEffects?: import('./audioEffects').AudioEffects;
-    // Transition override for this trailer (uses defaultTransition from userStore if not set)
-    transitionOverride?: string;
-    // transitionDuration is already above as transitionDurationMs
 }
 
 export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
@@ -168,6 +197,23 @@ export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
     shakePolicy: 'off',
     shakeType: 'impact',
     shakeIntensity: 50,
+    motionBlurPolicy: 'off',
+    motionBlurAmount: 50,
+    glowPolicy: 'off',
+    glowIntensity: 55,
+    glowRadius: 50,
+    doubleExposurePolicy: 'off',
+    doubleExposureOpacity: 45,
+    doubleExposureBlend: 'screen',
+    vibrationFlashPolicy: 'off',
+    vibrationFlashIntensity: 70,
+    smoothSlowmoPolicy: 'off',
+    rgbSplitPolicy: 'off',
+    rgbSplitAmount: 45,
+    hueCyclePolicy: 'off',
+    hueCycleSpeed: 30,
+    vhsPolicy: 'off',
+    vhsAmount: 50,
     beatDropImpact: 'off',
     transitionStyle: 'cuts-only',
     transitionDurationMs: 200,
@@ -329,8 +375,13 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
     // Helper for dynamic cinematic attributes
     const getSpeedAndVolume = (rng: SeededRandom, segType?: SegmentType) => {
         let speed = 1.0;
-        // Cinematic Speed: 4 presets + custom
-        if (slowmoPolicy === 'slowmo') speed = 0.5;
+        // Cinematic Speed: 4 presets + custom. Multi-select rotates among the chosen
+        // speeds (one per clip) for variety; single-select uses the one policy.
+        const SPEED_MAP: Record<string, number> = { none: 1.0, slowmo: 0.5, fast: 1.5, hyper: 4.0 };
+        if (s.slowmoPolicies && s.slowmoPolicies.length > 0) {
+            const pick = s.slowmoPolicies[Math.floor(rng.random() * s.slowmoPolicies.length)];
+            speed = SPEED_MAP[pick] ?? 1.0;
+        } else if (slowmoPolicy === 'slowmo') speed = 0.5;
         else if (slowmoPolicy === 'fast') speed = 1.5;
         else if (slowmoPolicy === 'hyper') speed = 4.0;
         else if (slowmoPolicy === 'custom') speed = settings.customSpeed || 1.0;
@@ -452,6 +503,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         origin: 'auto',
         locked: false,
         sourceOrientation: file.orientation || 'horizontal',
+        rotation: file.rotation || 0,   // persist upload-page rotation into the render
         ...(s.globalEffects?.length ? { parametricEffects: s.globalEffects } : {}),
         ...(s.globalColorGrading ? { colorGrading: s.globalColorGrading } : {}),
         ...(s.globalFlipH ? { flipH: true } : {}),
@@ -516,12 +568,24 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
 
         let finalClips = gapFilled;
 
-        // ── BOOMERANG MARKING: mark all video clips for boomerang expansion ──
-        if (s.boomerangAll) {
+        // ── BOOMERANG MARKING: frequency-controlled, multi-preset (rotated one at a
+        // time across clips so several boomerang styles can coexist in one edit). ──
+        const boomPresets: BoomerangPresetId[] = (s.boomerangPresets && s.boomerangPresets.length)
+            ? s.boomerangPresets
+            : (s.boomerangPreset ? [s.boomerangPreset] : ['classic']);
+        const boomFreq = s.boomerangAll ? 1 : Math.max(0, Math.min(1, (s.boomerangFrequency ?? 0) / 100));
+        if (boomFreq > 0) {
+            const boomRng = new SeededRandom(s.seed ? s.seed + '_boom' : generateSeed());
+            let presetCursor = 0;
             for (const clip of finalClips) {
-                if (clip.type !== 'audio' && !clip.boomerang) {
+                if (clip.type === 'audio') continue;
+                const force = clip.boomerang === true;          // per-clip toggle from the timeline
+                if (force || boomRng.random() < boomFreq) {
                     clip.boomerang = true;
                     clip.reversed = false;
+                    // Rotate presets one-at-a-time; honor a pre-set per-clip preset.
+                    (clip as any)._boomPreset = clip.boomerangPreset || boomPresets[presetCursor % boomPresets.length];
+                    presetCursor++;
                 }
             }
         }
@@ -530,20 +594,31 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         let expandedClips: Clip[] = [];
         for (const clip of finalClips) {
             if (clip.boomerang) {
-                const preset = getBoomerangPreset(s.boomerangPreset);
+                const preset = getBoomerangPreset((clip as any)._boomPreset || clip.boomerangPreset || boomPresets[0]);
                 const expanded = expandClipToBoomerang(clip, preset, DEFAULT_FPS);
                 expandedClips.push(...expanded);
             } else {
                 expandedClips.push(clip);
             }
         }
-        // Re-magnetize: ensure sequential timeline layout after expansion
-        let head = 0;
-        for (const clip of expandedClips) {
-            const dur = clip.endFrame - clip.startFrame;
-            clip.startFrame = head;
-            clip.endFrame = head + dur;
-            head += dur;
+        // Re-magnetize + RE-CLAMP to the target duration. Boomerang/effect expansion
+        // changes a clip's timeline footprint (a classic boomerang ~doubles it), so
+        // after laying clips sequentially we trim the sequence back to EXACTLY
+        // targetFrames. Without this the generated edit overshoots the declared (or
+        // song-derived) duration on every boomerang. The pre-expansion sequence was
+        // already clamped to targetFrames, so this only ever trims the overflow.
+        {
+            const laid: Clip[] = [];
+            let head = 0;
+            for (const clip of expandedClips) {
+                if (targetFrames > 0 && head >= targetFrames) break;
+                const dur = clip.endFrame - clip.startFrame;
+                const allowed = targetFrames > 0 ? Math.min(dur, targetFrames - head) : dur;
+                if (allowed < 2) { if (targetFrames > 0) break; else continue; }
+                laid.push({ ...clip, startFrame: head, endFrame: head + allowed });
+                head += allowed;
+            }
+            expandedClips = laid;
         }
 
         // ── TRANSITION ASSIGNMENT ──
@@ -592,7 +667,10 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         }
 
         // ── SHAKE ASSIGNMENT ──
-        if (s.shakeEnabled && s.shakePolicy && s.shakePolicy !== 'off') {
+        // Derive shakeEnabled from shakePolicy — the wizard sets the policy
+        // directly (off/sparingly/heavy-beats/every-beat) without ever toggling
+        // shakeEnabled explicitly, so gate on the policy value itself.
+        if (s.shakePolicy && s.shakePolicy !== 'off') {
             const shakeRng = new SeededRandom(s.seed ? s.seed + '_shake' : generateSeed());
             for (const clip of expandedClips) {
                 const segType: SegmentType = (clip as any)._segType || 'verse';
@@ -645,6 +723,101 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                         clip.zoomEnd = 100;
                     }
                     clip.zoomOrigin = 'center';
+                    // Forward zoomSpeed from wizard settings to the clip so the
+                    // filterBuilder's zoompan 'd' parameter respects the user's
+                    // Instant/Fast/Slow/All selection.
+                    if (s.zoomSpeed && s.zoomSpeed !== 'all') {
+                        clip.zoomSpeed = s.zoomSpeed as any;
+                    } else if (s.zoomSpeed === 'all') {
+                        // 'all' means randomly pick a speed per clip
+                        const speeds: Array<'instant' | 'fast' | 'slow'> = ['instant', 'fast', 'slow'];
+                        clip.zoomSpeed = speeds[Math.floor(zoomRng.random() * speeds.length)];
+                    }
+                    // zoomBeatSync: force instant/fast zoom for punchier beat alignment
+                    if (s.zoomBeatSync) {
+                        const clipDurSec = (clip.endFrame - clip.startFrame) / DEFAULT_FPS;
+                        clip.zoomSpeed = clipDurSec <= 0.5 ? 'instant' : 'fast';
+                    }
+                }
+            }
+        }
+
+        // ── ADVANCED EDIT-EFFECT ASSIGNMENT (intelligent per-clip application) ──
+        // Each effect applies by policy: off / sparingly / per-beat / every-clip.
+        // "sparingly" favors drops & downbeats; "per-beat" targets downbeat-aligned
+        // clips; "every-clip" applies to all. Downbeats come from the rebuilt Beat
+        // Intelligence Engine when available; otherwise every cut counts as on-grid.
+        {
+            const fxRng = new SeededRandom(s.seed ? s.seed + '_fx' : generateSeed());
+            const dbeats = settings.audioAnalysis?.downbeats ?? [];
+            const dbTol = 0.12;
+            const isDownbeatClip = (clip: Clip): boolean => {
+                if (dbeats.length === 0) return true;
+                const t = clip.startFrame / DEFAULT_FPS;
+                return dbeats.some(d => Math.abs(d - t) <= dbTol);
+            };
+            const shouldApply = (policy: EffectApplyPolicy | undefined, clip: Clip): boolean => {
+                if (!policy || policy === 'off') return false;
+                if (policy === 'every-clip') return true;
+                const segType: SegmentType = (clip as any)._segType || 'verse';
+                const down = isDownbeatClip(clip);
+                if (policy === 'per-beat') return down;
+                // sparingly — reserve for high-impact moments
+                if (segType === 'drop' || segType === 'chorus') return down || fxRng.random() < 0.5;
+                return down && fxRng.random() < 0.3;
+            };
+
+            for (const clip of expandedClips) {
+                if (!clip.motionBlur && shouldApply(s.motionBlurPolicy, clip)) {
+                    clip.motionBlur = { amount: s.motionBlurAmount ?? 50 };
+                }
+                if (!clip.glow && shouldApply(s.glowPolicy, clip)) {
+                    clip.glow = { intensity: s.glowIntensity ?? 55, radius: s.glowRadius ?? 50, threshold: 55 };
+                }
+                if (!clip.doubleExposure && shouldApply(s.doubleExposurePolicy, clip)) {
+                    // TRUE double exposure: overlay a DIFFERENT source clip (never the
+                    // same file), with a seeded-random source window for variance, and
+                    // a shape chosen per the user's shape mode (full / shaped / mix).
+                    const deCands = validPool.filter(f => f.path !== clip.path && f.type !== 'audio');
+                    if (deCands.length > 0) {
+                        const ov = deCands[Math.floor(fxRng.random() * deCands.length)];
+                        const ovIn = ov.effectiveTrimInFrames || 0;
+                        const ovUsable = Math.max(2, (ov.effectiveTrimOutFrames || ov.sourceDurationFrames || 300) - ovIn);
+                        const want = Math.max(2, (clip.endFrame - clip.startFrame) + 4);
+                        const ovLen = Math.min(ovUsable, want);
+                        const ovStart = ovIn + Math.floor(fxRng.random() * Math.max(1, ovUsable - ovLen));
+                        const mode = s.doubleExposureShapeMode || 'mix';
+                        const shape = mode === 'full' ? null
+                            : mode === 'shaped' ? pickDoubleExposureShape(fxRng.random())
+                            : (fxRng.random() < 0.5 ? null : pickDoubleExposureShape(fxRng.random()));
+                        clip.doubleExposure = {
+                            overlayPath: ov.path,
+                            overlayTrimStart: ovStart,
+                            overlayTrimEnd: ovStart + ovLen,
+                            blendMode: s.doubleExposureBlend ?? 'screen',
+                            opacity: s.doubleExposureOpacity ?? 45,
+                            shape,
+                        };
+                    }
+                }
+                if (!clip.vibrationFlash && shouldApply(s.vibrationFlashPolicy, clip)) {
+                    clip.vibrationFlash = {
+                        intensity: s.vibrationFlashIntensity ?? 70,
+                        durationFrames: Math.max(2, Math.round(DEFAULT_FPS * 0.12)),
+                    };
+                }
+                if (!clip.smoothSlowmo && shouldApply(s.smoothSlowmoPolicy, clip)) {
+                    // Render-time gate only activates this on genuinely slowed clips.
+                    clip.smoothSlowmo = true;
+                }
+                if (!clip.rgbSplit && shouldApply(s.rgbSplitPolicy, clip)) {
+                    clip.rgbSplit = { amount: s.rgbSplitAmount ?? 45 };
+                }
+                if (!clip.hueCycle && shouldApply(s.hueCyclePolicy, clip)) {
+                    clip.hueCycle = { speed: s.hueCycleSpeed ?? 30 };
+                }
+                if (!clip.vhs && shouldApply(s.vhsPolicy, clip)) {
+                    clip.vhs = { amount: s.vhsAmount ?? 50 };
                 }
             }
         }
@@ -669,6 +842,36 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         const avgBeatGap = beatTimestamps.length > 2
             ? (beatTimestamps[beatTimestamps.length - 1] - beatTimestamps[0]) / (beatTimestamps.length - 1)
             : 0.5;
+
+        // ── Downbeat awareness (from the rebuilt Beat Intelligence Engine) ──
+        // Drops land hardest on bar starts. When the analysis lacks downbeats
+        // (older cache), `isDownbeat` returns true so behavior is unchanged.
+        const downbeatTimes = analysis?.downbeats ?? [];
+        const downbeatTol = Math.min(0.12, (avgBeatGap || 0.5) * 0.4);
+        const isDownbeat = (t: number): boolean =>
+            downbeatTimes.length === 0 || downbeatTimes.some(d => Math.abs(d - t) <= downbeatTol);
+
+        // Build a beat-drop impact config, scaled down off the downbeat so the
+        // heavy accents land musically on the bar instead of on every beat.
+        const buildImpact = (preset: typeof IMPACT_PRESETS[BeatDropIntensity], t: number) => {
+            const f = isDownbeat(t) ? 1.0 : 0.45;
+            return {
+                flash: { intensity: preset.flash * f, color: '#ffffff', durationFrames: preset.durationFrames },
+                chromatic: { offset: preset.chromatic * f, durationFrames: preset.durationFrames },
+                shake: { type: 'impact' as const, intensity: preset.shake * f },
+                zoom: { punchScale: 1 + (preset.zoom - 1) * f, durationFrames: preset.durationFrames },
+            };
+        };
+
+        // Apply the wizard's global speed-curve preset as a continuous remap.
+        // The curve is normalized at render to preserve the clip's timeline slot,
+        // so the smooth velocity ramp never disturbs beat-sync timing.
+        const applySpeedCurveShape = (clip: Clip): void => {
+            if (s.speedCurvePreset && s.speedCurvePreset !== 'constant' && !clip.boomerang) {
+                clip.speedCurvePreset = s.speedCurvePreset;
+                clip.speedCurve = presetToKeyframes(s.speedCurvePreset);
+            }
+        };
 
         // Helper: resolve auto beat pattern per segment type (with variety)
         // TUNED: Quiet sections (intro, verse, breakdown, bridge) use sparser patterns
@@ -751,6 +954,11 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             if (pattern === 'risers-drops' && analysis) {
                 const matchSegs = analysis.segments.filter(s => s.type === 'drop' || s.type === 'buildup');
                 return beats.filter(t => matchSegs.some(s => t >= s.start && t <= s.end));
+            }
+            if (pattern === 'downbeats' && downbeatTimes.length > 1) {
+                // Cut only on bar starts — punchy, on-the-grid editing.
+                const filtered = beats.filter(t => isDownbeat(t));
+                return filtered.length >= 2 ? filtered : beats;
             }
             return beats; // 'every'
         };
@@ -1009,18 +1217,53 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 if (s.chromaticAmount && s.chromaticAmount > 0) clip.chromaticAberration = s.chromaticAmount;
                 if (s.letterboxEnabled) clip.letterbox = true;
 
+                // ── DESATURATION BUILDUP: ramp saturation toward B&W during buildup ──
+                if (s.desaturationBuildup && segType === 'buildup' && beatTimestamps) {
+                    // Find buildup boundaries from beat positions
+                    const clipTimeSec = activeBeats[b] || 0;
+                    // Estimate progress through the buildup (0=start, 1=near drop)
+                    const buildupBeats = activeBeats.filter((_bt, idx) => {
+                        const seg = analysis?.segments?.find(seg => _bt >= seg.start && _bt < seg.end);
+                        return seg?.type === 'buildup';
+                    });
+                    const posInBuildup = buildupBeats.length > 1
+                        ? buildupBeats.indexOf(activeBeats[b]) / (buildupBeats.length - 1)
+                        : 0;
+                    // Ramp saturation from 1.0 (full color) → 0.0 (B&W) across buildup
+                    const saturation = Math.max(0, 1.0 - posInBuildup);
+                    clip.colorGrading = { ...(clip.colorGrading || {}), saturation } as any;
+                }
+
+                // ── BEAT FLASH: strobe on downbeat-aligned clips ──
+                if (s.beatFlashEnabled && isDownbeat(activeBeats[b])) {
+                    clip.strobe = { frequency: Math.round(DEFAULT_FPS / 2), durationFrames: 2 };
+                }
+
                 // ── BEAT DROP IMPACT: apply impact preset on drop segments ──
                 if (s.beatDropImpact && s.beatDropImpact !== 'off' && segType === 'drop') {
                     const impactPreset = IMPACT_PRESETS[s.beatDropImpact];
                     if (impactPreset) {
-                        clip.beatEffect = {
-                            flash: { intensity: impactPreset.flash, color: '#ffffff', durationFrames: impactPreset.durationFrames },
-                            chromatic: { offset: impactPreset.chromatic, durationFrames: impactPreset.durationFrames },
-                            shake: { type: 'impact' as const, intensity: impactPreset.shake },
-                            zoom: { punchScale: impactPreset.zoom, durationFrames: impactPreset.durationFrames },
-                        };
+                        clip.beatEffect = buildImpact(impactPreset, activeBeats[b]);
+                        // Stamp clip-local beat timestamps so the filterBuilder's
+                        // beat-reactive flash/chromatic filters actually fire.
+                        // Compute beats that fall within this clip's time window.
+                        const clipStartSec = activeBeats[b];
+                        const clipDurSec = (clip.endFrame - clip.startFrame) / DEFAULT_FPS;
+                        const clipEndSec = clipStartSec + clipDurSec;
+                        const localBeats = beatTimestamps
+                            .filter(bt => bt >= clipStartSec && bt < clipEndSec)
+                            .map(bt => bt - clipStartSec);
+                        if (localBeats.length > 0) {
+                            clip.beatTimestamps = localBeats;
+                        } else {
+                            // At minimum, place one beat at the clip start
+                            clip.beatTimestamps = [0];
+                        }
                     }
                 }
+
+                // ── SPEED CURVE: smooth cinematic velocity ramp (continuous remap) ──
+                applySpeedCurveShape(clip);
 
                 // ── BOOMERANG: 'all' mode — apply to every clip if not already boomeranged ──
                 if (s.boomerangAll && !clip.boomerang) {
@@ -1066,18 +1309,29 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 if (s.chromaticAmount && s.chromaticAmount > 0) clip.chromaticAberration = s.chromaticAmount;
                 if (s.letterboxEnabled) clip.letterbox = true;
 
+                // ── BEAT FLASH: strobe on downbeat-aligned sub-gap clips ──
+                if (s.beatFlashEnabled && isDownbeat(activeBeats[b])) {
+                    clip.strobe = { frequency: Math.round(DEFAULT_FPS / 2), durationFrames: 2 };
+                }
+
                 // ── BEAT DROP IMPACT: apply impact preset on drop segments ──
                 if (s.beatDropImpact && s.beatDropImpact !== 'off' && segType === 'drop') {
                     const impactPreset = IMPACT_PRESETS[s.beatDropImpact];
                     if (impactPreset) {
-                        clip.beatEffect = {
-                            flash: { intensity: impactPreset.flash, color: '#ffffff', durationFrames: impactPreset.durationFrames },
-                            chromatic: { offset: impactPreset.chromatic, durationFrames: impactPreset.durationFrames },
-                            shake: { type: 'impact' as const, intensity: impactPreset.shake },
-                            zoom: { punchScale: impactPreset.zoom, durationFrames: impactPreset.durationFrames },
-                        };
+                        clip.beatEffect = buildImpact(impactPreset, activeBeats[b]);
+                        // Stamp clip-local beat timestamps (see main loop above)
+                        const clipStartSec = activeBeats[b];
+                        const clipDurSec = (clip.endFrame - clip.startFrame) / DEFAULT_FPS;
+                        const clipEndSec = clipStartSec + clipDurSec;
+                        const localBeats = beatTimestamps
+                            .filter(bt => bt >= clipStartSec && bt < clipEndSec)
+                            .map(bt => bt - clipStartSec);
+                        clip.beatTimestamps = localBeats.length > 0 ? localBeats : [0];
                     }
                 }
+
+                // ── SPEED CURVE: smooth cinematic velocity ramp (continuous remap) ──
+                applySpeedCurveShape(clip);
 
                 sequence.push(clip);
                 clipIndex++;

@@ -18,6 +18,7 @@ try {
         saveProject: (content: string) => ipcRenderer.invoke('save-project', content),
         loadProject: () => ipcRenderer.invoke('load-project'),
         exportManifest: (content: string) => ipcRenderer.invoke('export-manifest', content),
+        exportIcuniEdit: (content: string) => ipcRenderer.invoke('export-icuni-edit', content),
         saveManifest: (content: string) => ipcRenderer.invoke('export-manifest', content),
         importManifest: () => ipcRenderer.invoke('import-manifest'),
 

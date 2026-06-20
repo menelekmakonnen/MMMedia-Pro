@@ -1,22 +1,41 @@
 /**
  * Boomerang Effect — Damped-Bounce Clip Expansion
- * 
- * A boomerang is NOT a simple forward→reverse. It's a damped oscillation:
- * each successive bounce reaches less far into the clip and plays slightly faster,
- * mimicking a rubber band or spring settling to rest.
- * 
- * Physics: A(t) = amplitude × sin(freq × t) / e^(decay × t)
- * 
+ * ════════════════════════════════════════════════════════════════════════════
+ * A boomerang is NOT a flat forward→reverse loop. It's a *damped* oscillation:
+ * each successive bounce reaches less far into the clip (amplitude decays) and
+ * plays slightly faster (speed ramps), like a spring settling to rest.
+ *
+ * The model is discrete (one sub-clip pair per bounce) because the timeline
+ * needs concrete clips, but it is a true geometric damping:
+ *
+ *     reach(cycle)  = sourceDuration · (1 − decay)^cycle
+ *     speed(cycle)  = baseSpeed      · speedRamp^cycle
+ *
+ * So `decay` controls how quickly the bounce shrinks and `speedRamp` how quickly
+ * it accelerates — together they produce the rubber-band "settle".
+ *
+ * All speeds are clamped to a safe range so no preset (or beat-fit) can ever emit
+ * a 0.01× crawl or a 40× blur. Reversed audio on the rapid/stutter styles is
+ * muted, because playing audio backwards through micro-bounces is just noise.
+ *
  * Supported styles (Instagram-inspired):
  *   classic:   Simple forward→reverse (standard boomerang)
  *   slowmo:    Slow dreamy forward→reverse at 0.6x speed
- *   echo:      Forward→reverse with motion trail ghosting (2 bounces)
+ *   echo:      Forward→reverse with motion-trail ghosting (2 bounces)
  *   duo:       Glitchy fast rewind effect (2 bounces, accelerating)
  *   stutter:   Rapid micro-bounces — full forward, then 3 tiny bounces
  *   whiplash:  Fast forward (1.5x), slow snap reverse (0.7x)
  */
 
 import type { Clip, BoomerangPresetId } from '../types';
+
+// ─── Speed safety rails ───────────────────────────────────
+/** No boomerang sub-clip may ever play slower/faster than this. */
+export const BOOMERANG_SPEED_MIN = 0.1;
+export const BOOMERANG_SPEED_MAX = 8.0;
+
+const clampSpeed = (s: number): number =>
+    Math.max(BOOMERANG_SPEED_MIN, Math.min(BOOMERANG_SPEED_MAX, s));
 
 // ─── Configuration ────────────────────────────────────────
 
@@ -59,7 +78,7 @@ export interface BoomerangSubClip {
     trimStartFrame: number;
     /** Source trim end (frames) */
     trimEndFrame: number;
-    /** Playback speed multiplier */
+    /** Playback speed multiplier (always within [MIN, MAX]) */
     speed: number;
     /** Whether this sub-clip plays in reverse */
     reversed: boolean;
@@ -69,11 +88,13 @@ export interface BoomerangSubClip {
     bounceIndex: number;
     /** Style hint for filter builder (e.g. 'ghosting' for echo preset) */
     styleHint?: string;
+    /** Whether this sub-clip's audio should be muted (reverse/glitch passes) */
+    muted?: boolean;
 }
 
 /**
  * Expand a clip into boomerang sub-clips.
- * 
+ *
  * @param trimStart  Source in-point (frames)
  * @param trimEnd    Source out-point (frames)
  * @param baseSpeed  Original clip speed
@@ -91,7 +112,7 @@ export function expandBoomerang(
     const sourceDuration = trimEnd - trimStart;
     if (sourceDuration <= 0) return [];
 
-    // Enforce duration caps: first forward clip should be 0.25s-2.5s of source
+    // Enforce duration caps: first forward clip should be 0.25s-2.5s of source.
     const minFrames = Math.round(BOOMERANG_MIN_DURATION_S * fps);
     const maxFrames = Math.round(BOOMERANG_MAX_DURATION_S * fps);
     const clampedDuration = Math.max(minFrames, Math.min(maxFrames, sourceDuration));
@@ -99,7 +120,6 @@ export function expandBoomerang(
 
     const minSubDuration = Math.max(2, Math.round(fps * 0.066)); // ~2 frames min
 
-    // Dispatch to style-specific generator
     switch (config.style) {
         case 'rapid-glitch':
             return generateRapidGlitch(trimStart, effectiveTrimEnd, baseSpeed, config, fps, minSubDuration);
@@ -115,10 +135,10 @@ export function expandBoomerang(
 
 // ─── Style Generators ─────────────────────────────────────
 
-/** Classic forward→reverse with optional multi-bounce decay */
+/** Classic forward→reverse with optional multi-bounce damping. */
 function generateForwardReverse(
     trimStart: number, trimEnd: number, baseSpeed: number,
-    config: BoomerangConfig, fps: number, minSubDuration: number,
+    config: BoomerangConfig, _fps: number, minSubDuration: number,
 ): BoomerangSubClip[] {
     const sourceDuration = trimEnd - trimStart;
     const subClips: BoomerangSubClip[] = [];
@@ -126,12 +146,12 @@ function generateForwardReverse(
 
     for (let cycle = 0; cycle < config.bounces; cycle++) {
         const amplitude = cycle === 0 ? 1.0 : Math.pow(1 - config.decay, cycle);
-        const cycleSpeed = (cycle === 0 && config.forwardSpeed)
+        const cycleSpeed = clampSpeed((cycle === 0 && config.forwardSpeed)
             ? config.forwardSpeed
-            : baseSpeed * Math.pow(config.speedRamp, cycle);
-        const revSpeed = (cycle === 0 && config.reverseSpeed)
+            : baseSpeed * Math.pow(config.speedRamp, cycle));
+        const revSpeed = clampSpeed((cycle === 0 && config.reverseSpeed)
             ? config.reverseSpeed
-            : cycleSpeed;
+            : cycleSpeed);
 
         const reachFrames = Math.max(minSubDuration, Math.round(sourceDuration * amplitude));
         const actualTrimEnd = Math.min(trimStart + reachFrames, trimEnd);
@@ -141,6 +161,9 @@ function generateForwardReverse(
         const fwdTimelineDuration = Math.max(minSubDuration, Math.round(rawDuration / cycleSpeed));
         const revTimelineDuration = Math.max(minSubDuration, Math.round(rawDuration / revSpeed));
 
+        // Later bounces mute audio (reversed/looped audio just muddies the mix).
+        const muteCycle = cycle > 0;
+
         // Forward pass
         subClips.push({
             trimStartFrame: trimStart, trimEndFrame: actualTrimEnd,
@@ -148,43 +171,46 @@ function generateForwardReverse(
             timelineDuration: fwdTimelineDuration,
             bounceIndex: bounceIndex++,
             styleHint: config.ghosting ? 'ghosting' : undefined,
+            muted: muteCycle,
         });
 
-        // Reverse pass
+        // Reverse pass — audio always muted (backwards audio is noise).
         subClips.push({
             trimStartFrame: trimStart, trimEndFrame: actualTrimEnd,
             speed: revSpeed, reversed: true,
             timelineDuration: revTimelineDuration,
             bounceIndex: bounceIndex++,
             styleHint: config.ghosting ? 'ghosting' : undefined,
+            muted: true,
         });
     }
 
     return subClips;
 }
 
-/** Duo: Glitchy fast-rewind with accelerating bounces */
+/** Duo: glitchy fast-rewind with accelerating, decaying bounces. */
 function generateRapidGlitch(
     trimStart: number, trimEnd: number, baseSpeed: number,
-    config: BoomerangConfig, fps: number, minSubDuration: number,
+    config: BoomerangConfig, _fps: number, minSubDuration: number,
 ): BoomerangSubClip[] {
     const sourceDuration = trimEnd - trimStart;
     const subClips: BoomerangSubClip[] = [];
     let bounceIndex = 0;
 
-    // Full forward play
-    const fwdDuration = Math.round(sourceDuration / baseSpeed);
+    // Full forward play (keeps audio).
+    const fwdSpeed = clampSpeed(baseSpeed);
     subClips.push({
         trimStartFrame: trimStart, trimEndFrame: trimEnd,
-        speed: baseSpeed, reversed: false,
-        timelineDuration: Math.max(minSubDuration, fwdDuration),
+        speed: fwdSpeed, reversed: false,
+        timelineDuration: Math.max(minSubDuration, Math.round(sourceDuration / fwdSpeed)),
         bounceIndex: bounceIndex++,
+        muted: false,
     });
 
-    // Rapid reverse bounces with increasing speed and decreasing reach
+    // Rapid reverse bounces: increasing speed, decreasing reach (all muted).
     for (let cycle = 0; cycle < config.bounces; cycle++) {
         const amplitude = Math.pow(1 - config.decay, cycle);
-        const cycleSpeed = baseSpeed * Math.pow(config.speedRamp, cycle + 1);
+        const cycleSpeed = clampSpeed(baseSpeed * Math.pow(config.speedRamp, cycle + 1));
         const reachFrames = Math.max(minSubDuration, Math.round(sourceDuration * amplitude));
         const actualTrimEnd = Math.min(trimStart + reachFrames, trimEnd);
         const rawDuration = actualTrimEnd - trimStart;
@@ -192,53 +218,52 @@ function generateRapidGlitch(
 
         const timelineDuration = Math.max(minSubDuration, Math.round(rawDuration / cycleSpeed));
 
-        // Quick reverse
         subClips.push({
             trimStartFrame: trimStart, trimEndFrame: actualTrimEnd,
             speed: cycleSpeed, reversed: true,
             timelineDuration,
             bounceIndex: bounceIndex++,
             styleHint: 'glitch',
+            muted: true,
         });
 
-        // Quick forward snap-back (shorter)
+        const snapSpeed = clampSpeed(cycleSpeed * 1.2);
         const snapDuration = Math.max(minSubDuration, Math.round(timelineDuration * 0.6));
         subClips.push({
             trimStartFrame: trimStart, trimEndFrame: actualTrimEnd,
-            speed: cycleSpeed * 1.2, reversed: false,
+            speed: snapSpeed, reversed: false,
             timelineDuration: snapDuration,
             bounceIndex: bounceIndex++,
             styleHint: 'glitch',
+            muted: true,
         });
     }
 
     return subClips;
 }
 
-/** Stutter: Full forward, then rapid micro-bounces at decreasing amplitude */
+/** Stutter: full forward, then rapid muted micro-bounces at decreasing amplitude. */
 function generateMicroBounce(
     trimStart: number, trimEnd: number, baseSpeed: number,
-    config: BoomerangConfig, fps: number, minSubDuration: number,
+    config: BoomerangConfig, _fps: number, minSubDuration: number,
 ): BoomerangSubClip[] {
     const sourceDuration = trimEnd - trimStart;
     const subClips: BoomerangSubClip[] = [];
     let bounceIndex = 0;
 
-    // Full forward play at normal speed
-    const fwdDuration = Math.max(minSubDuration, Math.round(sourceDuration / baseSpeed));
+    const fwdSpeed = clampSpeed(baseSpeed);
     subClips.push({
         trimStartFrame: trimStart, trimEndFrame: trimEnd,
-        speed: baseSpeed, reversed: false,
-        timelineDuration: fwdDuration,
+        speed: fwdSpeed, reversed: false,
+        timelineDuration: Math.max(minSubDuration, Math.round(sourceDuration / fwdSpeed)),
         bounceIndex: bounceIndex++,
+        muted: false,
     });
 
-    // Micro-bounces: each cycle is shorter and faster
     for (let cycle = 0; cycle < config.bounces; cycle++) {
-        const amplitude = Math.pow(1 - config.decay, cycle + 1); // Start decayed
-        const cycleSpeed = baseSpeed * Math.pow(config.speedRamp, cycle + 1);
+        const amplitude = Math.pow(1 - config.decay, cycle + 1);
+        const cycleSpeed = clampSpeed(baseSpeed * Math.pow(config.speedRamp, cycle + 1));
 
-        // Only use the END portion of the clip for micro-bounces
         const bounceFrames = Math.max(minSubDuration, Math.round(sourceDuration * amplitude * 0.3));
         const bounceStart = Math.max(trimStart, trimEnd - bounceFrames);
         const rawDuration = trimEnd - bounceStart;
@@ -246,54 +271,49 @@ function generateMicroBounce(
 
         const timelineDuration = Math.max(minSubDuration, Math.round(rawDuration / cycleSpeed));
 
-        // Reverse micro-bounce
         subClips.push({
             trimStartFrame: bounceStart, trimEndFrame: trimEnd,
             speed: cycleSpeed, reversed: true,
             timelineDuration,
             bounceIndex: bounceIndex++,
+            muted: true,
         });
-
-        // Forward micro-bounce
         subClips.push({
             trimStartFrame: bounceStart, trimEndFrame: trimEnd,
             speed: cycleSpeed, reversed: false,
             timelineDuration,
             bounceIndex: bounceIndex++,
+            muted: true,
         });
     }
 
     return subClips;
 }
 
-/** Whiplash: Fast forward, slow snap reverse */
+/** Whiplash: fast forward, slow snap reverse. */
 function generateForwardSnapReverse(
     trimStart: number, trimEnd: number, baseSpeed: number,
-    config: BoomerangConfig, fps: number, minSubDuration: number,
+    config: BoomerangConfig, _fps: number, minSubDuration: number,
 ): BoomerangSubClip[] {
     const sourceDuration = trimEnd - trimStart;
     const subClips: BoomerangSubClip[] = [];
 
-    const fwdSpeed = config.forwardSpeed ?? baseSpeed * 1.5;
-    const revSpeed = config.reverseSpeed ?? baseSpeed * 0.7;
+    const fwdSpeed = clampSpeed(config.forwardSpeed ?? baseSpeed * 1.5);
+    const revSpeed = clampSpeed(config.reverseSpeed ?? baseSpeed * 0.7);
 
-    const fwdDuration = Math.max(minSubDuration, Math.round(sourceDuration / fwdSpeed));
-    const revDuration = Math.max(minSubDuration, Math.round(sourceDuration / revSpeed));
-
-    // Fast forward
     subClips.push({
         trimStartFrame: trimStart, trimEndFrame: trimEnd,
         speed: fwdSpeed, reversed: false,
-        timelineDuration: fwdDuration,
+        timelineDuration: Math.max(minSubDuration, Math.round(sourceDuration / fwdSpeed)),
         bounceIndex: 0,
+        muted: false,
     });
-
-    // Slow reverse
     subClips.push({
         trimStartFrame: trimStart, trimEndFrame: trimEnd,
         speed: revSpeed, reversed: true,
-        timelineDuration: revDuration,
+        timelineDuration: Math.max(minSubDuration, Math.round(sourceDuration / revSpeed)),
         bounceIndex: 1,
+        muted: true,
     });
 
     return subClips;
@@ -325,25 +345,23 @@ export function expandClipToBoomerang(
     return subClips.map((sub, i) => ({
         ...clip,
         id: `${clip.id}_boom_${i}`,
-        // Source trim for this bounce
         trimStartFrame: sub.trimStartFrame,
         trimEndFrame: sub.trimEndFrame,
-        // Timeline position: sequential
         startFrame: timelineHead,
         endFrame: (timelineHead += sub.timelineDuration),
-        // Playback overrides
         speed: sub.speed,
         reversed: sub.reversed,
-        // Mark as auto-generated sub-clip
+        // Mute reverse/glitch passes (carry through parent mute too).
+        isMuted: clip.isMuted || sub.muted || false,
         origin: 'auto' as const,
-        // Preserve parent's effects but remove boomerang flag (prevent recursion)
+        // Prevent recursion.
         boomerang: false,
-        // Preserve zoom — forward clips zoom in, reverse clips zoom out
+        // Forward clips zoom in, reverse clips zoom out.
         zoomStart: sub.reversed ? (clip.zoomEnd ?? clip.zoomStart) : clip.zoomStart,
         zoomEnd: sub.reversed ? (clip.zoomStart ?? clip.zoomEnd) : clip.zoomEnd,
-        // Pass style hint for echo ghosting via echo effect
+        // Echo ghosting via the echo effect.
         echo: sub.styleHint === 'ghosting' ? { trailCount: 3, opacity: 0.4 } : clip.echo,
-        // Pass chromatic hint for glitch style
+        // Glitch chromatic aberration.
         chromaticAberration: sub.styleHint === 'glitch'
             ? Math.max(clip.chromaticAberration ?? 0, 5)
             : clip.chromaticAberration,
@@ -351,8 +369,11 @@ export function expandClipToBoomerang(
 }
 
 /**
- * Expand a Clip with boomerang, aligning the last reverse sub-clip to end on a beat.
- * The reverse clip's duration is adjusted so its final frame lands on `targetBeatTime`.
+ * Expand a Clip with boomerang, aligning the final reverse sub-clip to end on a
+ * beat. The reverse clip's speed is recomputed to fit — but CLAMPED, so hitting
+ * a beat can never produce a grotesque crawl or hyper-speed blur. If the exact
+ * landing would require an out-of-range speed, we use the nearest safe speed and
+ * land as close to the beat as possible.
  */
 export function expandBoomerangToBeat(
     clip: Clip,
@@ -363,34 +384,30 @@ export function expandBoomerangToBeat(
     const expandedClips = expandClipToBoomerang(clip, config, fps);
     if (expandedClips.length < 2) return expandedClips;
 
-    // Find the last reverse clip
     const lastReverse = expandedClips[expandedClips.length - 1];
     if (!lastReverse.reversed) return expandedClips; // Safety: should be reversed
 
-    // Calculate target end frame from beat time
     const targetEndFrame = Math.round(targetBeatTime * fps);
+    const sourceDuration = lastReverse.trimEndFrame - lastReverse.trimStartFrame;
+    const desiredDuration = targetEndFrame - lastReverse.startFrame;
 
-    // Adjust the last reverse clip to end exactly on the beat
-    const currentEndFrame = lastReverse.endFrame;
-    const delta = targetEndFrame - currentEndFrame;
+    // Need a positive, sane duration.
+    if (desiredDuration < 2 || sourceDuration <= 0) return expandedClips;
 
-    if (Math.abs(delta) > 0) {
-        // Stretch/compress the last reverse clip
-        lastReverse.endFrame = targetEndFrame;
-        // Recalculate speed to fit the new duration
-        const newTimelineDuration = lastReverse.endFrame - lastReverse.startFrame;
-        const sourceDuration = lastReverse.trimEndFrame - lastReverse.trimStartFrame;
-        if (newTimelineDuration > 0 && sourceDuration > 0) {
-            lastReverse.speed = sourceDuration / newTimelineDuration;
-        }
-    }
+    // Speed that would land exactly on the beat, clamped to the safe range.
+    const idealSpeed = sourceDuration / desiredDuration;
+    const safeSpeed = clampSpeed(idealSpeed);
+    // Recompute the duration from the clamped speed so playback stays smooth.
+    const safeDuration = Math.max(2, Math.round(sourceDuration / safeSpeed));
+
+    lastReverse.speed = safeSpeed;
+    lastReverse.endFrame = lastReverse.startFrame + safeDuration;
 
     return expandedClips;
 }
 
 /**
  * Calculate total timeline duration of a boomerang expansion.
- * Useful for timeline layout without actually creating clips.
  */
 export function getBoomerangDuration(
     trimStart: number,
@@ -403,7 +420,7 @@ export function getBoomerangDuration(
     return subClips.reduce((sum, sc) => sum + sc.timelineDuration, 0);
 }
 
-/** Get a boomerang config by preset ID, falling back to classic */
+/** Get a boomerang config by preset ID, falling back to classic. */
 export function getBoomerangPreset(id?: BoomerangPresetId): BoomerangConfig {
     return BOOMERANG_PRESETS[id ?? 'classic'] ?? BOOMERANG_PRESETS.classic;
 }

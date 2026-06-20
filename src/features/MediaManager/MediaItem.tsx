@@ -67,7 +67,11 @@ export const MediaItem: React.FC<MediaItemProps> = ({ clip, isSelected, isMultiS
                         src={clip.path}
                         className="w-full h-full object-cover transition-transform duration-300"
                         style={clip.rotation ? {
-                            transform: `rotate(${clip.rotation}deg)${(clip.rotation === 90 || clip.rotation === 270) ? ' scale(0.5625)' : ''}`,
+                            // Aspect-aware fit so rotated clips (esp. portrait) fill the box by
+                            // height rather than the fixed 16:9-only 0.5625 scale.
+                            transform: `rotate(${clip.rotation}deg)${(clip.rotation === 90 || clip.rotation === 270)
+                                ? ` scale(${(clip.width && clip.height ? (clip.width / clip.height >= 16 / 9 ? 9 / 16 : Math.min(16 / 9, clip.height / clip.width)) : 0.5625).toFixed(4)})`
+                                : ''}`,
                         } : undefined}
                         muted
                         preload="metadata"

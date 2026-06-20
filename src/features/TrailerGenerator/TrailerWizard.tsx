@@ -5,7 +5,8 @@ import { TrailerSettings, DEFAULT_TRAILER_SETTINGS } from '../../lib/trailerGene
 import { Wand2, Clock, Zap, Video, Scissors, PlayCircle, Music, Upload, Play, Pause, Trash2, Loader2, Sparkles, Smartphone, Monitor, Square, ArrowLeftRight, Layers, ChevronDown, Eye, Palette, Repeat } from 'lucide-react';
 import { analyzeAudio, AudioAnalysisResult, SegmentType as _SegmentType } from '../../lib/audioAnalysis';
 import { TRANSITION_CATEGORIES, TRANSITION_META } from '../../lib/transitions';
-import type { TransitionType, SpeedCurvePreset, ShakeType, ShakePolicy, BeatDropIntensity, TransitionStyle, BoomerangPresetId, ZoomSpeed } from '../../types';
+import type { TransitionType, SpeedCurvePreset, ShakeType, ShakePolicy, BeatDropIntensity, TransitionStyle, BoomerangPresetId, ZoomSpeed, EffectApplyPolicy } from '../../types';
+import { usePresetUsageStore } from '../../store/presetUsageStore';
 import clsx from 'clsx';
 
 interface SliderProps {
@@ -29,6 +30,61 @@ const SliderControl: React.FC<SliderProps> = ({ label, icon: Icon, value, min, m
     </div>
 );
 
+// ── Advanced edit-effect application policy control ──────────────────────────
+const EFFECT_POLICIES: { id: EffectApplyPolicy; label: string }[] = [
+    { id: 'off', label: 'Off' },
+    { id: 'sparingly', label: 'Sparingly' },
+    { id: 'per-beat', label: 'Per Beat' },
+    { id: 'every-clip', label: 'Every Clip' },
+];
+
+/** Canonical ids for the advanced trending effects (used for recommendations). */
+export const ADV_EFFECT_LABELS: Record<string, string> = {
+    doubleExposure: 'Double Exposure',
+    motionBlur: 'Motion Blur',
+    glow: 'Glow',
+    vibrationFlash: 'Vibration Flash',
+    smoothSlowmo: 'Optical-Flow Slow-Mo',
+    rgbSplit: 'RGB Split',
+    hueCycle: 'Hue Cycle',
+    vhs: 'VHS',
+};
+
+/** One-click quick configuration applied when a recommended chip is tapped. */
+const QUICK_EFFECT_PATCH: Record<string, Partial<TrailerSettings>> = {
+    doubleExposure: { doubleExposurePolicy: 'sparingly' },
+    motionBlur: { motionBlurPolicy: 'per-beat' },
+    glow: { glowPolicy: 'sparingly' },
+    vibrationFlash: { vibrationFlashPolicy: 'sparingly' },
+    smoothSlowmo: { smoothSlowmoPolicy: 'sparingly' },
+    rgbSplit: { rgbSplitPolicy: 'sparingly' },
+    hueCycle: { hueCyclePolicy: 'sparingly' },
+    vhs: { vhsPolicy: 'sparingly' },
+};
+
+const EffectPolicyControl: React.FC<{
+    label: string;
+    policy: EffectApplyPolicy;
+    onPolicy: (p: EffectApplyPolicy) => void;
+    children?: React.ReactNode;
+}> = ({ label, policy, onPolicy, children }) => (
+    <div className="space-y-1.5">
+        <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">{label}</span>
+        <div className="flex flex-wrap gap-1.5">
+            {EFFECT_POLICIES.map(opt => (
+                <button key={opt.id} onClick={() => onPolicy(opt.id)}
+                    className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
+                        (policy ?? 'off') === opt.id
+                            ? "bg-indigo-600/20 border-indigo-500/40 text-indigo-200 shadow-[0_0_8px_rgba(99,102,241,0.15)]"
+                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                    {opt.label}
+                </button>
+            ))}
+        </div>
+        {(policy ?? 'off') !== 'off' && children && <div className="space-y-3 pl-1">{children}</div>}
+    </div>
+);
+
 /** Dual-handle range slider for min/max controls. */
 const DualRangeSlider: React.FC<{
     label: string; icon: React.ElementType;
@@ -47,10 +103,10 @@ const DualRangeSlider: React.FC<{
             <div className="absolute h-1.5 bg-purple-500/50 rounded-full" style={{ left: `${((value[0] - min) / (max - min)) * 100}%`, right: `${100 - ((value[1] - min) / (max - min)) * 100}%` }} />
             <input type="range" min={min} max={max} step={step} value={value[0]}
                 onChange={(e) => { const v = parseFloat(e.target.value); if (v <= value[1]) onChange([v, value[1]]); }}
-                className="absolute w-full appearance-none bg-transparent cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-purple-200 [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(168,85,247,0.5)]" />
+                className="pointer-events-none absolute w-full appearance-none bg-transparent cursor-pointer [&::-webkit-slider-thumb]:pointer-events-auto [&::-moz-range-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-purple-400 [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-purple-200 [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(168,85,247,0.5)]" />
             <input type="range" min={min} max={max} step={step} value={value[1]}
                 onChange={(e) => { const v = parseFloat(e.target.value); if (v >= value[0]) onChange([value[0], v]); }}
-                className="absolute w-full appearance-none bg-transparent cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-400 [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-blue-200 [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
+                className="pointer-events-none absolute w-full appearance-none bg-transparent cursor-pointer [&::-webkit-slider-thumb]:pointer-events-auto [&::-moz-range-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-400 [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-blue-200 [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(59,130,246,0.5)]" />
         </div>
         <div className="flex justify-between text-[10px] text-white/30 font-mono">
             <span>{min}{unit}</span><span>{max}{unit}</span>
@@ -564,28 +620,47 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
     const autoSelectBestSegment = (targetDur: number) => {
         if (!audioAnalysis || audioAnalysis.segments.length === 0) return;
         const segs = audioAnalysis.segments;
-        const priority: Record<string, number> = { drop: 8, chorus: 7, buildup: 6, verse: 5, bridge: 4, intro: 3, breakdown: 2, outro: 1 };
-        const scored = segs.map(s => ({
-            ...s,
-            score: (priority[s.type] || 1) * s.avgEnergy,
-            dur: s.end - s.start,
-        })).sort((a, b) => b.score - a.score);
+        const dur = audioAnalysis.duration;
+        const priority: Record<string, number> = { drop: 10, chorus: 9, buildup: 7, bridge: 5, verse: 4, intro: 3, breakdown: 3, outro: 1 };
 
+        // Cast a WIDE net of candidate START points (not just the single highest-
+        // priority segment, centered). Each candidate starts ON a musical moment so
+        // the trailer opens on a hook rather than mid-phrase.
+        const candidates: { start: number; score: number; label: string }[] = [];
+        segs.forEach((sg, i) => {
+            const prev = segs[i - 1];
+            const rise = prev ? Math.max(0, sg.avgEnergy - prev.avgEnergy) : 0;       // energy lift into this section
+            const base = (priority[sg.type] || 1) * (0.5 + sg.avgEnergy) + (sg.peakEnergy || 0) * 2 + rise * 3;
+            // A) Land right on the section onset (drop/chorus hit).
+            candidates.push({ start: sg.start, score: base, label: `${sg.type}@start` });
+            // B) Lead-in: start ~1.5s early so a drop/chorus lands a beat or two in.
+            if ((sg.type === 'drop' || sg.type === 'chorus') && sg.start > 1.5) {
+                candidates.push({ start: sg.start - 1.5, score: base * 0.96, label: `${sg.type}@lead-in` });
+            }
+            // C) Long sections get an extra interior option (widens the net).
+            if (sg.end - sg.start > targetDur * 1.5) {
+                candidates.push({ start: (sg.start + sg.end) / 2 - targetDur / 4, score: base * 0.8, label: `${sg.type}@mid` });
+            }
+        });
+
+        const maxStart = Math.max(0, dur - targetDur);
+        const usable = candidates
+            .map(c => ({ ...c, start: Math.max(0, Math.min(c.start, maxStart)) }))
+            .filter((c, i, arr) => arr.findIndex(o => Math.abs(o.start - c.start) < 0.5) === i) // dedupe near-identical
+            .sort((a, b) => b.score - a.score);
+        if (usable.length === 0) return;
+
+        // Rotate through the top candidates so each re-roll explores a genuinely
+        // different (still strong) start — variety instead of the same pick.
+        const top = usable.slice(0, Math.min(usable.length, 6));
         const cycleKey = targetDur;
-        const prevIdx = bestSegmentCycleRef.current[cycleKey] ?? -1;
-        const nextIdx = (prevIdx + 1) % scored.length;
-        bestSegmentCycleRef.current[cycleKey] = nextIdx;
-
-        const best = scored[nextIdx];
-        if (best) {
-            const segMid = (best.start + best.end) / 2;
-            const halfDur = targetDur / 2;
-            const start = Math.max(0, Math.min(segMid - halfDur, audioAnalysis.duration - targetDur));
-            const end = Math.min(start + targetDur, audioAnalysis.duration);
-            setAudioTrimStart(start);
-            setAudioTrimEnd(end);
-            update({ audioTrimStart: start, audioTrimEnd: end });
-        }
+        const idx = ((bestSegmentCycleRef.current[cycleKey] ?? -1) + 1) % top.length;
+        bestSegmentCycleRef.current[cycleKey] = idx;
+        const start = top[idx].start;
+        const end = Math.min(start + targetDur, dur);
+        setAudioTrimStart(start);
+        setAudioTrimEnd(end);
+        update({ audioTrimStart: start, audioTrimEnd: end });
     };
 
     const handleSegmentClick = (seg: { start: number; end: number }) => {
@@ -613,11 +688,32 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
         }
     };
 
+    // Effect-usage recommendations (most-used effects surface as quick-config chips).
+    const recordEffectStack = usePresetUsageStore(s => s.recordEffectStack);
+    const effectUsage = usePresetUsageStore(s => s.effectUsage);
+    const recommendedEffects = React.useMemo(
+        () => Object.entries(effectUsage)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 4)
+            .map(([id]) => id)
+            .filter(id => ADV_EFFECT_LABELS[id]),
+        [effectUsage],
+    );
+
     const handleGenerate = () => {
         const finalSettings: TrailerSettings = {
             ...settings,
             audioTrimStart, audioTrimEnd,
         } as any;
+
+        // Record which advanced effects were used together for future suggestions.
+        const usedEffects: string[] = [];
+        if ((settings.doubleExposurePolicy ?? 'off') !== 'off') usedEffects.push('doubleExposure');
+        if ((settings.motionBlurPolicy ?? 'off') !== 'off') usedEffects.push('motionBlur');
+        if ((settings.glowPolicy ?? 'off') !== 'off') usedEffects.push('glow');
+        if ((settings.vibrationFlashPolicy ?? 'off') !== 'off') usedEffects.push('vibrationFlash');
+        if ((settings.smoothSlowmoPolicy ?? 'off') !== 'off') usedEffects.push('smoothSlowmo');
+        if (usedEffects.length > 0) recordEffectStack(usedEffects);
 
         onGenerate(finalSettings);
     };
@@ -637,6 +733,40 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                         </h2>
                         <p className="text-xs text-white/50">Procedurally generate rapid-cut sequences from your media library.</p>
                     </div>
+                </div>
+
+                {/* ── Generator Mode (top selector) ── */}
+                <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-purple-600/15 via-black/30 to-blue-600/15 p-5 shadow-[0_0_30px_rgba(124,58,237,0.15)]">
+                    <div className="absolute -top-10 -right-10 w-40 h-40 bg-purple-500/20 blur-[60px] pointer-events-none rounded-full" />
+                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Generator Mode</span>
+                    <div className="flex gap-2 mt-2">
+                        {([['trailer', 'Trailer'], ['music-video', 'Music Video']] as const).map(([m, label]) => (
+                            <button key={m} onClick={() => update({ generatorMode: m })}
+                                className={clsx("flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-wider border transition-all",
+                                    (settings.generatorMode ?? 'trailer') === m
+                                        ? "bg-gradient-to-br from-purple-600/40 to-blue-600/40 border-primary/50 text-white shadow-[0_0_18px_rgba(168,85,247,0.35)]"
+                                        : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10")}>
+                                {label}
+                            </button>
+                        ))}
+                    </div>
+                    {(settings.generatorMode === 'music-video') && (
+                        <div className="flex flex-wrap gap-1.5 pt-3">
+                            {([['mvIntroEnabled', 'Intro'], ['mvOutroEnabled', 'Outro Shrink'], ['mvBtsSlot', 'BTS Slot']] as const).map(([key, label]) => (
+                                <button key={key} onClick={() => update({ [key]: !(settings[key] ?? true) } as any)}
+                                    className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border transition-all",
+                                        (settings[key] ?? true)
+                                            ? "bg-emerald-600/20 border-emerald-500/40 text-emerald-200"
+                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                    {label}
+                                </button>
+                            ))}
+                            <button onClick={() => update({ mvBeatAnchor: (settings.mvBeatAnchor ?? 'downbeat') === 'downbeat' ? 'beat' : 'downbeat' })}
+                                className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border bg-white/5 border-white/10 text-white/60 hover:bg-white/10">
+                                Anchor: {(settings.mvBeatAnchor ?? 'downbeat') === 'downbeat' ? 'Downbeats' : 'Beats'}
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 <div className="bg-black/40 rounded-xl border border-white/5 p-4 relative overflow-hidden space-y-4">
@@ -1014,7 +1144,7 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                 {/* Cinematic Speed */}
                 <div className="space-y-3">
                     <label className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
-                        <Clock size={12} className="text-blue-400" /> Cinematic Speed
+                        <Clock size={12} className="text-blue-400" /> Cinematic Speed <span className="text-white/25 normal-case font-normal">(select one or more)</span>
                     </label>
                     <div className="grid grid-cols-4 gap-2">
                         {[
@@ -1023,12 +1153,17 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             { id: 'fast', label: 'Fast', speed: '1.5x', desc: 'All clips at 1.5x' },
                             { id: 'hyper', label: 'Hyper', speed: '4x', desc: 'All clips at 4x speed' },
                         ].map(opt => (
-                            <button key={opt.id} onClick={() => { update({ slowmoPolicy: opt.id as any }); setCustomSpeedEnabled(false); }}
+                            <button key={opt.id} onClick={() => {
+                                    const cur = settings.slowmoPolicies ?? [];
+                                    const next = cur.includes(opt.id as any) ? cur.filter(x => x !== opt.id) : [...cur, opt.id as any];
+                                    update({ slowmoPolicies: next });
+                                    setCustomSpeedEnabled(false);
+                                }}
                                 className={clsx("p-2.5 rounded-lg border text-left transition-all",
-                                    settings.slowmoPolicy === opt.id && !customSpeedEnabled
+                                    (settings.slowmoPolicies ?? []).includes(opt.id as any) && !customSpeedEnabled
                                         ? "bg-blue-600/20 border-blue-500/40 shadow-[0_0_12px_rgba(59,130,246,0.15)]"
                                         : "bg-white/5 border-white/5 hover:bg-white/10")}>
-                                <div className={clsx("text-[10px] font-black uppercase", settings.slowmoPolicy === opt.id && !customSpeedEnabled ? "text-blue-200" : "text-white/70")}>{opt.label} ({opt.speed})</div>
+                                <div className={clsx("text-[10px] font-black uppercase", (settings.slowmoPolicies ?? []).includes(opt.id as any) && !customSpeedEnabled ? "text-blue-200" : "text-white/70")}>{opt.label} ({opt.speed})</div>
                                 <div className="text-[9px] text-white/30">{opt.desc}</div>
                             </button>
                         ))}
@@ -1105,7 +1240,7 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     badgeColor="bg-cyan-500/20 text-cyan-300">
 
                     {/* ── Boomerang ── */}
-                    <div className="space-y-2">
+                    <div className="space-y-2.5">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <Repeat size={13} className="text-cyan-400" />
@@ -1117,22 +1252,32 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                     settings.boomerangAll
                                         ? "bg-cyan-500/20 border-cyan-500/40 text-cyan-200 shadow-[0_0_8px_rgba(6,182,212,0.2)]"
                                         : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
-                                {settings.boomerangAll ? 'ON' : 'OFF'}
+                                {settings.boomerangAll ? 'All Clips' : 'Selective'}
                             </button>
                         </div>
-                        {settings.boomerangAll && (
-                            <div className="flex flex-wrap gap-1.5 pl-5">
-                                {(['classic', 'slowmo', 'echo', 'duo', 'stutter', 'whiplash'] as BoomerangPresetId[]).map(id => (
-                                    <button key={id} onClick={() => update({ boomerangPreset: id })}
-                                        className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border capitalize",
-                                            (settings.boomerangPreset ?? 'classic') === id
-                                                ? "bg-cyan-600/20 border-cyan-500/40 text-cyan-200"
-                                                : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
-                                        {id}
-                                    </button>
-                                ))}
+                        {!settings.boomerangAll && (
+                            <div className="pl-5">
+                                <SliderControl label="Frequency" icon={Repeat} value={settings.boomerangFrequency ?? 0}
+                                    min={0} max={100} step={5} unit="%" onChange={(v) => update({ boomerangFrequency: v })} />
                             </div>
                         )}
+                        <div className="space-y-1 pl-5">
+                            <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Presets — pick any (rotated per clip)</span>
+                            <div className="flex flex-wrap gap-1.5">
+                                {(([['classic', 'Classic'], ['slowmo', 'Slow-Mo'], ['echo', 'Echo'], ['duo', 'Duo'], ['stutter', 'Stutter'], ['whiplash', 'Whiplash']]) as [BoomerangPresetId, string][]).map(([id, name]) => {
+                                    const active = (settings.boomerangPresets ?? []).includes(id);
+                                    return (
+                                        <button key={id} onClick={() => { const cur = settings.boomerangPresets ?? []; update({ boomerangPresets: cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id] }); }}
+                                            className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
+                                                active
+                                                    ? "bg-cyan-600/20 border-cyan-500/40 text-cyan-200 shadow-[0_0_8px_rgba(6,182,212,0.2)]"
+                                                    : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                            {name}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
                     </div>
 
                     <div className="border-t border-white/5" />
@@ -1304,27 +1449,190 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
 
                     <div className="border-t border-white/5" />
 
-                    {/* ── Visual FX ── */}
+                    {/* ── Trending Effects (premium card grid) ── */}
                     <div className="space-y-3">
                         <span className="text-[11px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-2">
-                            <Eye size={13} className="text-indigo-400" /> Visual FX
+                            <Sparkles size={13} className="text-indigo-400" /> Trending Effects
                         </span>
-                        <SliderControl label="Film Grain" icon={Eye} value={settings.filmGrainAmount ?? 0}
-                            min={0} max={25} step={1} unit="" onChange={(v) => update({ filmGrainAmount: v })} />
-                        <SliderControl label="Vignette" icon={Eye} value={settings.vignetteAmount ?? 0}
-                            min={0} max={100} step={5} unit="%" onChange={(v) => update({ vignetteAmount: v })} />
-                        <SliderControl label="Chromatic Aberration" icon={Eye} value={settings.chromaticAmount ?? 0}
-                            min={0} max={20} step={1} unit="px" onChange={(v) => update({ chromaticAmount: v })} />
-                        <label className="flex items-center justify-between cursor-pointer py-1">
-                            <span className="text-[10px] font-bold uppercase text-white/50">Letterbox (2.39:1)</span>
-                            <div className="relative">
-                                <input type="checkbox" className="sr-only" checked={settings.letterboxEnabled ?? false}
-                                    onChange={(e) => update({ letterboxEnabled: e.target.checked })} />
-                                <div className={clsx("w-10 h-5 rounded-full transition-colors", settings.letterboxEnabled ? "bg-indigo-500" : "bg-black border border-white/20")}>
-                                    <div className={clsx("w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform", settings.letterboxEnabled ? "translate-x-5" : "translate-x-0.5")} />
+                        {recommendedEffects.length > 0 && (
+                            <div className="space-y-1">
+                                <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Recommended for you</span>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {recommendedEffects.map(id => (
+                                        <button key={id} onClick={() => update(QUICK_EFFECT_PATCH[id] || {})}
+                                            className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border bg-indigo-500/10 border-indigo-400/30 text-indigo-200 hover:bg-indigo-500/20 transition-all">
+                                            + {ADV_EFFECT_LABELS[id]}
+                                        </button>
+                                    ))}
                                 </div>
                             </div>
-                        </label>
+                        )}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {/* Double Exposure */}
+                            <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-indigo-600/10 via-white/5 to-purple-600/10",
+                                (settings.doubleExposurePolicy ?? 'off') !== 'off' ? "border-indigo-400/40 shadow-[0_0_18px_rgba(99,102,241,0.2)]" : "border-white/10")}>
+                                <div className="absolute -top-8 -right-8 w-24 h-24 bg-indigo-500/20 blur-[40px] pointer-events-none rounded-full" />
+                                <div className="flex items-center gap-2 relative">
+                                    <Layers size={14} className="text-indigo-300" />
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-black text-white leading-none">Double Exposure</span>
+                                        <span className="text-[9px] text-white/40">Dreamy two-layer blend</span>
+                                    </div>
+                                </div>
+                                <EffectPolicyControl label=""
+                                    policy={settings.doubleExposurePolicy ?? 'off'}
+                                    onPolicy={(p) => update({ doubleExposurePolicy: p })}>
+                                    <SliderControl label="Opacity" icon={Layers} value={settings.doubleExposureOpacity ?? 45}
+                                        min={0} max={100} step={5} unit="%" onChange={(v) => update({ doubleExposureOpacity: v })} />
+                                    <div className="space-y-1">
+                                        <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Shape</span>
+                                        <div className="flex gap-1.5">
+                                            {(([['full', 'Full'], ['shaped', 'Shaped'], ['mix', 'Mix']]) as ['full' | 'shaped' | 'mix', string][]).map(([mode, label]) => (
+                                                <button key={mode} onClick={() => update({ doubleExposureShapeMode: mode })}
+                                                    className={clsx("flex-1 px-2 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
+                                                        (settings.doubleExposureShapeMode ?? 'full') === mode
+                                                            ? "bg-indigo-600/20 border-indigo-500/40 text-indigo-200"
+                                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                                    {label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </EffectPolicyControl>
+                            </div>
+
+                            {/* Motion Blur */}
+                            <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-sky-600/10 via-white/5 to-blue-600/10",
+                                (settings.motionBlurPolicy ?? 'off') !== 'off' ? "border-sky-400/40 shadow-[0_0_18px_rgba(56,189,248,0.2)]" : "border-white/10")}>
+                                <div className="absolute -top-8 -right-8 w-24 h-24 bg-sky-500/20 blur-[40px] pointer-events-none rounded-full" />
+                                <div className="flex items-center gap-2 relative">
+                                    <Zap size={14} className="text-sky-300" />
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-black text-white leading-none">Motion Blur</span>
+                                        <span className="text-[9px] text-white/40">Smear the fast moments</span>
+                                    </div>
+                                </div>
+                                <EffectPolicyControl label=""
+                                    policy={settings.motionBlurPolicy ?? 'off'}
+                                    onPolicy={(p) => update({ motionBlurPolicy: p })}>
+                                    <SliderControl label="Amount" icon={Zap} value={settings.motionBlurAmount ?? 50}
+                                        min={0} max={100} step={5} unit="%" onChange={(v) => update({ motionBlurAmount: v })} />
+                                </EffectPolicyControl>
+                            </div>
+
+                            {/* Glow */}
+                            <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-amber-600/10 via-white/5 to-pink-600/10",
+                                (settings.glowPolicy ?? 'off') !== 'off' ? "border-amber-400/40 shadow-[0_0_18px_rgba(251,191,36,0.2)]" : "border-white/10")}>
+                                <div className="absolute -top-8 -right-8 w-24 h-24 bg-amber-500/20 blur-[40px] pointer-events-none rounded-full" />
+                                <div className="flex items-center gap-2 relative">
+                                    <Sparkles size={14} className="text-amber-300" />
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-black text-white leading-none">Glow</span>
+                                        <span className="text-[9px] text-white/40">Soft cinematic bloom</span>
+                                    </div>
+                                </div>
+                                <EffectPolicyControl label=""
+                                    policy={settings.glowPolicy ?? 'off'}
+                                    onPolicy={(p) => update({ glowPolicy: p })}>
+                                    <SliderControl label="Intensity" icon={Sparkles} value={settings.glowIntensity ?? 55}
+                                        min={0} max={100} step={5} unit="%" onChange={(v) => update({ glowIntensity: v })} />
+                                    <SliderControl label="Radius" icon={Sparkles} value={settings.glowRadius ?? 50}
+                                        min={0} max={100} step={5} unit="%" onChange={(v) => update({ glowRadius: v })} />
+                                </EffectPolicyControl>
+                            </div>
+
+                            {/* Vibration Flash */}
+                            <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-rose-600/10 via-white/5 to-red-600/10",
+                                (settings.vibrationFlashPolicy ?? 'off') !== 'off' ? "border-rose-400/40 shadow-[0_0_18px_rgba(244,63,94,0.2)]" : "border-white/10")}>
+                                <div className="absolute -top-8 -right-8 w-24 h-24 bg-rose-500/20 blur-[40px] pointer-events-none rounded-full" />
+                                <div className="flex items-center gap-2 relative">
+                                    <Zap size={14} className="text-rose-300" />
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-black text-white leading-none">Vibration Flash</span>
+                                        <span className="text-[9px] text-white/40">Punchy beat-synced jolt</span>
+                                    </div>
+                                </div>
+                                <EffectPolicyControl label=""
+                                    policy={settings.vibrationFlashPolicy ?? 'off'}
+                                    onPolicy={(p) => update({ vibrationFlashPolicy: p })}>
+                                    <SliderControl label="Intensity" icon={Zap} value={settings.vibrationFlashIntensity ?? 70}
+                                        min={0} max={100} step={5} unit="%" onChange={(v) => update({ vibrationFlashIntensity: v })} />
+                                </EffectPolicyControl>
+                            </div>
+
+                            {/* Optical-Flow Slow-Mo */}
+                            <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-teal-600/10 via-white/5 to-emerald-600/10 sm:col-span-2",
+                                (settings.smoothSlowmoPolicy ?? 'off') !== 'off' ? "border-teal-400/40 shadow-[0_0_18px_rgba(20,184,166,0.2)]" : "border-white/10")}>
+                                <div className="absolute -top-8 -right-8 w-24 h-24 bg-teal-500/20 blur-[40px] pointer-events-none rounded-full" />
+                                <div className="flex items-center gap-2 relative">
+                                    <Clock size={14} className="text-teal-300" />
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-black text-white leading-none">Optical-Flow Slow-Mo</span>
+                                        <span className="text-[9px] text-white/40">Buttery interpolated slow motion</span>
+                                    </div>
+                                </div>
+                                <EffectPolicyControl label=""
+                                    policy={settings.smoothSlowmoPolicy ?? 'off'}
+                                    onPolicy={(p) => update({ smoothSlowmoPolicy: p })} />
+                            </div>
+
+                            {/* RGB Split */}
+                            <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-fuchsia-600/10 via-white/5 to-cyan-600/10",
+                                (settings.rgbSplitPolicy ?? 'off') !== 'off' ? "border-fuchsia-400/40 shadow-[0_0_18px_rgba(217,70,239,0.2)]" : "border-white/10")}>
+                                <div className="absolute -top-8 -right-8 w-24 h-24 bg-fuchsia-500/20 blur-[40px] pointer-events-none rounded-full" />
+                                <div className="flex items-center gap-2 relative">
+                                    <Palette size={14} className="text-fuchsia-300" />
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-black text-white leading-none">RGB Split</span>
+                                        <span className="text-[9px] text-white/40">Chromatic separation</span>
+                                    </div>
+                                </div>
+                                <EffectPolicyControl label=""
+                                    policy={settings.rgbSplitPolicy ?? 'off'}
+                                    onPolicy={(p) => update({ rgbSplitPolicy: p })}>
+                                    <SliderControl label="Intensity" icon={Palette} value={settings.rgbSplitAmount ?? 50}
+                                        min={0} max={100} step={5} unit="%" onChange={(v) => update({ rgbSplitAmount: v })} />
+                                </EffectPolicyControl>
+                            </div>
+
+                            {/* Hue Cycle */}
+                            <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-violet-600/10 via-white/5 to-green-600/10",
+                                (settings.hueCyclePolicy ?? 'off') !== 'off' ? "border-violet-400/40 shadow-[0_0_18px_rgba(139,92,246,0.2)]" : "border-white/10")}>
+                                <div className="absolute -top-8 -right-8 w-24 h-24 bg-violet-500/20 blur-[40px] pointer-events-none rounded-full" />
+                                <div className="flex items-center gap-2 relative">
+                                    <Repeat size={14} className="text-violet-300" />
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-black text-white leading-none">Hue Cycle</span>
+                                        <span className="text-[9px] text-white/40">Psychedelic colour rotation</span>
+                                    </div>
+                                </div>
+                                <EffectPolicyControl label=""
+                                    policy={settings.hueCyclePolicy ?? 'off'}
+                                    onPolicy={(p) => update({ hueCyclePolicy: p })}>
+                                    <SliderControl label="Speed" icon={Repeat} value={settings.hueCycleSpeed ?? 50}
+                                        min={0} max={100} step={5} unit="%" onChange={(v) => update({ hueCycleSpeed: v })} />
+                                </EffectPolicyControl>
+                            </div>
+
+                            {/* VHS / Retro */}
+                            <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-orange-600/10 via-white/5 to-purple-600/10 sm:col-span-2",
+                                (settings.vhsPolicy ?? 'off') !== 'off' ? "border-orange-400/40 shadow-[0_0_18px_rgba(249,115,22,0.2)]" : "border-white/10")}>
+                                <div className="absolute -top-8 -right-8 w-24 h-24 bg-orange-500/20 blur-[40px] pointer-events-none rounded-full" />
+                                <div className="flex items-center gap-2 relative">
+                                    <Video size={14} className="text-orange-300" />
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-black text-white leading-none">VHS / Retro</span>
+                                        <span className="text-[9px] text-white/40">Retro chroma + grain</span>
+                                    </div>
+                                </div>
+                                <EffectPolicyControl label=""
+                                    policy={settings.vhsPolicy ?? 'off'}
+                                    onPolicy={(p) => update({ vhsPolicy: p })}>
+                                    <SliderControl label="Amount" icon={Video} value={settings.vhsAmount ?? 50}
+                                        min={0} max={100} step={5} unit="%" onChange={(v) => update({ vhsAmount: v })} />
+                                </EffectPolicyControl>
+                            </div>
+                        </div>
                     </div>
                 </CollapsibleSection>
 
@@ -1451,6 +1759,29 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
 
 
 
+                {/* ── Visual FX (bottom, final styling pass) ── */}
+                <div className="border border-white/5 rounded-xl bg-black/20 p-5 space-y-3">
+                    <span className="text-sm font-bold text-white flex items-center gap-2">
+                        <Eye size={14} className="text-indigo-400" /> Visual FX
+                    </span>
+                    <SliderControl label="Film Grain" icon={Eye} value={settings.filmGrainAmount ?? 0}
+                        min={0} max={25} step={1} unit="" onChange={(v) => update({ filmGrainAmount: v })} />
+                    <SliderControl label="Vignette" icon={Eye} value={settings.vignetteAmount ?? 0}
+                        min={0} max={100} step={5} unit="%" onChange={(v) => update({ vignetteAmount: v })} />
+                    <SliderControl label="Chromatic Aberration" icon={Eye} value={settings.chromaticAmount ?? 0}
+                        min={0} max={20} step={1} unit="px" onChange={(v) => update({ chromaticAmount: v })} />
+                    <label className="flex items-center justify-between cursor-pointer py-1">
+                        <span className="text-[10px] font-bold uppercase text-white/50">Letterbox (2.39:1)</span>
+                        <div className="relative">
+                            <input type="checkbox" className="sr-only" checked={settings.letterboxEnabled ?? false}
+                                onChange={(e) => update({ letterboxEnabled: e.target.checked })} />
+                            <div className={clsx("w-10 h-5 rounded-full transition-colors", settings.letterboxEnabled ? "bg-indigo-500" : "bg-black border border-white/20")}>
+                                <div className={clsx("w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform", settings.letterboxEnabled ? "translate-x-5" : "translate-x-0.5")} />
+                            </div>
+                        </div>
+                    </label>
+                </div>
+
                 {/* Generate Button */}
                 <div className="flex justify-end pt-4 border-t border-white/5">
                     <motion.button 
@@ -1459,7 +1790,7 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         className="px-6 py-2.5 rounded-lg text-xs font-black uppercase tracking-wider text-white bg-gradient-to-r from-purple-600 to-blue-600 shadow-[0_0_20px_rgba(168,85,247,0.4)] hover:shadow-[0_0_30px_rgba(168,85,247,0.6)] flex items-center gap-2 disabled:opacity-50 disabled:grayscale">
-                        <PlayCircle size={16} /> Generate Trailer
+                        <PlayCircle size={16} /> Generate {settings.generatorMode === 'music-video' ? 'Music Video' : 'Trailer'}
                     </motion.button>
                 </div>
             </div>

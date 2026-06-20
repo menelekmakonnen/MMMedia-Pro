@@ -11,6 +11,11 @@ interface PresetUsageState {
     rhythmUsage: Record<string, number>;
     pinnedRhythms: string[];
 
+    // Edit-effect usage + co-occurrence (drives trailer "recommended effects").
+    effectUsage: Record<string, number>;
+    effectComboUsage: Record<string, number>;
+    pinnedEffects: string[];
+
     incrementTemplate: (id: string) => void;
     incrementStyle: (id: string) => void;
     incrementGodMode: (id: string) => void;
@@ -23,6 +28,15 @@ interface PresetUsageState {
     getTopStyles: (n: number) => string[];
     getTopGodModes: (n: number) => string[];
     getTopRhythms: (n: number) => string[];
+
+    incrementEffect: (id: string) => void;
+    /** Record a whole stack of effects used together (for combo suggestions). */
+    recordEffectStack: (ids: string[]) => void;
+    togglePinEffect: (id: string) => void;
+    /** Most-used (and pinned) individual effects for quick-config chips. */
+    getRecommendedEffects: (n: number) => string[];
+    /** Most-used effect combinations, each as an array of effect ids. */
+    getTopEffectCombos: (n: number) => string[][];
 }
 
 /**
@@ -42,6 +56,9 @@ export const usePresetUsageStore = create<PresetUsageState>()(
             pinnedGodModes: [],
             rhythmUsage: {},
             pinnedRhythms: [],
+            effectUsage: {},
+            effectComboUsage: {},
+            pinnedEffects: [],
 
             incrementTemplate: (id) => set((s) => ({
                 templateUsage: { ...s.templateUsage, [id]: (s.templateUsage[id] || 0) + 1 }
@@ -101,6 +118,40 @@ export const usePresetUsageStore = create<PresetUsageState>()(
             getTopRhythms: (n) => {
                 const { rhythmUsage, pinnedRhythms } = get();
                 return getTopN(rhythmUsage, pinnedRhythms, n);
+            },
+
+            incrementEffect: (id) => set((s) => ({
+                effectUsage: { ...s.effectUsage, [id]: (s.effectUsage[id] || 0) + 1 }
+            })),
+
+            recordEffectStack: (ids) => set((s) => {
+                const effectUsage = { ...s.effectUsage };
+                for (const id of ids) effectUsage[id] = (effectUsage[id] || 0) + 1;
+                const effectComboUsage = { ...s.effectComboUsage };
+                if (ids.length >= 2) {
+                    const key = [...ids].sort().join('+');
+                    effectComboUsage[key] = (effectComboUsage[key] || 0) + 1;
+                }
+                return { effectUsage, effectComboUsage };
+            }),
+
+            togglePinEffect: (id) => set((s) => ({
+                pinnedEffects: s.pinnedEffects.includes(id)
+                    ? s.pinnedEffects.filter(p => p !== id)
+                    : [...s.pinnedEffects, id]
+            })),
+
+            getRecommendedEffects: (n) => {
+                const { effectUsage, pinnedEffects } = get();
+                return getTopN(effectUsage, pinnedEffects, n);
+            },
+
+            getTopEffectCombos: (n) => {
+                const { effectComboUsage } = get();
+                return Object.entries(effectComboUsage)
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, n)
+                    .map(([key]) => key.split('+'));
             },
         }),
         {

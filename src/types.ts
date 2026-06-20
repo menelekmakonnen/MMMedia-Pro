@@ -1,5 +1,14 @@
 import type { TextOverlay } from './lib/textOverlay';
 import type { AudioEffects } from './lib/audioEffects';
+import type {
+    MotionBlurConfig,
+    GlowConfig,
+    DoubleExposureConfig,
+    VibrationFlashConfig,
+    RgbSplitConfig,
+    HueCycleConfig,
+    VhsConfig,
+} from './lib/editEffectFilters';
 
 // Project Settings Types
 export type ResolutionPreset = '9:16' | '16:9' | '1:1' | '4:3' | '21:9';
@@ -70,6 +79,10 @@ export type SpeedCurvePreset = 'constant' | 'ramp-up' | 'ramp-down' | 's-curve' 
 export type BoomerangPresetId = 'classic' | 'slowmo' | 'echo' | 'duo' | 'stutter' | 'whiplash';
 export type BeatDropIntensity = 'off' | 'subtle' | 'medium' | 'heavy' | 'maximum';
 export type ShakePolicy = 'off' | 'sparingly' | 'on-every-beat' | 'heavy-beats-only';
+/** Generic intelligent application policy for trailer edit-effects.
+ *  off = never, sparingly = high-impact moments (drops, downbeats, probabilistic),
+ *  per-beat = on beat/downbeat-aligned clips, every-clip = on every clip. */
+export type EffectApplyPolicy = 'off' | 'sparingly' | 'per-beat' | 'every-clip';
 export type TransitionStyle = 'cuts-only' | 'mixed' | 'transitions-only';
 
 export interface ShakeConfig {
@@ -161,12 +174,24 @@ export interface Clip {
     strobe?: { frequency: number; durationFrames: number };
     echo?: { trailCount: number; opacity: number };
 
+    // ── Advanced edit effects (rendered by editEffectFilters → filterBuilder) ──
+    motionBlur?: MotionBlurConfig;         // shutter-style temporal blur
+    glow?: GlowConfig;                     // bloom / soft aura
+    doubleExposure?: DoubleExposureConfig; // ghosted double-exposure blend
+    vibrationFlash?: VibrationFlashConfig; // decaying brightness/saturation punch
+    smoothSlowmo?: boolean;                // optical-flow frame interpolation for slow-mo
+    rgbSplit?: RgbSplitConfig;             // chromatic / RGB separation (music-video staple)
+    hueCycle?: HueCycleConfig;             // continuous hue rotation over time
+    vhs?: VhsConfig;                       // retro VHS look (chroma shift + grain)
+
     // ── Transition to next clip ──
     transition?: ClipTransition;
 
     // Audio Analysis
     bpm?: number;
     beatMarkers?: { time: number, energy: number }[];
+    /** Clip-local beat timestamps (seconds from clip start) for beat-reactive filters */
+    beatTimestamps?: number[];
 
     // Asset References
 

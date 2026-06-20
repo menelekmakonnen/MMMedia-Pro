@@ -10,6 +10,8 @@ import { buildDrawtextFilter } from '../src/lib/textOverlay';
 import { buildAudioEffectsFilter } from '../src/lib/audioEffects';
 import { resolveParametricEffect, buildColorGradingFilter, isDefaultGrading } from './parametricEffects';
 import type { ColorGrading } from './parametricEffects';
+import { buildSpeedRemapSetpts, curveHasSlowdown } from '../src/lib/effectsEngine';
+import { buildMotionBlurChain, buildVibrationFlashChain, buildMinterpolateChain, buildForkMergeGraph, buildRgbSplitChain, buildHueCycleChain, buildVhsChain } from '../src/lib/editEffectFilters';
 
 // ── Data Types ──────────────────────────────────────────────────────────────
 
@@ -112,6 +114,33 @@ export interface ClipExportData {
     zoomSpeed?: 'instant' | 'fast' | 'slow' | 'smooth';
     /** Zoom easing curve */
     zoomCurve?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'snap';
+    /** Keyframed speed curve (normalized shape over the source window). When set,
+     *  a continuous variable-speed time-remap is rendered instead of a constant
+     *  speed — the clip keeps its timeline slot but ramps velocity smoothly. */
+    speedCurve?: Array<{ time: number; speed: number }>;
+    /** Synthesize intermediate frames (optical-flow) so slow-mo isn't choppy.
+     *  Costly — only enable when a curve actually slows below 1×. */
+    smoothSlowmo?: boolean;
+    /** Shutter-style temporal motion blur. */
+    motionBlur?: { amount: number };
+    /** Bloom / soft glow. */
+    glow?: { intensity: number; radius: number; threshold?: number };
+    /** True double exposure: a SECOND clip overlaid (optionally shape-masked).
+     *  Rendered as a two-input graph by the export engine, not in this chain. */
+    doubleExposure?: {
+        overlayPath: string; overlayTrimStart: number; overlayTrimEnd: number;
+        blendMode: 'screen' | 'lighten' | 'overlay' | 'add' | 'softlight' | 'multiply';
+        opacity: number;
+        shape?: string | null;
+    };
+    /** Decaying brightness/saturation flash punch. */
+    vibrationFlash?: { intensity: number; durationFrames: number };
+    /** Chromatic / RGB split (music-video staple). */
+    rgbSplit?: { amount: number };
+    /** Continuous hue rotation over time. */
+    hueCycle?: { speed: number };
+    /** Retro VHS look (chroma shift + grain). */
+    vhs?: { amount: number };
 }
 
 export interface ExportSettings {
@@ -605,15 +634,71 @@ export function buildVideoFilter(
         filters.push(`eq=brightness='${flash.intensity.toFixed(2)}*gt(${enableExpr},0)'`);
     }
 
+    // 10h-b. Beat-reactive chromatic aberration (rgbashift at beat timestamps)
+    if (clip.beatEffect?.chromatic && clip.beatTimestamps && clip.beatTimestamps.length > 0) {
+        const chroma = clip.beatEffect.chromatic;
+        const chromaDurSec = chroma.durationFrames / fps;
+        const chromaEnableExpr = clip.beatTimestamps
+            .map(bt => `between(t,${bt.toFixed(4)},${(bt + chromaDurSec).toFixed(4)})`)
+            .join('+');
+        const offset = chroma.offset;
+        filters.push(`rgbashift=rh='${offset}*gt(${chromaEnableExpr},0)':bh='${-offset}*gt(${chromaEnableExpr},0)'`);
+    }
+
+    // 10i. Beat-reactive shake boost: merged into clip.shake during generation (trailerGenerator.ts)
+
+    // 10j. Beat-reactive zoom punch (scale + crop at beat timestamps)
+    if (clip.beatEffect?.zoom && clip.beatTimestamps && clip.beatTimestamps.length > 0) {
+        const zoomPunch = clip.beatEffect.zoom;
+        const punchDurSec = zoomPunch.durationFrames / fps;
+        const punch = zoomPunch.punchScale - 1; // e.g. 1.05 → 0.05
+        const zoomEnableExpr = clip.beatTimestamps
+            .map(bt => `between(t,${bt.toFixed(4)},${(bt + punchDurSec).toFixed(4)})`)
+            .join('+');
+        filters.push(`scale='iw*(1+${punch.toFixed(4)}*gt(${zoomEnableExpr},0))':'ih*(1+${punch.toFixed(4)}*gt(${zoomEnableExpr},0))'`);
+        filters.push(`crop=${outW}:${outH}:'(iw-${outW})/2':'(ih-${outH})/2'`);
+    }
+
+    // 10z. Advanced linear edit-effects: shutter motion blur + vibration flash.
+    const mbChain = buildMotionBlurChain(clip.motionBlur);
+    if (mbChain) filters.push(mbChain);
+    const vFlash = buildVibrationFlashChain(clip.vibrationFlash, fps);
+    if (vFlash) filters.push(vFlash);
+    const rgbS = buildRgbSplitChain(clip.rgbSplit);
+    if (rgbS) filters.push(rgbS);
+    const hueC = buildHueCycleChain(clip.hueCycle);
+    if (hueC) filters.push(hueC);
+    const vhsC = buildVhsChain(clip.vhs);
+    if (vhsC) filters.push(vhsC);
+
     // 11. Speed adjustment via setpts
-    if (speed !== 1.0) {
+    //     Variable-speed time-remap (smooth ramp) when a keyframed curve is set;
+    //     otherwise the constant-speed mapping. The remap is rescaled so the clip
+    //     still fills exactly its timeline slot (average speed = clip.speed), so
+    //     downstream concat/audio timing is unchanged.
+    const remap = clip.speedCurve
+        ? buildSpeedRemapSetpts(clip.speedCurve, timing.srcDurSec, speed)
+        : null;
+    if (remap) {
+        filters.push(`setpts='${remap}'`);
+    } else if (speed !== 1.0) {
         filters.push(`setpts=${(1 / speed).toFixed(4)}*PTS`);
     }
 
     // 12. FPS
     filters.push(`fps=fps=${fps}`);
 
-    return filters.join(',');
+    // 12b. Optical-flow frame interpolation for smooth slow-motion. Worth it when
+    //      the footage is actually slowed (constant <1× or a curve that dips <1×).
+    const isSlowed = speed < 0.98 || (clip.speedCurve ? curveHasSlowdown(clip.speedCurve) : false);
+    if (clip.smoothSlowmo && isSlowed) {
+        filters.push(buildMinterpolateChain(fps));
+    }
+
+    // 13. Fork/merge effects (double exposure + glow bloom). Appended as a valid
+    //     single-in/single-out sub-graph so the whole -vf remains one filtergraph.
+    const forkMerge = buildForkMergeGraph({ glow: clip.glow });
+    return filters.join(',') + forkMerge;
 }
 
 /**

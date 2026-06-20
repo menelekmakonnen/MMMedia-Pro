@@ -8,7 +8,7 @@ import { generateManifest } from '../../lib/manifestBridge';
 import clsx from 'clsx';
 import { toast } from '../../components/Toast';
 import { EXPORT_PRESETS, getOutputDimensions } from '../../lib/exportPresets';
-import { expandClipToBoomerang, BOOMERANG_PRESETS } from '../../lib/boomerang';
+import { expandClipToBoomerang, BOOMERANG_PRESETS, getBoomerangPreset } from '../../lib/boomerang';
 import { Mp4Tab } from './Mp4Tab';
 import { PremiereTab } from './PremiereTab';
 import { AmeTab } from './AmeTab';
@@ -224,7 +224,10 @@ export const ExportTab: React.FC = () => {
             const preRepairCount = exportClips.length;
             exportClips = exportClips.flatMap(c => {
                 if (c.type === 'audio' || !c.boomerang) return [c];
-                const expanded = expandClipToBoomerang(c, BOOMERANG_PRESETS.classic, selectedFps || settings.fps || 30);
+                // Honor each clip's chosen preset (classic/slowmo/echo/duo/stutter/whiplash)
+                // instead of forcing classic — keeps export in sync with the new Boomerang system.
+                const preset = getBoomerangPreset(c.boomerangPreset);
+                const expanded = expandClipToBoomerang(c, preset, selectedFps || settings.fps || 30);
                 return expanded;
             });
             if (exportClips.length !== preRepairCount) {
