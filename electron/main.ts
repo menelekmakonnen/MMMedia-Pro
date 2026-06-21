@@ -8,6 +8,7 @@ import { resolveEffectFilter, getUnexportableEffects } from './effectCompiler';
 import { buildAtempoChain, shouldUseIntermediateForReverse, buildVideoFilter, buildClipAudioFilter, computeClipTiming } from './filterBuilder';
 import { parseShowinfoPtsTimes } from '../src/lib/sceneDetection';
 import { parseSilenceDetect, computeHeadTailTrim } from '../src/lib/silenceRemoval';
+import { parseMetadataValues, mean as motionMean, motionToScore } from '../src/lib/clipScoring';
 import { buildDoubleExposureGraph } from '../src/lib/editEffectFilters';
 import { getTransitionFFmpegName, isApproximatedTransition } from '../src/lib/transitions';
 import { getGridLayout } from '../src/lib/gridTemplates';
@@ -2215,6 +2216,18 @@ ipcMain.handle('import-lut', async () => {
 });
 
 // ── Auto-editor intelligence: scene & silence detection (FFmpeg-backed) ──────
+ipcMain.handle('score-clip', async (_e, { path: raw }: any) => {
+    try {
+        const ffmpegBin = resolveFFmpegBin();
+        const p = normalizeClipPath(raw || '');
+        if (!p || !fs.existsSync(p)) return { success: false, error: 'File not found' };
+        const r = await runFfmpegAsync(ffmpegBin, ['-i', p, '-vf', 'tblend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG', '-an', '-f', 'null', '-'], 'scoreclip', () => {});
+        const vals = parseMetadataValues(r.stderr || '', 'lavfi.signalstats.YAVG');
+        const energy = motionMean(vals);
+        return { success: true, motionEnergy: energy, score: motionToScore(energy) };
+    } catch (e: any) { return { success: false, error: e?.message || String(e) }; }
+});
+
 ipcMain.handle('detect-silence', async (_e, { path: raw, noiseDb = -45, minSilenceSec = 0.4 }: any) => {
     try {
         const ffmpegBin = resolveFFmpegBin();

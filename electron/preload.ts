@@ -32,6 +32,7 @@ try {
         cancelExport: () => ipcRenderer.invoke('cancel-export'),
         detectSilence: (args: { path: string; noiseDb?: number; minSilenceSec?: number }) => ipcRenderer.invoke('detect-silence', args),
         detectScenes: (args: { path: string; threshold?: number }) => ipcRenderer.invoke('detect-scenes', args),
+        scoreClip: (args: { path: string }) => ipcRenderer.invoke('score-clip', args),
         generateScopes: (args: { path: string; atSec?: number }) => ipcRenderer.invoke('generate-scopes', args),
         listLuts: () => ipcRenderer.invoke('list-luts'),
         importLut: () => ipcRenderer.invoke('import-lut'),

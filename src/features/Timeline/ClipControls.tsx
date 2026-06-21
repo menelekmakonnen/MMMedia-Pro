@@ -94,6 +94,20 @@ export const ClipControls: React.FC<ClipControlsProps> = ({ clipId, variant = 's
             setSmartBusy(false);
         }
     }, [clipId]);
+    const handleScore = useCallback(async () => {
+        const c = useClipStore.getState().clips.find((x) => x.id === clipId);
+        if (!c?.path) return;
+        setSmartBusy(true);
+        try {
+            const res = await (window as any).ipcRenderer.scoreClip({ path: c.path });
+            if (res?.success) toast.success(`Interest score: ${res.score}/100 (motion ${(res.motionEnergy || 0).toFixed(1)})`);
+            else toast.error(res?.error || 'Scoring failed');
+        } catch (e: any) {
+            toast.error(e?.message || 'Scoring failed');
+        } finally {
+            setSmartBusy(false);
+        }
+    }, [clipId]);
 
     return (
         <>
@@ -459,6 +473,7 @@ export const ClipControls: React.FC<ClipControlsProps> = ({ clipId, variant = 's
                             <div className="flex gap-1.5 mt-1">
                                 <button disabled={smartBusy} onClick={handleRemoveSilence} className="flex-1 text-[10px] py-1 rounded-md bg-white/5 hover:bg-white/10 text-white/60 disabled:opacity-40 transition-colors" title="Trim leading/trailing silence">Remove Silence</button>
                                 <button disabled={smartBusy} onClick={handleDetectScenes} className="flex-1 text-[10px] py-1 rounded-md bg-white/5 hover:bg-white/10 text-white/60 disabled:opacity-40 transition-colors" title="Detect scene-change cut points">Detect Scenes</button>
+                                <button disabled={smartBusy} onClick={handleScore} className="flex-1 text-[10px] py-1 rounded-md bg-white/5 hover:bg-white/10 text-white/60 disabled:opacity-40 transition-colors" title="Score clip by motion/activity">Score</button>
                             </div>
                         </div>
 
