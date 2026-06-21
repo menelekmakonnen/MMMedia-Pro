@@ -6,6 +6,8 @@ import ffmpeg from 'fluent-ffmpeg';
 import ffmpegStatic from 'ffmpeg-static';
 import { resolveEffectFilter, getUnexportableEffects } from './effectCompiler';
 import { buildAtempoChain, shouldUseIntermediateForReverse, buildVideoFilter, buildClipAudioFilter, computeClipTiming } from './filterBuilder';
+import { parseShowinfoPtsTimes } from '../src/lib/sceneDetection';
+import { parseSilenceDetect, computeHeadTailTrim } from '../src/lib/silenceRemoval';
 import { buildDoubleExposureGraph } from '../src/lib/editEffectFilters';
 import { getTransitionFFmpegName, isApproximatedTransition } from '../src/lib/transitions';
 import { getGridLayout } from '../src/lib/gridTemplates';
@@ -2160,6 +2162,31 @@ ipcMain.handle('open-path', async (_event, fullPath: string) => {
 // player can show exact rendered output. Uses the SAME filter builders
 // (buildVideoFilter / buildClipAudioFilter) as the export engine.
 // ══════════════════════════════════════════════════════════════════════════════
+
+// ── Auto-editor intelligence: scene & silence detection (FFmpeg-backed) ──────
+ipcMain.handle('detect-silence', async (_e, { path: raw, noiseDb = -45, minSilenceSec = 0.4 }: any) => {
+    try {
+        const ffmpegBin = resolveFFmpegBin();
+        const p = normalizeClipPath(raw || '');
+        if (!p || !fs.existsSync(p)) return { success: false, error: 'File not found' };
+        const probe = probeClipFile(ffmpegBin, p);
+        const r = await runFfmpegAsync(ffmpegBin, ['-i', p, '-af', `silencedetect=n=${noiseDb}dB:d=${minSilenceSec}`, '-f', 'null', '-'], 'silencedetect', () => {});
+        const intervals = parseSilenceDetect(r.stderr || '', probe.duration || Infinity);
+        const trim = computeHeadTailTrim(intervals, probe.duration || 0);
+        return { success: true, duration: probe.duration, intervals, trim };
+    } catch (e: any) { return { success: false, error: e?.message || String(e) }; }
+});
+
+ipcMain.handle('detect-scenes', async (_e, { path: raw, threshold = 0.3 }: any) => {
+    try {
+        const ffmpegBin = resolveFFmpegBin();
+        const p = normalizeClipPath(raw || '');
+        if (!p || !fs.existsSync(p)) return { success: false, error: 'File not found' };
+        const r = await runFfmpegAsync(ffmpegBin, ['-i', p, '-vf', `select='gt(scene,${threshold})',showinfo`, '-an', '-f', 'null', '-'], 'scenedetect', () => {});
+        const cuts = parseShowinfoPtsTimes(r.stderr || '');
+        return { success: true, cuts };
+    } catch (e: any) { return { success: false, error: e?.message || String(e) }; }
+});
 
 ipcMain.handle('generate-preview-proxy', async (_event, { clip: rawClip, settings }) => {
     const path = require('path');

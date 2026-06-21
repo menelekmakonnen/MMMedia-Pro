@@ -30,6 +30,8 @@ try {
         exportProjectSegment: (args: { filePath: string, clips: any[], settings: any }) => ipcRenderer.invoke('export-project-segment', args),
         analyzeRenderParity: (args: { clips: any[], settings: any }) => ipcRenderer.invoke('analyze-render-parity', args),
         cancelExport: () => ipcRenderer.invoke('cancel-export'),
+        detectSilence: (args: { path: string; noiseDb?: number; minSilenceSec?: number }) => ipcRenderer.invoke('detect-silence', args),
+        detectScenes: (args: { path: string; threshold?: number }) => ipcRenderer.invoke('detect-scenes', args),
         pauseExport: () => ipcRenderer.invoke('pause-export'),
         resumeExport: () => ipcRenderer.invoke('resume-export'),
         openInAME: (filePath: string) => ipcRenderer.invoke('open-in-ame', filePath),

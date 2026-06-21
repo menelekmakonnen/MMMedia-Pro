@@ -7,6 +7,8 @@ import { EffectsPanel } from './EffectsPanel';
 import { ColorGradingPanel } from './ColorGradingPanel';
 import { TextOverlayPanel } from './TextOverlayPanel';
 import { AudioEffectsPanel } from './AudioEffectsPanel';
+import { toast } from '../../components/Toast';
+import { useProjectStore } from '../../store/projectStore';
 
 interface ClipControlsProps {
     clipId: string;
@@ -47,6 +49,48 @@ export const ClipControls: React.FC<ClipControlsProps> = ({ clipId, variant = 's
         },
         [clipId]
     );
+
+    // ── Smart (auto-editor) actions: FFmpeg-backed silence/scene detection ──
+    const [smartBusy, setSmartBusy] = useState(false);
+    const handleRemoveSilence = useCallback(async () => {
+        const c = useClipStore.getState().clips.find((x) => x.id === clipId);
+        if (!c?.path) return;
+        setSmartBusy(true);
+        try {
+            const fps = useProjectStore.getState().settings.fps || 30;
+            const res = await (window as any).ipcRenderer.detectSilence({ path: c.path });
+            if (res?.success && res.trim) {
+                const ns = Math.round(res.trim.trimStart * fps);
+                const ne = Math.round(res.trim.trimEnd * fps);
+                if (ne > ns && (res.trim.trimStart > 0.05 || (res.duration && res.trim.trimEnd < res.duration - 0.05))) {
+                    useClipStore.getState().updateClipSource(clipId, ns, ne);
+                    toast.success(`Trimmed silence (${res.trim.trimStart.toFixed(2)}s head)`);
+                } else {
+                    toast.info('No leading/trailing silence found');
+                }
+            } else {
+                toast.error(res?.error || 'Silence detection failed');
+            }
+        } catch (e: any) {
+            toast.error(e?.message || 'Silence detection failed');
+        } finally {
+            setSmartBusy(false);
+        }
+    }, [clipId]);
+    const handleDetectScenes = useCallback(async () => {
+        const c = useClipStore.getState().clips.find((x) => x.id === clipId);
+        if (!c?.path) return;
+        setSmartBusy(true);
+        try {
+            const res = await (window as any).ipcRenderer.detectScenes({ path: c.path });
+            if (res?.success) toast.success(`${res.cuts?.length || 0} scene cuts detected`);
+            else toast.error(res?.error || 'Scene detection failed');
+        } catch (e: any) {
+            toast.error(e?.message || 'Scene detection failed');
+        } finally {
+            setSmartBusy(false);
+        }
+    }, [clipId]);
 
     return (
         <>
@@ -404,6 +448,15 @@ export const ClipControls: React.FC<ClipControlsProps> = ({ clipId, variant = 's
                                     <span className="text-xs text-white/40 w-8 text-right tabular-nums">{stabilize.smoothing}</span>
                                 </div>
                             )}
+                        </div>
+
+                        {/* ── Smart (auto-editor) ───────────────────────────── */}
+                        <div className="pt-1 border-t border-white/5">
+                            <span className="text-[10px] uppercase tracking-wider text-white/30 font-semibold">Smart</span>
+                            <div className="flex gap-1.5 mt-1">
+                                <button disabled={smartBusy} onClick={handleRemoveSilence} className="flex-1 text-[10px] py-1 rounded-md bg-white/5 hover:bg-white/10 text-white/60 disabled:opacity-40 transition-colors" title="Trim leading/trailing silence">Remove Silence</button>
+                                <button disabled={smartBusy} onClick={handleDetectScenes} className="flex-1 text-[10px] py-1 rounded-md bg-white/5 hover:bg-white/10 text-white/60 disabled:opacity-40 transition-colors" title="Detect scene-change cut points">Detect Scenes</button>
+                            </div>
                         </div>
                     </div>
                 )}
