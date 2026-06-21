@@ -254,6 +254,79 @@ export const EFFECT_REGISTRY: ParametricEffect[] = [
         ffmpegTemplate: 'vflip',
         realtimePreview: true,
     },
+
+    // Color (added)
+    {
+        id: 'exposure',
+        name: 'Exposure',
+        category: 'color',
+        description: 'Adjust exposure in stops (EV), brightening or darkening the whole image.',
+        parameters: [
+            { key: 'ev', label: 'Exposure', type: 'slider', min: -3, max: 3, step: 0.05, default: 0, unit: 'EV' },
+        ],
+        ffmpegTemplate: 'exposure=exposure={{ev}}',
+        realtimePreview: true,
+    },
+    {
+        id: 'vibrance',
+        name: 'Vibrance',
+        category: 'color',
+        description: 'Smart saturation that boosts muted colors while protecting skin tones.',
+        parameters: [
+            { key: 'amt', label: 'Intensity', type: 'slider', min: -2, max: 2, step: 0.05, default: 0.5 },
+        ],
+        ffmpegTemplate: 'vibrance=intensity={{amt}}',
+        realtimePreview: true,
+    },
+
+    // Style (added)
+    {
+        id: 'deflicker',
+        name: 'Deflicker',
+        category: 'style',
+        description: 'Remove temporal luminance flicker (timelapse, old footage, LED lights).',
+        parameters: [
+            { key: 'size', label: 'Window', type: 'slider', min: 2, max: 60, step: 1, default: 10, unit: 'fr' },
+        ],
+        ffmpegTemplate: 'deflicker=size={{size}}:mode=am',
+        realtimePreview: false,
+    },
+    {
+        id: 'deband',
+        name: 'Deband',
+        category: 'style',
+        description: 'Smooth out banding artifacts in gradients and flat areas.',
+        parameters: [
+            { key: 'range', label: 'Range', type: 'slider', min: 1, max: 64, step: 1, default: 16 },
+        ],
+        ffmpegTemplate: 'deband=range={{range}}',
+        realtimePreview: false,
+    },
+    {
+        id: 'edge_detect',
+        name: 'Edge Detect',
+        category: 'style',
+        description: 'Stylized edge/sketch look via Canny edge detection.',
+        parameters: [
+            { key: 'low', label: 'Low Threshold', type: 'slider', min: 0, max: 1, step: 0.01, default: 0.1 },
+            { key: 'high', label: 'High Threshold', type: 'slider', min: 0, max: 1, step: 0.01, default: 0.4 },
+        ],
+        ffmpegTemplate: 'edgedetect=low={{low}}:high={{high}}',
+        realtimePreview: false,
+    },
+
+    // Blur / Denoise (added)
+    {
+        id: 'denoise',
+        name: 'Denoise (HQ 3D)',
+        category: 'blur',
+        description: 'High-quality spatial + temporal denoiser to clean up grainy footage.',
+        parameters: [
+            { key: 'luma', label: 'Strength', type: 'slider', min: 0, max: 12, step: 0.5, default: 4 },
+        ],
+        ffmpegTemplate: 'hqdn3d={{luma}}:{{luma}}:6:6',
+        realtimePreview: false,
+    },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -307,6 +380,27 @@ function buildSepiaFilter(intensity: number): string {
  * @param params   - Map of parameter key → value overrides
  * @returns Fully resolved FFmpeg filter string, or '' if effect not found
  */
+/**
+ * Build a `colorlevels` filter from 0-255 input black/white points plus gamma.
+ * Returns '' when the settings are neutral (0/255/1.0).
+ */
+function buildLevelsFilter(min: number, max: number, gamma: number): string {
+    const lo = Math.max(0, Math.min(255, isFinite(min) ? min : 0)) / 255;
+    const hi = Math.max(0, Math.min(255, isFinite(max) ? max : 255)) / 255;
+    const g = isFinite(gamma) && gamma > 0 ? gamma : 1.0;
+    const parts: string[] = [];
+    if (lo > 0.0001 || hi < 0.9999) {
+        parts.push(
+            `colorlevels=rimin=${lo.toFixed(4)}:gimin=${lo.toFixed(4)}:bimin=${lo.toFixed(4)}:` +
+            `rimax=${hi.toFixed(4)}:gimax=${hi.toFixed(4)}:bimax=${hi.toFixed(4)}`
+        );
+    }
+    if (Math.abs(g - 1.0) > 0.001) {
+        parts.push(`eq=gamma=${g.toFixed(4)}`);
+    }
+    return parts.join(',');
+}
+
 export function resolveParametricEffect(
     effectId: string,
     params: Record<string, number | string | boolean>
@@ -338,6 +432,10 @@ export function resolveParametricEffect(
     // ── Special-case: color_curves "none" preset → skip filter ───────────
     if (effectId === 'color_curves' && resolved['preset'] === 'none') {
         return '';
+    }
+
+    if (effectId === 'levels') {
+        return buildLevelsFilter(Number(resolved['min']), Number(resolved['max']), Number(resolved['gamma']));
     }
 
     // Substitute {{key}} placeholders in the template

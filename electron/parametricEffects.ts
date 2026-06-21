@@ -44,7 +44,29 @@ const EFFECTS: Record<string, EffectDef> = {
     lens_distortion:        { template: 'lenscorrection=k1={{k1}}:k2={{k2}}', defaults: { k1: 0, k2: 0 } },
     mirror_h:               { template: 'hflip', defaults: { enabled: true } },
     mirror_v:               { template: 'vflip', defaults: { enabled: true } },
+    // Added effects (mirror src/lib/effectRegistry.ts)
+    exposure:               { template: 'exposure=exposure={{ev}}', defaults: { ev: 0 } },
+    vibrance:               { template: 'vibrance=intensity={{amt}}', defaults: { amt: 0.5 } },
+    deflicker:              { template: 'deflicker=size={{size}}:mode=am', defaults: { size: 10 } },
+    deband:                 { template: 'deband=range={{range}}', defaults: { range: 16 } },
+    edge_detect:            { template: 'edgedetect=low={{low}}:high={{high}}', defaults: { low: 0.1, high: 0.4 } },
+    denoise:                { template: 'hqdn3d={{luma}}:{{luma}}:6:6', defaults: { luma: 4 } },
 };
+
+function buildLevelsFilter(min: number, max: number, gamma: number): string {
+    const lo = Math.max(0, Math.min(255, isFinite(min) ? min : 0)) / 255;
+    const hi = Math.max(0, Math.min(255, isFinite(max) ? max : 255)) / 255;
+    const g = isFinite(gamma) && gamma > 0 ? gamma : 1.0;
+    const parts: string[] = [];
+    if (lo > 0.0001 || hi < 0.9999) {
+        parts.push(
+            `colorlevels=rimin=${lo.toFixed(4)}:gimin=${lo.toFixed(4)}:bimin=${lo.toFixed(4)}:` +
+            `rimax=${hi.toFixed(4)}:gimax=${hi.toFixed(4)}:bimax=${hi.toFixed(4)}`
+        );
+    }
+    if (Math.abs(g - 1.0) > 0.001) parts.push(`eq=gamma=${g.toFixed(4)}`);
+    return parts.join(',');
+}
 
 /**
  * Resolve a parametric effect ID + parameters to an FFmpeg filter string.
@@ -78,6 +100,10 @@ export function resolveParametricEffect(
 
     // Color curves "none" → skip
     if (effectId === 'color_curves' && p['preset'] === 'none') return '';
+
+    if (effectId === 'levels') {
+        return buildLevelsFilter(Number(p['min']), Number(p['max']), Number(p['gamma']));
+    }
 
     // Substitute {{key}} placeholders
     let filter = def.template;

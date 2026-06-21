@@ -479,6 +479,15 @@ export function buildVideoFilter(
     filters.push(`pad=${outW}:${outH}:(ow-iw)/2:(oh-ih)/2`);
     filters.push('setsar=1');
 
+    // 5b. Video stabilization. Single-pass `deshake` keeps the per-clip filtergraph
+    //     intact (a higher-quality two-pass vidstab path can be applied by the export
+    //     engine, which sets _vidstabApplied to skip this). The smoothing slider
+    //     (1-60) maps to the deshake search range in pixels.
+    if (clip.stabilize && clip.stabilize.enabled && !(clip as any)._vidstabApplied) {
+        const s = Math.min(64, Math.max(8, Math.round(clip.stabilize.smoothing || 10)));
+        filters.push(`deshake=rx=${s}:ry=${s}:edge=clamp`);
+    }
+
     // 6. Chroma key (after scale/pad, before color grading)
     if (clip.chromaKey && clip.chromaKey.enabled) {
         const hex = clip.chromaKey.color.replace('#', '');

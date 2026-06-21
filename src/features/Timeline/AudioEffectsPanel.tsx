@@ -186,6 +186,32 @@ export const AudioEffectsPanel: React.FC<AudioEffectsPanelProps> = ({ clipId }) 
                     disabled={!effects.compressor}
                     onChange={(v) => update({ compressorRatio: v })}
                 />
+                <div className="flex items-center justify-between pt-1">
+                    <label className="text-[10px] text-white/40 uppercase tracking-wider">Noise Gate</label>
+                    <Toggle value={effects.gate ?? false} onChange={(v) => update({ gate: v })} />
+                </div>
+                <Slider
+                    label="Gate Threshold"
+                    value={effects.gateThreshold ?? -50}
+                    min={-80}
+                    max={0}
+                    unit=" dB"
+                    disabled={!effects.gate}
+                    onChange={(v) => update({ gateThreshold: v })}
+                />
+                <div className="flex items-center justify-between pt-1">
+                    <label className="text-[10px] text-white/40 uppercase tracking-wider">Limiter</label>
+                    <Toggle value={effects.limiter ?? false} onChange={(v) => update({ limiter: v })} />
+                </div>
+                <Slider
+                    label="Ceiling"
+                    value={effects.limiterLevel ?? 0.95}
+                    min={0.1}
+                    max={1.0}
+                    step={0.01}
+                    disabled={!effects.limiter}
+                    onChange={(v) => update({ limiterLevel: v })}
+                />
             </Section>
 
             {/* 4. Noise Reduction */}
@@ -206,6 +232,29 @@ export const AudioEffectsPanel: React.FC<AudioEffectsPanelProps> = ({ clipId }) 
                         Loudness Norm (EBU R128)
                     </label>
                     <Toggle value={effects.loudnessNorm} onChange={(v) => update({ loudnessNorm: v })} />
+                </div>
+                <div className={effects.loudnessNorm ? '' : 'opacity-40'}>
+                    <label className="text-[10px] text-white/40 uppercase tracking-wider block mb-1">Target</label>
+                    <div className="grid grid-cols-3 gap-1">
+                        {[
+                            { lbl: 'YouTube', val: -14 },
+                            { lbl: 'Podcast', val: -16 },
+                            { lbl: 'Broadcast', val: -23 },
+                        ].map((pr) => (
+                            <button
+                                key={pr.val}
+                                disabled={!effects.loudnessNorm}
+                                onClick={() => update({ loudnessTarget: pr.val })}
+                                className={`text-[9px] py-1 rounded-md transition-colors disabled:cursor-not-allowed ${
+                                    (effects.loudnessTarget ?? -14) === pr.val
+                                        ? 'bg-purple-500/30 text-purple-200 border border-purple-500/40'
+                                        : 'bg-white/5 text-white/50 hover:bg-white/10 border border-transparent'
+                                }`}
+                            >
+                                {pr.lbl} {pr.val}
+                            </button>
+                        ))}
+                    </div>
                 </div>
             </Section>
 

@@ -16,10 +16,15 @@ export interface AudioEffects {
     compressor: boolean;
     compressorThreshold: number; // -50 to 0 dB
     compressorRatio: number;     // 1 to 20
+    limiter: boolean;            // brickwall peak limiter (alimiter)
+    limiterLevel: number;        // 0.1-1.0 ceiling (linear)
+    gate: boolean;               // noise gate (agate)
+    gateThreshold: number;       // -80 to 0 dB
     // Noise
     noiseReduction: number;      // 0 = off, 1-97 (afftdn nr value)
     // Normalization
     loudnessNorm: boolean;       // EBU R128 loudnorm
+    loudnessTarget: number;      // integrated LUFS target (-14 YouTube, -16 podcast, -23 broadcast)
     // Fades
     fadeInDuration: number;      // seconds, 0 = off
     fadeOutDuration: number;     // seconds, 0 = off
@@ -38,8 +43,13 @@ export const DEFAULT_AUDIO_EFFECTS: AudioEffects = {
     compressor: false,
     compressorThreshold: -20,
     compressorRatio: 4,
+    limiter: false,
+    limiterLevel: 0.95,
+    gate: false,
+    gateThreshold: -50,
     noiseReduction: 0,
     loudnessNorm: false,
+    loudnessTarget: -14,
     fadeInDuration: 0,
     fadeOutDuration: 0,
     echo: false,
@@ -62,6 +72,11 @@ export const DEFAULT_AUDIO_EFFECTS: AudioEffects = {
  * @param clipDurationSec - Duration of the clip in seconds (needed for fade out timing)
  * @returns Comma-separated FFmpeg filter chain, or empty string if all defaults
  */
+/** Convert decibels to a linear amplitude (for filters that want 0-1 thresholds). */
+function dbToLinear(db: number): number {
+    return Math.pow(10, db / 20);
+}
+
 export function buildAudioEffectsFilter(effects: AudioEffects, clipDurationSec: number): string {
     const filters: string[] = [];
 
@@ -96,6 +111,11 @@ export function buildAudioEffectsFilter(effects: AudioEffects, clipDurationSec: 
         );
     }
 
+    if (effects.gate) {
+        const thr = effects.gateThreshold ?? -50;
+        filters.push(`agate=threshold=${dbToLinear(thr).toFixed(6)}:ratio=4:attack=10:release=120`);
+    }
+
     // ── Noise Reduction ─────────────────────────────────────────────────────
 
     if (effects.noiseReduction > 0) {
@@ -106,7 +126,13 @@ export function buildAudioEffectsFilter(effects: AudioEffects, clipDurationSec: 
     // EBU R128 standard targeting -23 LUFS with 7 LRA and -2 TP
 
     if (effects.loudnessNorm) {
-        filters.push('loudnorm=I=-23:LRA=7:TP=-2');
+        const I = effects.loudnessTarget ?? -14;
+        filters.push(`loudnorm=I=${I}:LRA=11:TP=-1.5`);
+    }
+
+    if (effects.limiter) {
+        const lim = Math.max(0.05, Math.min(1.0, effects.limiterLevel ?? 0.95));
+        filters.push(`alimiter=limit=${lim.toFixed(4)}:level=disabled`);
     }
 
     // ── Fades ───────────────────────────────────────────────────────────────
@@ -145,6 +171,8 @@ export function isDefaultAudioEffects(effects: AudioEffects): boolean {
         effects.highpassFreq === 0 &&
         effects.lowpassFreq === 0 &&
         !effects.compressor &&
+        !effects.limiter &&
+        !effects.gate &&
         effects.noiseReduction === 0 &&
         !effects.loudnessNorm &&
         effects.fadeInDuration === 0 &&

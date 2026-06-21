@@ -2172,6 +2172,7 @@ ipcMain.handle('generate-preview-proxy', async (_event, { clip: rawClip, setting
             sharpen: clip.sharpen,
             blurAmount: clip.blurAmount,
             chromaKey: clip.chromaKey,
+            stabilize: clip.stabilize,
             letterbox: clip.letterbox,
             volume: clip.volume,
             isMuted: clip.isMuted,

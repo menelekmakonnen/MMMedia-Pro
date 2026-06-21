@@ -134,6 +134,9 @@ export interface Clip {
     // Metadata
     width?: number;
     height?: number;
+    /** Source media's native frame rate. Converts timeline frames <-> source frames
+     *  for frame-accurate trim/seek on mixed-fps projects. Falls back to project fps. */
+    sourceFps?: number;
 
     // Playback properties
     track: number;
