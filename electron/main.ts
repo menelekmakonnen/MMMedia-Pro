@@ -834,6 +834,10 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                 // so timing uses the timeline length without clamping.
                 const probeData = { width: clip.width || outW, height: clip.height || outH, duration: isImage ? 36000 : probe.duration };
                 const timing = computeClipTiming(clip, es, probeData);
+                // Two-pass vidstab stabilization runs on the rendered intermediate below;
+                // suppress the inline single-pass deshake so stabilization isn't doubled.
+                const wantVidstab = !!(clip.stabilize && clip.stabilize.enabled) && !isImage;
+                if (wantVidstab) (clip as any)._vidstabApplied = true;
                 const vf = buildVideoFilter(clip, es, probeData, { preSeeked: true });
                 const af = buildClipAudioFilter(clip, es, probeData, { preSeeked: true });
                 const hasAudio = probe.hasAudio && !isImage;
@@ -873,7 +877,36 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
 
                 const r = await runFfmpegAsync(ffmpegBin, args, `seg${i}`, () => {});
                 if (r.code !== 0 || !fs.existsSync(intFile)) { log(`⚠ Clip ${i + 1}/${videoClips.length} "${clip.filename}" failed: ${r.stderr.slice(-200).trim()}`); continue; }
-                intermediates.push(intFile);
+                // ── Two-pass video stabilization (vidstabdetect -> vidstabtransform) ──
+                //    Operates on the CFR intermediate so detect & transform see identical
+                //    frames. Falls back to the unstabilized intermediate on any failure.
+                let finalInt = intFile;
+                if (wantVidstab) {
+                    try {
+                        const sm = Math.min(60, Math.max(1, Math.round(clip.stabilize.smoothing || 10)));
+                        const shak = Math.min(10, Math.max(1, Math.round((clip.stabilize.smoothing || 10) / 6) + 3));
+                        const trf = path.join(tmpDir, `mmm_vidstab_${i}_${Date.now()}.trf`);
+                        const trfEsc = trf.replace(/\\/g, '/').replace(/:/g, '\\:');
+                        const det = await runFfmpegAsync(ffmpegBin, ['-y', '-i', intFile, '-vf', `vidstabdetect=shakiness=${shak}:accuracy=15:result=${trfEsc}`, '-f', 'null', '-'], `vsdet${i}`, () => {});
+                        if (det.code === 0 && fs.existsSync(trf)) {
+                            const stabFile = path.join(tmpDir, `mmm_seg_${i}_stab_${Date.now()}.mkv`);
+                            const tr = await runFfmpegAsync(ffmpegBin, ['-y', '-i', intFile, '-vf', `vidstabtransform=input=${trfEsc}:smoothing=${sm}:optzoom=1:crop=black,unsharp=5:5:0.6:3:3:0.4`, '-r', String(fps), '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '15', '-pix_fmt', 'yuv420p', '-c:a', 'copy', stabFile], `vstr${i}`, () => {});
+                            if (tr.code === 0 && fs.existsSync(stabFile)) {
+                                try { fs.unlinkSync(intFile); } catch {}
+                                try { fs.unlinkSync(trf); } catch {}
+                                finalInt = stabFile;
+                                log(`Clip ${i + 1}/${videoClips.length}: stabilized (vidstab two-pass, smoothing=${sm})`);
+                            } else {
+                                log(`⚠ Clip ${i + 1} vidstabtransform failed; using unstabilized intermediate`);
+                            }
+                        } else {
+                            log(`⚠ Clip ${i + 1} vidstabdetect failed; using unstabilized intermediate`);
+                        }
+                    } catch (stabErr: any) {
+                        log(`⚠ Clip ${i + 1} stabilize error: ${stabErr?.message || stabErr}`);
+                    }
+                }
+                intermediates.push(finalInt);
                 renderedClips.push(clip);
                 outDurs.push(timing.outDurSec);
                 log(`Clip ${i + 1}/${videoClips.length}: "${clip.filename}" seek=${timing.seekSec.toFixed(2)}s out=${timing.outDurSec.toFixed(3)}s audio=${hasAudio}`);
