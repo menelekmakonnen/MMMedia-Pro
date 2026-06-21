@@ -159,6 +159,8 @@ export interface Clip {
     // ── Speed system ──
     speedCurvePreset?: SpeedCurvePreset;   // Pre-baked curve shape (Option B)
     speedCurve?: SpeedKeyframe[];          // Keyframed speed (Option A — future graph editor)
+    /** Keyframed brightness (-1..1) via the keyframe-everything substrate. */
+    brightnessKeyframes?: import('./lib/keyframes').KfPoint[];
 
     // ── Shake system ──
     shake?: ShakeConfig;

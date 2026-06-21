@@ -11,6 +11,7 @@ import { buildAudioEffectsFilter } from '../src/lib/audioEffects';
 import { resolveParametricEffect, buildColorGradingFilter, isDefaultGrading } from './parametricEffects';
 import type { ColorGrading } from './parametricEffects';
 import { buildSpeedRemapSetpts, curveHasSlowdown } from '../src/lib/effectsEngine';
+import { buildKeyframeExpr } from '../src/lib/keyframes';
 import { buildMotionBlurChain, buildVibrationFlashChain, buildMinterpolateChain, buildForkMergeGraph, buildRgbSplitChain, buildHueCycleChain, buildVhsChain } from '../src/lib/editEffectFilters';
 
 // ── Data Types ──────────────────────────────────────────────────────────────
@@ -72,6 +73,8 @@ export interface ClipExportData {
     chromaKey?: { enabled: boolean; color: string; similarity: number; blend: number };
     /** Video stabilization */
     stabilize?: { enabled: boolean; smoothing: number };
+    /** Keyframed brightness (-1..1) baked to an eq expression. */
+    brightnessKeyframes?: Array<{ frame: number; value: number; interp?: 'linear' | 'bezier' | 'constant'; handleR?: [number, number]; handleL?: [number, number] }>;
 
     // ── Super Editing Engine fields ──────────────────────────────────────
     /** Camera shake effect */
@@ -502,6 +505,12 @@ export function buildVideoFilter(
         if (cgFilter) {
             filters.push(cgFilter);
         }
+    }
+
+    // 7b. Keyframed brightness (keyframe-everything substrate, baked via eq).
+    if (clip.brightnessKeyframes && clip.brightnessKeyframes.length > 1) {
+        const bexpr = buildKeyframeExpr(clip.brightnessKeyframes as any, fps);
+        filters.push(`eq=brightness='${bexpr}':eval=frame`);
     }
 
     // 8. Legacy effects (effectIds + CSS)
