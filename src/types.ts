@@ -161,6 +161,10 @@ export interface Clip {
     speedCurve?: SpeedKeyframe[];          // Keyframed speed (Option A — future graph editor)
     /** Keyframed brightness (-1..1) via the keyframe-everything substrate. */
     brightnessKeyframes?: import('./lib/keyframes').KfPoint[];
+    /** Keyframed contrast (0..3, 1 neutral). */
+    contrastKeyframes?: import('./lib/keyframes').KfPoint[];
+    /** Keyframed saturation (0..3, 1 neutral). */
+    saturationKeyframes?: import('./lib/keyframes').KfPoint[];
 
     // ── Shake system ──
     shake?: ShakeConfig;

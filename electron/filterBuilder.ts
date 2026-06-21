@@ -75,6 +75,10 @@ export interface ClipExportData {
     stabilize?: { enabled: boolean; smoothing: number };
     /** Keyframed brightness (-1..1) baked to an eq expression. */
     brightnessKeyframes?: Array<{ frame: number; value: number; interp?: 'linear' | 'bezier' | 'constant'; handleR?: [number, number]; handleL?: [number, number] }>;
+    /** Keyframed contrast (0..3) baked to an eq expression. */
+    contrastKeyframes?: Array<{ frame: number; value: number; interp?: 'linear' | 'bezier' | 'constant'; handleR?: [number, number]; handleL?: [number, number] }>;
+    /** Keyframed saturation (0..3) baked to an eq expression. */
+    saturationKeyframes?: Array<{ frame: number; value: number; interp?: 'linear' | 'bezier' | 'constant'; handleR?: [number, number]; handleL?: [number, number] }>;
 
     // ── Super Editing Engine fields ──────────────────────────────────────
     /** Camera shake effect */
@@ -507,10 +511,14 @@ export function buildVideoFilter(
         }
     }
 
-    // 7b. Keyframed brightness (keyframe-everything substrate, baked via eq).
-    if (clip.brightnessKeyframes && clip.brightnessKeyframes.length > 1) {
-        const bexpr = buildKeyframeExpr(clip.brightnessKeyframes as any, fps);
-        filters.push(`eq=brightness='${bexpr}':eval=frame`);
+    // 7b. Keyframed brightness/contrast/saturation (keyframe-everything substrate,
+    //     baked into a single eq expression evaluated per frame).
+    {
+        const eqKf: string[] = [];
+        if (clip.brightnessKeyframes && clip.brightnessKeyframes.length > 1) eqKf.push(`brightness='${buildKeyframeExpr(clip.brightnessKeyframes as any, fps)}'`);
+        if (clip.contrastKeyframes && clip.contrastKeyframes.length > 1) eqKf.push(`contrast='${buildKeyframeExpr(clip.contrastKeyframes as any, fps)}'`);
+        if (clip.saturationKeyframes && clip.saturationKeyframes.length > 1) eqKf.push(`saturation='${buildKeyframeExpr(clip.saturationKeyframes as any, fps)}'`);
+        if (eqKf.length) filters.push(`eq=${eqKf.join(':')}:eval=frame`);
     }
 
     // 8. Legacy effects (effectIds + CSS)

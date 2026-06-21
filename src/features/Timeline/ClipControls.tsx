@@ -9,6 +9,8 @@ import { TextOverlayPanel } from './TextOverlayPanel';
 import { AudioEffectsPanel } from './AudioEffectsPanel';
 import { toast } from '../../components/Toast';
 import { useProjectStore } from '../../store/projectStore';
+import { KeyframeEditor } from '../../components/KeyframeEditor';
+import type { KfPoint } from '../../lib/keyframes';
 
 interface ClipControlsProps {
     clipId: string;
@@ -52,6 +54,7 @@ export const ClipControls: React.FC<ClipControlsProps> = ({ clipId, variant = 's
 
     // ── Smart (auto-editor) actions: FFmpeg-backed silence/scene detection ──
     const [smartBusy, setSmartBusy] = useState(false);
+    const [kfProp, setKfProp] = useState<'brightness' | 'contrast' | 'saturation'>('brightness');
     const handleRemoveSilence = useCallback(async () => {
         const c = useClipStore.getState().clips.find((x) => x.id === clipId);
         if (!c?.path) return;
@@ -459,34 +462,42 @@ export const ClipControls: React.FC<ClipControlsProps> = ({ clipId, variant = 's
                             </div>
                         </div>
 
-                        {/* ── Keyframes (brightness, via the keyframe substrate) ── */}
+                        {/* ── Keyframes (animatable color, via the keyframe substrate) ── */}
                         <div className="pt-1 border-t border-white/5">
-                            <div className="flex items-center justify-between">
-                                <span className="text-[10px] uppercase tracking-wider text-white/30 font-semibold">Brightness Keyframes</span>
-                                {clip.brightnessKeyframes && clip.brightnessKeyframes.length > 0 && (
-                                    <span className="text-[9px] text-purple-300/70">{clip.brightnessKeyframes.length} pts</span>
-                                )}
-                            </div>
-                            <div className="flex gap-1.5 mt-1">
-                                <button
-                                    onClick={() => {
-                                        const fps = useProjectStore.getState().settings.fps || 30;
-                                        const half = Math.max(2, Math.round(fps * 0.6));
-                                        updateClip({ brightnessKeyframes: [{ frame: 0, value: -1, interp: 'linear' }, { frame: half, value: 0, interp: 'linear' }] });
-                                    }}
-                                    className="flex-1 text-[10px] py-1 rounded-md bg-white/5 hover:bg-white/10 text-white/60 transition-colors" title="Brightness fade in from black">Fade In</button>
-                                <button
-                                    onClick={() => {
-                                        const fps = useProjectStore.getState().settings.fps || 30;
-                                        const half = Math.max(2, Math.round(fps * 0.6));
-                                        const dur = (clip.endFrame - clip.startFrame) || Math.round(fps * 2);
-                                        updateClip({ brightnessKeyframes: [{ frame: Math.max(0, dur - half), value: 0, interp: 'linear' }, { frame: dur, value: -1, interp: 'linear' }] });
-                                    }}
-                                    className="flex-1 text-[10px] py-1 rounded-md bg-white/5 hover:bg-white/10 text-white/60 transition-colors" title="Brightness fade out to black">Fade Out</button>
-                                <button
-                                    onClick={() => updateClip({ brightnessKeyframes: undefined })}
-                                    className="px-2 text-[10px] py-1 rounded-md bg-white/5 hover:bg-white/10 text-white/40 transition-colors" title="Clear keyframes">Clear</button>
-                            </div>
+                            {(() => {
+                                const META = {
+                                    brightness: { field: 'brightnessKeyframes', min: -1, max: 1, neutral: 0 },
+                                    contrast: { field: 'contrastKeyframes', min: 0, max: 3, neutral: 1 },
+                                    saturation: { field: 'saturationKeyframes', min: 0, max: 3, neutral: 1 },
+                                } as const;
+                                const m = META[kfProp];
+                                const pts = (((clip as any)[m.field] as KfPoint[] | undefined) || []);
+                                const fps = useProjectStore.getState().settings.fps || 30;
+                                const dur = (clip.endFrame - clip.startFrame) || Math.round(fps * 2);
+                                const setPts = (next: KfPoint[]) => updateClip({ [m.field]: next.length ? next : undefined });
+                                return (
+                                    <>
+                                        <div className="flex items-center justify-between mb-1">
+                                            <span className="text-[10px] uppercase tracking-wider text-white/30 font-semibold">Keyframes</span>
+                                            <div className="flex gap-0.5">
+                                                {(['brightness', 'contrast', 'saturation'] as const).map((k) => (
+                                                    <button key={k} onClick={() => setKfProp(k)}
+                                                        className={`text-[9px] px-1.5 py-0.5 rounded ${kfProp === k ? 'bg-purple-500/30 text-purple-200' : 'bg-white/5 text-white/40 hover:bg-white/10'}`} title={k}>{k[0].toUpperCase()}</button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <KeyframeEditor points={pts} min={m.min} max={m.max} durationFrames={dur} onChange={setPts} />
+                                        <div className="flex gap-1.5 mt-1.5">
+                                            <button onClick={() => { const half = Math.max(2, Math.round(fps * 0.6)); setPts([{ frame: 0, value: m.min, interp: 'linear' }, { frame: half, value: m.neutral, interp: 'linear' }]); }}
+                                                className="flex-1 text-[10px] py-1 rounded-md bg-white/5 hover:bg-white/10 text-white/60" title="Ramp in from minimum">Ramp In</button>
+                                            <button onClick={() => { const half = Math.max(2, Math.round(fps * 0.6)); setPts([{ frame: Math.max(0, dur - half), value: m.neutral, interp: 'linear' }, { frame: dur, value: m.min, interp: 'linear' }]); }}
+                                                className="flex-1 text-[10px] py-1 rounded-md bg-white/5 hover:bg-white/10 text-white/60" title="Ramp out to minimum">Ramp Out</button>
+                                            <button onClick={() => setPts([])}
+                                                className="px-2 text-[10px] py-1 rounded-md bg-white/5 hover:bg-white/10 text-white/40" title="Clear">Clear</button>
+                                        </div>
+                                    </>
+                                );
+                            })()}
                         </div>
                     </div>
                 )}
