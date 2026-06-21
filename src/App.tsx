@@ -11,6 +11,7 @@ import { VideoPlayerTab } from './features/VideoPlayer/VideoPlayerTab';
 import { GlobalSettingsTab } from './features/GlobalSettings/GlobalSettingsTab';
 
 import { EditsTab } from './features/Edits/EditsTab';
+import { ColorLabTab } from './features/ColorLab/ColorLabTab';
 import { SpaceBackground } from './components/SpaceBackground';
 import { useUserStore } from './store/userStore';
 import { Minus, Square, X } from 'lucide-react';
@@ -49,6 +50,8 @@ function App() {
                 return <GlobalSettingsTab />;
             case 'edits':
                 return <EditsTab />;
+            case 'colorlab':
+                return <ColorLabTab />;
             case 'videoplayer':
                 return <VideoPlayerTab />;
             case 'export':

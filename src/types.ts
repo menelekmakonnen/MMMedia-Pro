@@ -336,4 +336,4 @@ export interface EditDocument {
 }
 
 
-export type TabId = 'dashboard' | 'media' | 'trailer' | 'timeline' | 'grideditor' | 'export' | 'sequence' | 'videoplayer' | 'edits' | 'global-settings';
+export type TabId = 'dashboard' | 'media' | 'trailer' | 'timeline' | 'grideditor' | 'export' | 'sequence' | 'videoplayer' | 'edits' | 'global-settings' | 'colorlab';

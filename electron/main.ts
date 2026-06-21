@@ -2163,6 +2163,57 @@ ipcMain.handle('open-path', async (_event, fullPath: string) => {
 // (buildVideoFilter / buildClipAudioFilter) as the export engine.
 // ══════════════════════════════════════════════════════════════════════════════
 
+// ── Color Lab: scopes + LUT library (FFmpeg-backed) ──────────────────────────
+ipcMain.handle('generate-scopes', async (_e, { path: raw, atSec = 0 }: any) => {
+    try {
+        const ffmpegBin = resolveFFmpegBin();
+        const p = normalizeClipPath(raw || '');
+        if (!p || !fs.existsSync(p)) return { success: false, error: 'File not found' };
+        const path = require('path');
+        const scopeDir = path.join(app.getPath('userData'), 'scopes');
+        if (!fs.existsSync(scopeDir)) fs.mkdirSync(scopeDir, { recursive: true });
+        const defs = [
+            { key: 'waveform', vf: 'format=yuv420p,waveform=intensity=0.08:mode=column:components=7,scale=480:240,setsar=1' },
+            { key: 'vectorscope', vf: 'format=yuv420p,vectorscope=mode=color3:graticule=green:flags=name,scale=320:320,setsar=1' },
+            { key: 'histogram', vf: 'format=yuv420p,histogram,scale=480:240,setsar=1' },
+        ];
+        const out: Record<string, string> = {};
+        for (const d of defs) {
+            const png = path.join(scopeDir, `${d.key}_${Date.now()}.png`);
+            const r = await runFfmpegAsync(ffmpegBin, ['-y', '-ss', String(Math.max(0, atSec)), '-i', p, '-frames:v', '1', '-vf', d.vf, png], `scope_${d.key}`, () => {});
+            if (r.code === 0 && fs.existsSync(png)) {
+                out[d.key] = 'data:image/png;base64,' + fs.readFileSync(png).toString('base64');
+                try { fs.unlinkSync(png); } catch {}
+            }
+        }
+        return { success: true, scopes: out };
+    } catch (e: any) { return { success: false, error: e?.message || String(e) }; }
+});
+
+ipcMain.handle('list-luts', async () => {
+    try {
+        const path = require('path');
+        const dir = path.join(app.getPath('userData'), 'luts');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        const files = fs.readdirSync(dir).filter((f: string) => f.toLowerCase().endsWith('.cube'));
+        return { success: true, luts: files.map((f: string) => ({ name: f, path: path.join(dir, f) })) };
+    } catch (e: any) { return { success: false, error: e?.message || String(e), luts: [] }; }
+});
+
+ipcMain.handle('import-lut', async () => {
+    try {
+        const path = require('path');
+        const res = await dialog.showOpenDialog({ title: 'Import LUT (.cube)', properties: ['openFile'], filters: [{ name: 'Cube LUT', extensions: ['cube'] }] });
+        if (res.canceled || !res.filePaths || !res.filePaths[0]) return { success: false, canceled: true };
+        const src = res.filePaths[0];
+        const dir = path.join(app.getPath('userData'), 'luts');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        const dest = path.join(dir, path.basename(src));
+        fs.copyFileSync(src, dest);
+        return { success: true, path: dest, name: path.basename(src) };
+    } catch (e: any) { return { success: false, error: e?.message || String(e) }; }
+});
+
 // ── Auto-editor intelligence: scene & silence detection (FFmpeg-backed) ──────
 ipcMain.handle('detect-silence', async (_e, { path: raw, noiseDb = -45, minSilenceSec = 0.4 }: any) => {
     try {

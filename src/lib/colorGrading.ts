@@ -27,6 +27,14 @@ export interface ColorGrading {
     /** Vibrance: 0 to 2.0 (soft saturation boost — approximated via eq saturation) */
     vibrance: number;
 
+    // Lift / Gamma / Gain color wheels
+    /** Lift (shadows) RGB offset, -1..1 each (0 = neutral) */
+    lift?: [number, number, number];
+    /** Gamma (midtones) RGB, 0.1..3 each (1 = neutral) */
+    gamma?: [number, number, number];
+    /** Gain (highlights) RGB, -1..1 each (0 = neutral) */
+    gain?: [number, number, number];
+
     // LUT
     /** Optional path to a .cube LUT file for 3D color lookup */
     lutFile?: string;
@@ -61,10 +69,33 @@ export const DEFAULT_COLOR_GRADING: ColorGrading = {
  *
  * @returns Comma-separated FFmpeg filter string, or '' if grading is default.
  */
+function isNeutralWheels(g: ColorGrading): boolean {
+    const tri = (t: [number, number, number] | undefined, n: number) => !t || (t[0] === n && t[1] === n && t[2] === n);
+    return tri(g.lift, 0) && tri(g.gain, 0) && tri(g.gamma, 1);
+}
+function buildWheelFilters(g: ColorGrading): string {
+    const out: string[] = [];
+    const cb: string[] = [];
+    if (g.lift && (g.lift[0] || g.lift[1] || g.lift[2])) {
+        cb.push(`rs=${g.lift[0].toFixed(4)}`, `gs=${g.lift[1].toFixed(4)}`, `bs=${g.lift[2].toFixed(4)}`);
+    }
+    if (g.gain && (g.gain[0] || g.gain[1] || g.gain[2])) {
+        cb.push(`rh=${g.gain[0].toFixed(4)}`, `gh=${g.gain[1].toFixed(4)}`, `bh=${g.gain[2].toFixed(4)}`);
+    }
+    if (cb.length) out.push(`colorbalance=${cb.join(':')}`);
+    if (g.gamma && (g.gamma[0] !== 1 || g.gamma[1] !== 1 || g.gamma[2] !== 1)) {
+        out.push(`eq=gamma_r=${g.gamma[0].toFixed(4)}:gamma_g=${g.gamma[1].toFixed(4)}:gamma_b=${g.gamma[2].toFixed(4)}`);
+    }
+    return out.join(',');
+}
+
 export function buildColorGradingFilter(grading: ColorGrading): string {
     if (isDefaultGrading(grading)) return '';
 
     const filters: string[] = [];
+
+    const cgWheels = buildWheelFilters(grading);
+    if (cgWheels) filters.push(cgWheels);
 
     // ── 1. Temperature ───────────────────────────────────────────────────
     // Map -100..100 → 2000..10000 K (linear)
@@ -152,6 +183,7 @@ export function isDefaultGrading(grading: ColorGrading): boolean {
         grading.shadows === DEFAULT_COLOR_GRADING.shadows &&
         grading.saturation === DEFAULT_COLOR_GRADING.saturation &&
         grading.vibrance === DEFAULT_COLOR_GRADING.vibrance &&
+        isNeutralWheels(grading) &&
         !grading.lutFile
     );
 }
