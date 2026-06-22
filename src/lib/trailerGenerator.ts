@@ -154,6 +154,10 @@ export interface TrailerSettings {
     autoFadeInOut?: boolean;
     /** Rank the source pool by motion energy and prefer the liveliest takes. */
     preferHighEnergy?: boolean;
+    /** Restrict source trims to the non-silent usable range (FFmpeg silencedetect). */
+    autoTrimSilence?: boolean;
+    /** Snap source trim-ins to detected scene-change boundaries. */
+    sceneAwareCuts?: boolean;
 }
 
 export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
@@ -214,6 +218,8 @@ export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
     smoothSlowmoPolicy: 'off',
     autoFadeInOut: false,
     preferHighEnergy: false,
+    autoTrimSilence: false,
+    sceneAwareCuts: false,
     rgbSplitPolicy: 'off',
     rgbSplitAmount: 45,
     hueCyclePolicy: 'off',
@@ -446,8 +452,23 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
     // Helper to find best trim start avoiding collisions
     // Respects the file's effective trim region (trimIn offset)
     const getBestTrimStart = (file: PoolFile, sourceReq: number, history: string[], rng: SeededRandom): number => {
-        const trimInOffset = file.effectiveTrimInFrames;
-        const trimOutLimit = file.effectiveTrimOutFrames;
+        const f = file as any;
+        let trimInOffset = file.effectiveTrimInFrames;
+        let trimOutLimit = file.effectiveTrimOutFrames;
+        // Smart prep: prefer the non-silent usable range when it's been precomputed.
+        if (typeof f._usableInFrames === 'number' || typeof f._usableOutFrames === 'number') {
+            const ui = typeof f._usableInFrames === 'number' ? f._usableInFrames : trimInOffset;
+            const uo = typeof f._usableOutFrames === 'number' ? f._usableOutFrames : trimOutLimit;
+            if (uo - ui >= sourceReq) { trimInOffset = Math.max(trimInOffset, ui); trimOutLimit = Math.min(trimOutLimit, uo); }
+        }
+        // Smart prep: snap a chosen trim-in to the nearest in-bounds scene cut.
+        const snap = (v: number): number => {
+            const cuts: number[] | undefined = f._sceneCutsFrames;
+            if (!cuts || !cuts.length) return v;
+            let best = v, bd = Infinity;
+            for (const c of cuts) { if (c < trimInOffset || c + sourceReq > trimOutLimit) continue; const d = Math.abs(c - v); if (d < bd) { bd = d; best = c; } }
+            return best;
+        };
         const availableRange = trimOutLimit - trimInOffset - sourceReq;
 
         if (availableRange <= 0) {
@@ -459,7 +480,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         const effectiveRange = trimOutLimit - sourceReq - effectiveStart;
 
         if (!history || history.length === 0 || effectiveRange <= 0) {
-            return effectiveStart + Math.floor(rng.random() * Math.max(0, effectiveRange));
+            return snap(effectiveStart + Math.floor(rng.random() * Math.max(0, effectiveRange)));
         }
 
         let bestTrimStart = effectiveStart + Math.floor(rng.random() * effectiveRange);
@@ -486,7 +507,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 bestTrimStart = candidate;
             }
         }
-        return bestTrimStart;
+        return snap(bestTrimStart);
     };
 
     const createClip = (file: PoolFile, startFrame: number, endFrame: number, trimStart: number, trimEnd: number, speed: number, volume: number, isMuted: boolean): Clip => ({

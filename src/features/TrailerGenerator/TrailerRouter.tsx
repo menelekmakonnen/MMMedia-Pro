@@ -85,6 +85,31 @@ export const TrailerRouter: React.FC = () => {
             } catch (e) { console.warn('[TrailerRouter] scoring failed, using original order', e); }
         }
 
+        // ── Smart clip prep: precompute non-silent range + scene cuts per file ──
+        if ((newSettings.autoTrimSilence || newSettings.sceneAwareCuts) && workingPool.length > 0) {
+            const projFps = useProjectStore.getState().settings.fps || 30;
+            workingPool = await Promise.all(workingPool.map(async (f) => {
+                const ef: any = { ...f };
+                if (f.type !== 'video' || !f.path) return ef;
+                const fps = (f as any).fps || projFps;
+                try {
+                    if (newSettings.autoTrimSilence) {
+                        const r = await (window as any).ipcRenderer.detectSilence({ path: f.path });
+                        if (r?.success && r.trim) {
+                            ef._usableInFrames = Math.round(r.trim.trimStart * fps);
+                            ef._usableOutFrames = Math.round(r.trim.trimEnd * fps);
+                        }
+                    }
+                    if (newSettings.sceneAwareCuts) {
+                        const r = await (window as any).ipcRenderer.detectScenes({ path: f.path });
+                        if (r?.success && Array.isArray(r.cuts)) ef._sceneCutsFrames = r.cuts.map((t: number) => Math.round(t * fps));
+                    }
+                } catch (e) { /* per-file analysis failure is non-fatal */ }
+                return ef;
+            }));
+            console.log('[TrailerRouter] smart prep complete (silence/scene)');
+        }
+
         let clips: any[];
         if (newSettings.generatorMode === 'music-video' && newSettings.audioAnalysis) {
             // Music-video mode: structure-driven, full-song edit (downbeat-anchored,
