@@ -40,63 +40,64 @@ const CUSTOM_TRANSITIONS: ReadonlySet<TransitionType> = new Set([
 
 /**
  * Metadata for every transition type.
- * - `label`:    Human-readable display name
- * - `icon`:     Emoji for quick visual identification
- * - `isCustom`: `true` when the transition uses a custom filter chain,
- *               `false` when it maps to FFmpeg's built-in `xfade` filter
+ * - `label`:       Human-readable display name
+ * - `icon`:        Emoji for quick visual identification
+ * - `isCustom`:    `true` when the transition uses a custom filter chain,
+ *                  `false` when it maps to FFmpeg's built-in `xfade` filter
+ * - `description`: Short tooltip text describing the visual effect
  */
-export const TRANSITION_META: Record<TransitionType, { label: string; icon: string; isCustom: boolean }> = {
+export const TRANSITION_META: Record<TransitionType, { label: string; icon: string; isCustom: boolean; description: string }> = {
     // ── Basic ──
-    cut:          { label: 'Cut',            icon: '✂️',  isCustom: false },
-    fade:         { label: 'Fade',           icon: '🌅',  isCustom: false },
-    fadewhite:    { label: 'Fade to White',  icon: '⬜',  isCustom: false },
-    fadeblack:    { label: 'Fade to Black',  icon: '⬛',  isCustom: false },
-    dissolve:     { label: 'Dissolve',       icon: '💧',  isCustom: false },
+    cut:          { label: 'Cut',            icon: '✂️',  isCustom: false, description: 'Instant switch between clips' },
+    fade:         { label: 'Fade',           icon: '🌅',  isCustom: false, description: 'Gradual opacity crossfade' },
+    fadewhite:    { label: 'Fade to White',  icon: '⬜',  isCustom: false, description: 'Fade through white between clips' },
+    fadeblack:    { label: 'Fade to Black',  icon: '⬛',  isCustom: false, description: 'Fade through black between clips' },
+    dissolve:     { label: 'Dissolve',       icon: '💧',  isCustom: false, description: 'Pixel-level random dissolve blend' },
 
     // ── Directional ──
-    wipeleft:     { label: 'Wipe Left',      icon: '⬅️',  isCustom: false },
-    wiperight:    { label: 'Wipe Right',     icon: '➡️',  isCustom: false },
-    wipeup:       { label: 'Wipe Up',        icon: '⬆️',  isCustom: false },
-    wipedown:     { label: 'Wipe Down',      icon: '⬇️',  isCustom: false },
-    slideleft:    { label: 'Slide Left',     icon: '📤',  isCustom: false },
-    slideright:   { label: 'Slide Right',    icon: '📥',  isCustom: false },
-    slideup:      { label: 'Slide Up',       icon: '🔼',  isCustom: false },
-    slidedown:    { label: 'Slide Down',     icon: '🔽',  isCustom: false },
+    wipeleft:     { label: 'Wipe Left',      icon: '⬅️',  isCustom: false, description: 'New clip wipes in from right to left' },
+    wiperight:    { label: 'Wipe Right',     icon: '➡️',  isCustom: false, description: 'New clip wipes in from left to right' },
+    wipeup:       { label: 'Wipe Up',        icon: '⬆️',  isCustom: false, description: 'New clip wipes in from bottom to top' },
+    wipedown:     { label: 'Wipe Down',      icon: '⬇️',  isCustom: false, description: 'New clip wipes in from top to bottom' },
+    slideleft:    { label: 'Slide Left',     icon: '📤',  isCustom: false, description: 'Clips slide together to the left' },
+    slideright:   { label: 'Slide Right',    icon: '📥',  isCustom: false, description: 'Clips slide together to the right' },
+    slideup:      { label: 'Slide Up',       icon: '🔼',  isCustom: false, description: 'Clips slide together upward' },
+    slidedown:    { label: 'Slide Down',     icon: '🔽',  isCustom: false, description: 'Clips slide together downward' },
 
     // ── Geometric ──
-    circlecrop:   { label: 'Circle Crop',    icon: '⭕',  isCustom: false },
-    circleopen:   { label: 'Circle Open',    icon: '🔵',  isCustom: false },
-    circleclose:  { label: 'Circle Close',   icon: '🟣',  isCustom: false },
-    radial:       { label: 'Radial',         icon: '🌀',  isCustom: false },
-    pixelize:     { label: 'Pixelize',       icon: '🟩',  isCustom: false },
+    circlecrop:   { label: 'Circle Crop',    icon: '⭕',  isCustom: false, description: 'Circular reveal cropping outward' },
+    circleopen:   { label: 'Circle Open',    icon: '🔵',  isCustom: false, description: 'Circle iris opens to reveal new clip' },
+    circleclose:  { label: 'Circle Close',   icon: '🟣',  isCustom: false, description: 'Circle iris closes over current clip' },
+    radial:       { label: 'Radial',         icon: '🌀',  isCustom: false, description: 'Clockwise radial sweep reveal' },
+    pixelize:     { label: 'Pixelize',       icon: '🟩',  isCustom: false, description: 'Mosaic pixelation crossfade' },
 
     // ── Smooth ──
-    smoothleft:   { label: 'Smooth Left',    icon: '🎞️',  isCustom: false },
-    smoothright:  { label: 'Smooth Right',   icon: '🎞️',  isCustom: false },
-    smoothup:     { label: 'Smooth Up',      icon: '🎞️',  isCustom: false },
-    smoothdown:   { label: 'Smooth Down',    icon: '🎞️',  isCustom: false },
+    smoothleft:   { label: 'Smooth Left',    icon: '🎞️',  isCustom: false, description: 'Smooth eased slide to the left' },
+    smoothright:  { label: 'Smooth Right',   icon: '🎞️',  isCustom: false, description: 'Smooth eased slide to the right' },
+    smoothup:     { label: 'Smooth Up',      icon: '🎞️',  isCustom: false, description: 'Smooth eased slide upward' },
+    smoothdown:   { label: 'Smooth Down',    icon: '🎞️',  isCustom: false, description: 'Smooth eased slide downward' },
 
     // ── Diagonal ──
-    diagtl:       { label: 'Diagonal ↖',     icon: '↖️',  isCustom: false },
-    diagtr:       { label: 'Diagonal ↗',     icon: '↗️',  isCustom: false },
-    diagbl:       { label: 'Diagonal ↙',     icon: '↙️',  isCustom: false },
-    diagbr:       { label: 'Diagonal ↘',     icon: '↘️',  isCustom: false },
+    diagtl:       { label: 'Diagonal ↖',     icon: '↖️',  isCustom: false, description: 'Diagonal wipe toward top-left' },
+    diagtr:       { label: 'Diagonal ↗',     icon: '↗️',  isCustom: false, description: 'Diagonal wipe toward top-right' },
+    diagbl:       { label: 'Diagonal ↙',     icon: '↙️',  isCustom: false, description: 'Diagonal wipe toward bottom-left' },
+    diagbr:       { label: 'Diagonal ↘',     icon: '↘️',  isCustom: false, description: 'Diagonal wipe toward bottom-right' },
 
     // ── Squeeze ──
-    squeezeh:     { label: 'Squeeze H',      icon: '↔️',  isCustom: false },
-    squeezev:     { label: 'Squeeze V',      icon: '↕️',  isCustom: false },
+    squeezeh:     { label: 'Squeeze H',      icon: '↔️',  isCustom: false, description: 'Horizontal squeeze compression' },
+    squeezev:     { label: 'Squeeze V',      icon: '↕️',  isCustom: false, description: 'Vertical squeeze compression' },
 
     // ── Blur ──
-    hblur:        { label: 'Horizontal Blur', icon: '🌫️', isCustom: false },
+    hblur:        { label: 'Horizontal Blur', icon: '🌫️', isCustom: false, description: 'Motion blur sweep transition' },
 
     // ── Impact (Custom filter chains) ──
-    flash:        { label: 'Flash',           icon: '⚡',  isCustom: true },
-    glitch:       { label: 'Glitch',          icon: '📺',  isCustom: true },
-    'rgb-split':  { label: 'RGB Split',       icon: '🌈',  isCustom: true },
-    'zoom-through': { label: 'Zoom Through',  icon: '🔭',  isCustom: true },
-    spin:         { label: 'Spin',            icon: '🔄',  isCustom: true },
-    'film-burn':  { label: 'Film Burn',       icon: '🔥',  isCustom: true },
-    whip:         { label: 'Whip',            icon: '💨',  isCustom: true },
+    flash:        { label: 'Flash',           icon: '⚡',  isCustom: true, description: 'Bright flash impact transition' },
+    glitch:       { label: 'Glitch',          icon: '📺',  isCustom: true, description: 'Digital glitch distortion' },
+    'rgb-split':  { label: 'RGB Split',       icon: '🌈',  isCustom: true, description: 'RGB channel separation shift' },
+    'zoom-through': { label: 'Zoom Through',  icon: '🔭',  isCustom: true, description: 'Zoom punch through to next clip' },
+    spin:         { label: 'Spin',            icon: '🔄',  isCustom: true, description: 'Rotational spin transition' },
+    'film-burn':  { label: 'Film Burn',       icon: '🔥',  isCustom: true, description: 'Analog film burn light leak' },
+    whip:         { label: 'Whip',            icon: '💨',  isCustom: true, description: 'Fast whip pan blur' },
 };
 
 // ═══════════════════════════════════════════════════════

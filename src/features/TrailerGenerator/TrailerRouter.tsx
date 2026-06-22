@@ -9,6 +9,7 @@ import { useGodModeStore } from '../../store/godModeStore';
 import { useProjectStore } from '../../store/projectStore';
 import { generateMusicVideoSequence } from '../../lib/musicVideoBuild';
 import { useTrailerSmartStore } from '../../store/trailerSmartStore';
+import { SmartEngineConfirmModal } from './SmartEngineConfirmModal';
 
 export const TrailerRouter: React.FC = () => {
     const [activeView, setActiveView] = useState<'wizard' | 'player'>('wizard');
@@ -17,6 +18,10 @@ export const TrailerRouter: React.FC = () => {
     const { setClips } = useClipStore();
     const { files } = useMediaStore();
     const autoGenerateConsumed = useRef(false);
+
+    // ── Smart Engine confirmation modal state ──
+    const [showConfirm, setShowConfirm] = useState<{ resolve: (v: 'now' | 'wait' | 'cancel') => void } | null>(null);
+    const smartState = useTrailerSmartStore();
 
     // ── AUTO-GENERATE: if GodMode tab pre-built settings, skip wizard ──
     const { autoGenerate, lastGeneratedSettings, clearAutoGenerate } = useGodModeStore();
@@ -80,15 +85,19 @@ export const TrailerRouter: React.FC = () => {
         const needColor = !!newSettings.autoColorGrade;
 
         // If analysis is not fully complete and user wants smart features,
-        // show a confirmation dialog.
+        // show the confirmation modal instead of window.confirm().
         if ((needScore || needSilence || needScenes || needColor) && !smart.isFullyAnalyzed && smart.totalCount > 0) {
-            const usePartial = window.confirm(
-                `Smart Engine: ${smart.analyzedCount} of ${smart.totalCount} clips analyzed.\n\n` +
-                `OK  →  Use analyzed clips now\n` +
-                `Cancel  →  Wait for all clips to finish`
-            );
-            if (!usePartial) {
-                // Wait for analysis to complete
+            const decision = await new Promise<'now' | 'wait' | 'cancel'>((resolve) => {
+                setShowConfirm({ resolve });
+            });
+            setShowConfirm(null);
+
+            if (decision === 'cancel') {
+                return; // Abort generation entirely
+            }
+
+            if (decision === 'wait') {
+                // Wait for analysis to complete, auto-proceed when done
                 await new Promise<void>((resolve) => {
                     const unsub = useTrailerSmartStore.subscribe((state) => {
                         if (state.isFullyAnalyzed) {
@@ -103,6 +112,7 @@ export const TrailerRouter: React.FC = () => {
                     }
                 });
             }
+            // decision === 'now' → fall through, proceed with partial results
         }
 
         // Enrich pool with pre-computed analysis data
@@ -191,6 +201,16 @@ export const TrailerRouter: React.FC = () => {
                     onSettings={handleSettings} 
                 />
             )}
+
+            {/* Smart Engine confirmation modal */}
+            <SmartEngineConfirmModal
+                isOpen={!!showConfirm}
+                analyzedCount={smartState.analyzedCount}
+                totalCount={smartState.totalCount}
+                onUseNow={() => showConfirm?.resolve('now')}
+                onWaitAll={() => showConfirm?.resolve('wait')}
+                onCancel={() => showConfirm?.resolve('cancel')}
+            />
         </div>
     );
 };

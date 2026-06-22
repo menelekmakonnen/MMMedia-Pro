@@ -8,10 +8,16 @@ import { TRANSITION_CATEGORIES, TRANSITION_META } from '../../lib/transitions';
 import type { TransitionType, SpeedCurvePreset, ShakeType, ShakePolicy, BeatDropIntensity, TransitionStyle, BoomerangPresetId, ZoomSpeed, EffectApplyPolicy } from '../../types';
 import { TrailerSmartPanel } from './TrailerSmartPanel';
 import { TrailerAudioDynamics } from './TrailerAudioDynamics';
+import { SpeedCurveVisualizer } from './SpeedCurveVisualizer';
+import { ShakePreview } from './ShakePreview';
 import { usePresetUsageStore } from '../../store/presetUsageStore';
 import { useExportSettingsStore } from '../../store/exportSettingsStore';
+import { TransitionCard } from './TransitionCard';
+import { ColorPresetCard } from './ColorPresetCard';
+import { VisualFXCard } from './VisualFXCard';
 
 import clsx from 'clsx';
+import { useAutoSmartEngine } from '../../lib/smartEngine';
 
 interface SliderProps {
     label: string; icon: React.ElementType; value: number;
@@ -157,6 +163,7 @@ interface WizardProps {
 export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
     const { files, orientationFilter, setOrientationFilter, selectedFileIds, preloadedAudioPath, preloadedAudioName, setPreloadedAudio } = useMediaStore();
     const isExporting = useExportSettingsStore(s => s.isExporting);
+    useAutoSmartEngine();
 
 
 
@@ -1120,6 +1127,30 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                         </div>
                     </div>
                     <div className="space-y-6">
+                        {/* Duration Presets */}
+                        <div className="space-y-1.5">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Presets</span>
+                            <div className="flex flex-wrap gap-1.5">
+                                {[
+                                    { label: 'Rapid Fire', shortest: 0.1, longest: 0.3, desc: 'Hype / drops' },
+                                    { label: 'Quick Cut', shortest: 0.2, longest: 0.8, desc: 'Action' },
+                                    { label: 'Standard', shortest: 0.3, longest: 1.5, desc: 'General' },
+                                    { label: 'Cinematic', shortest: 0.8, longest: 3.0, desc: 'Drama' },
+                                    { label: 'Long Take', shortest: 2.0, longest: 6.0, desc: 'Essays' },
+                                    { label: 'Music Video', shortest: 0.15, longest: 1.2, desc: 'Beat-synced' },
+                                ].map(p => (
+                                    <button key={p.label}
+                                        onClick={() => update({ shortestClip: p.shortest, longestClip: p.longest })}
+                                        className={clsx("px-2 py-1 rounded-full text-[10px] font-bold transition-all border",
+                                            settings.shortestClip === p.shortest && settings.longestClip === p.longest
+                                                ? "bg-purple-600/20 border-purple-500/40 text-purple-200 shadow-[0_0_8px_rgba(168,85,247,0.15)]"
+                                                : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60")}
+                                        title={p.desc}>
+                                        {p.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
                         <SliderControl label="Shortest Clip" icon={Scissors} value={settings.shortestClip}
                             min={0.1} max={5} step={0.1} unit="s"
                             onChange={(v) => update({ shortestClip: v, longestClip: Math.max(v, settings.longestClip) })} />
@@ -1226,9 +1257,9 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                         )}
                     </div>
 
-                    {/* Speed Curve Presets */}
-                    <div className="space-y-1.5">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Speed Curve</span>
+                    {/* Speed Curve Presets (multi-select) */}
+                    <div className="space-y-2">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Speed Curve <span className="text-white/25 normal-case font-normal">(select one or more)</span></span>
                         <div className="flex flex-wrap gap-1.5">
                             {([
                                 { id: 'constant', label: 'Constant' },
@@ -1238,15 +1269,31 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                 { id: 'ramp-freeze', label: 'Ramp-Freeze' },
                                 { id: 'burst-landing', label: 'Burst-Landing' },
                                 { id: 'oscillating', label: 'Oscillating' },
-                            ] as { id: SpeedCurvePreset; label: string }[]).map(opt => (
-                                <button key={opt.id} onClick={() => update({ speedCurvePreset: opt.id })}
-                                    className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
-                                        (settings.speedCurvePreset ?? 'constant') === opt.id
-                                            ? "bg-blue-600/20 border-blue-500/40 text-blue-200 shadow-[0_0_8px_rgba(59,130,246,0.15)]"
-                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60")}>
-                                    {opt.label}
-                                </button>
-                            ))}
+                            ] as { id: SpeedCurvePreset; label: string }[]).map(opt => {
+                                const selected = (settings.speedCurvePresets ?? [settings.speedCurvePreset ?? 'constant']);
+                                const isActive = selected.includes(opt.id);
+                                return (
+                                    <button key={opt.id} onClick={() => {
+                                        const cur = settings.speedCurvePresets ?? [settings.speedCurvePreset ?? 'constant'];
+                                        const next = isActive ? cur.filter(x => x !== opt.id) : [...cur, opt.id];
+                                        update({ speedCurvePresets: next.length > 0 ? next : ['constant'], speedCurvePreset: (next.length > 0 ? next[next.length - 1] : 'constant') });
+                                    }}
+                                        className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
+                                            isActive
+                                                ? "bg-blue-600/20 border-blue-500/40 text-blue-200 shadow-[0_0_8px_rgba(59,130,246,0.15)]"
+                                                : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60")}>
+                                        {opt.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        <div className="flex items-center gap-3 mt-1">
+                            <SpeedCurveVisualizer preset={settings.speedCurvePreset ?? (settings.speedCurvePresets?.[settings.speedCurvePresets.length - 1]) ?? 'constant'} width={120} height={60} />
+                            <div className="flex-1">
+                                <SliderControl label="Curve Frequency" icon={Zap} value={settings.speedCurveFrequency ?? 50}
+                                    min={0} max={100} step={5} unit="%"
+                                    onChange={(v) => update({ speedCurveFrequency: v })} />
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1460,6 +1507,10 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                 {/* Intensity slider */}
                                 <SliderControl label="Intensity" icon={Zap} value={settings.shakeIntensity ?? 50}
                                     min={0} max={100} step={5} unit="%" onChange={(v) => update({ shakeIntensity: v })} />
+                                {/* Shake Placement Preview */}
+                                {audioAnalysis && (
+                                    <ShakePreview settings={settings} audioAnalysis={audioAnalysis} />
+                                )}
                             </div>
                         )}
                     </div>
@@ -1685,39 +1736,53 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                 min={50} max={1000} step={25} unit="ms" onChange={(v) => update({ transitionDurationMs: v })} />
 
                             {/* Transition Type Grid by Category */}
-                            <div className="space-y-2">
+                            <div className="space-y-4">
                                 <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Transition Types</span>
-                                <div className="max-h-[280px] overflow-y-auto custom-scrollbar space-y-3 pr-1">
-                                    {Object.entries(TRANSITION_CATEGORIES).map(([catKey, cat]) => (
-                                        <div key={catKey} className="space-y-1">
-                                            <span className="text-[9px] font-bold uppercase text-white/20 tracking-widest">{cat.label}</span>
-                                            <div className="flex flex-wrap gap-1">
-                                                {cat.transitions.map(t => {
-                                                    const meta = TRANSITION_META[t];
-                                                    const isActive = (settings.transitionTypes ?? []).includes(t);
-                                                    const allEmpty = !(settings.transitionTypes?.length);
-                                                    return (
-                                                        <button key={t} onClick={() => {
+                                <div className="max-h-[400px] overflow-y-auto custom-scrollbar space-y-5 pr-1">
+                                    {Object.entries(TRANSITION_CATEGORIES).map(([catKey, cat]) => {
+                                        const allInCat = cat.transitions.every(t => (settings.transitionTypes ?? []).includes(t));
+                                        return (
+                                            <div key={catKey} className="space-y-2">
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-[9px] font-bold uppercase text-white/20 tracking-widest">{cat.label}</span>
+                                                    <div className="flex gap-2">
+                                                        <button onClick={() => {
                                                             const current = settings.transitionTypes ?? [];
-                                                            const next = isActive ? current.filter(x => x !== t) : [...current, t];
+                                                            const next = Array.from(new Set([...current, ...cat.transitions]));
                                                             update({ transitionTypes: next });
-                                                        }}
-                                                            className={clsx("px-2 py-0.5 rounded text-[9px] font-bold transition-all border flex items-center gap-1",
-                                                                isActive || allEmpty
-                                                                    ? "bg-amber-600/15 border-amber-500/30 text-amber-200"
-                                                                    : "bg-white/5 border-white/5 text-white/30 hover:bg-white/10 hover:text-white/50")}>
-                                                            <span>{meta?.icon}</span> {meta?.label ?? t}
-                                                        </button>
-                                                    );
-                                                })}
+                                                        }} className="text-[8px] font-bold text-purple-400/60 hover:text-purple-300 transition-colors uppercase tracking-wider">Select All</button>
+                                                        <button onClick={() => {
+                                                            const current = settings.transitionTypes ?? [];
+                                                            const next = current.filter(t => !cat.transitions.includes(t));
+                                                            update({ transitionTypes: next });
+                                                        }} className="text-[8px] font-bold text-white/20 hover:text-white/40 transition-colors uppercase tracking-wider">Clear</button>
+                                                    </div>
+                                                </div>
+                                                <div className="grid grid-cols-4 gap-2">
+                                                    {cat.transitions.map(t => {
+                                                        const isActive = (settings.transitionTypes ?? []).includes(t);
+                                                        return (
+                                                            <TransitionCard
+                                                                key={t}
+                                                                type={t}
+                                                                selected={isActive}
+                                                                onToggle={() => {
+                                                                    const current = settings.transitionTypes ?? [];
+                                                                    const next = isActive ? current.filter(x => x !== t) : [...current, t];
+                                                                    update({ transitionTypes: next });
+                                                                }}
+                                                            />
+                                                        );
+                                                    })}
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                                 {(settings.transitionTypes?.length ?? 0) > 0 && (
                                     <button onClick={() => update({ transitionTypes: [] })}
                                         className="text-[9px] font-bold text-amber-400/50 hover:text-amber-300 transition-colors uppercase tracking-wider">
-                                        Clear Selection (use all)
+                                        Clear All ({settings.transitionTypes?.length} selected)
                                     </button>
                                 )}
                             </div>
@@ -1730,47 +1795,23 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     badge={[settings.colorPerSection && 'Per-Section', settings.desaturationBuildup && 'Desat', settings.beatFlashEnabled && 'Flash'].filter(Boolean).join(' · ') || undefined}
                     badgeColor="bg-pink-500/20 text-pink-300">
 
-                    <label className="flex items-center justify-between cursor-pointer py-1">
-                        <div className="flex flex-col gap-0.5">
-                            <span className="text-xs font-bold text-white">Auto-Grade by Section</span>
-                            <span className="text-[9px] text-white/30">Apply different color grading per audio segment.</span>
-                        </div>
-                        <div className="relative">
-                            <input type="checkbox" className="sr-only" checked={settings.colorPerSection ?? false}
-                                onChange={(e) => update({ colorPerSection: e.target.checked })} />
-                            <div className={clsx("w-10 h-5 rounded-full transition-colors", settings.colorPerSection ? "bg-pink-500" : "bg-black border border-white/20")}>
-                                <div className={clsx("w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform", settings.colorPerSection ? "translate-x-5" : "translate-x-0.5")} />
-                            </div>
-                        </div>
-                    </label>
-
-                    <label className="flex items-center justify-between cursor-pointer py-1">
-                        <div className="flex flex-col gap-0.5">
-                            <span className="text-xs font-bold text-white">Desaturation Buildup</span>
-                            <span className="text-[9px] text-white/30">Fade to B&W during buildup sections.</span>
-                        </div>
-                        <div className="relative">
-                            <input type="checkbox" className="sr-only" checked={settings.desaturationBuildup ?? false}
-                                onChange={(e) => update({ desaturationBuildup: e.target.checked })} />
-                            <div className={clsx("w-10 h-5 rounded-full transition-colors", settings.desaturationBuildup ? "bg-pink-500" : "bg-black border border-white/20")}>
-                                <div className={clsx("w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform", settings.desaturationBuildup ? "translate-x-5" : "translate-x-0.5")} />
-                            </div>
-                        </div>
-                    </label>
-
-                    <label className="flex items-center justify-between cursor-pointer py-1">
-                        <div className="flex flex-col gap-0.5">
-                            <span className="text-xs font-bold text-white">Beat Flash</span>
-                            <span className="text-[9px] text-white/30">White flash on beat impacts.</span>
-                        </div>
-                        <div className="relative">
-                            <input type="checkbox" className="sr-only" checked={settings.beatFlashEnabled ?? false}
-                                onChange={(e) => update({ beatFlashEnabled: e.target.checked })} />
-                            <div className={clsx("w-10 h-5 rounded-full transition-colors", settings.beatFlashEnabled ? "bg-yellow-500" : "bg-black border border-white/20")}>
-                                <div className={clsx("w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform", settings.beatFlashEnabled ? "translate-x-5" : "translate-x-0.5")} />
-                            </div>
-                        </div>
-                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                        {([
+                            { id: 'colorPerSection', label: 'Auto Grade', description: 'Different color grading per audio segment', gradient: 'linear-gradient(135deg, #3b82f6, #8b5cf6, #ec4899)' },
+                            { id: 'desaturationBuildup', label: 'Desat Build', description: 'Fade to B&W during buildup sections', gradient: 'linear-gradient(135deg, #888, #333)' },
+                            { id: 'beatFlashEnabled', label: 'Beat Flash', description: 'White flash on beat impacts', gradient: 'linear-gradient(135deg, #fbbf24, #fff, #fbbf24)' },
+                        ] as const).map(opt => (
+                            <ColorPresetCard
+                                key={opt.id}
+                                id={opt.id}
+                                label={opt.label}
+                                description={opt.description}
+                                previewGradient={opt.gradient}
+                                active={!!(settings as any)[opt.id]}
+                                onToggle={() => update({ [opt.id]: !(settings as any)[opt.id] })}
+                            />
+                        ))}
+                    </div>
                 </CollapsibleSection>
 
 
@@ -1781,22 +1822,38 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     <span className="text-sm font-bold text-white flex items-center gap-2">
                         <Eye size={14} className="text-indigo-400" /> Visual FX
                     </span>
-                    <SliderControl label="Film Grain" icon={Eye} value={settings.filmGrainAmount ?? 0}
-                        min={0} max={25} step={1} unit="" onChange={(v) => update({ filmGrainAmount: v })} />
-                    <SliderControl label="Vignette" icon={Eye} value={settings.vignetteAmount ?? 0}
-                        min={0} max={100} step={5} unit="%" onChange={(v) => update({ vignetteAmount: v })} />
-                    <SliderControl label="Chromatic Aberration" icon={Eye} value={settings.chromaticAmount ?? 0}
-                        min={0} max={20} step={1} unit="px" onChange={(v) => update({ chromaticAmount: v })} />
-                    <label className="flex items-center justify-between cursor-pointer py-1">
-                        <span className="text-[10px] font-bold uppercase text-white/50">Letterbox (2.39:1)</span>
-                        <div className="relative">
-                            <input type="checkbox" className="sr-only" checked={settings.letterboxEnabled ?? false}
-                                onChange={(e) => update({ letterboxEnabled: e.target.checked })} />
-                            <div className={clsx("w-10 h-5 rounded-full transition-colors", settings.letterboxEnabled ? "bg-indigo-500" : "bg-black border border-white/20")}>
-                                <div className={clsx("w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform", settings.letterboxEnabled ? "translate-x-5" : "translate-x-0.5")} />
-                            </div>
-                        </div>
-                    </label>
+                    <div className="grid grid-cols-4 gap-2">
+                        {([
+                            { id: 'filmGrainAmount', label: 'Film Grain', icon: '🎞️', description: 'Analog film texture overlay', min: 0, max: 25, step: 1 },
+                            { id: 'vignetteAmount', label: 'Vignette', icon: '🔲', description: 'Edge darkening for focus', min: 0, max: 100, step: 5, unit: '%' },
+                            { id: 'chromaticAmount', label: 'Chromatic', icon: '🌈', description: 'RGB edge fringing', min: 0, max: 20, step: 1, unit: 'px' },
+                            { id: 'letterbox', label: 'Letterbox', icon: '🎬', description: 'Cinematic 2.39:1 bars', min: 0, max: 1, step: 1 },
+                        ] as const).map(opt => (
+                            <VisualFXCard
+                                key={opt.id}
+                                id={opt.id}
+                                label={opt.label}
+                                icon={opt.icon}
+                                description={opt.description}
+                                value={
+                                    opt.id === 'letterbox'
+                                        ? (settings.letterboxEnabled ? 1 : 0)
+                                        : ((settings as any)[opt.id] ?? 0)
+                                }
+                                min={opt.min}
+                                max={opt.max}
+                                step={opt.step}
+                                unit={'unit' in opt ? opt.unit : undefined}
+                                onChange={(v) => {
+                                    if (opt.id === 'letterbox') {
+                                        update({ letterboxEnabled: v === 1 });
+                                    } else {
+                                        update({ [opt.id]: v });
+                                    }
+                                }}
+                            />
+                        ))}
+                    </div>
                 </div>
 
 

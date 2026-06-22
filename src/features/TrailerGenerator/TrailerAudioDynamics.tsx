@@ -1,5 +1,5 @@
 import React from 'react';
-import { SlidersHorizontal } from 'lucide-react';
+import { SlidersHorizontal, Wand2 } from 'lucide-react';
 import { DEFAULT_AUDIO_EFFECTS, AudioEffects } from '../../lib/audioEffects';
 import type { TrailerSettings } from '../../lib/trailerGenerator';
 
@@ -51,6 +51,57 @@ export const TrailerAudioDynamics: React.FC<Props> = ({ settings, update }) => {
                 <SlidersHorizontal size={14} className="text-purple-400" />
                 <span className="text-xs font-bold text-white">Audio Dynamics</span>
                 <span className="text-[9px] text-white/35 ml-auto">applied to the mixed soundtrack</span>
+            </div>
+
+            {/* Auto-compute from analysis */}
+            {settings.audioAnalysis && (
+                <button
+                    onClick={() => {
+                        const analysis = settings.audioAnalysis!;
+                        const contour = analysis.energyContour ?? [];
+                        const segments = analysis.segments ?? [];
+                        const energies = contour.map(c => c.energy);
+                        const peakE = energies.length > 0 ? Math.max(...energies) : 0;
+                        const avgE = energies.length > 0 ? energies.reduce((a, b) => a + b, 0) / energies.length : 0;
+                        const dynamicRange = peakE - avgE;
+                        const hasQuiet = segments.some(s => s.avgEnergy < 0.15) || contour.some(c => c.event === 'silence');
+                        const patch: Partial<AudioEffects> = {
+                            loudnessNorm: true,
+                            loudnessTarget: -14,
+                        };
+                        if (dynamicRange > 0.4) patch.limiter = true;
+                        if (hasQuiet) patch.gate = true;
+                        setAudio(patch);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-gradient-to-r from-purple-600/20 to-blue-600/20 border border-purple-500/30 text-[11px] font-bold uppercase tracking-wide text-purple-200 hover:from-purple-600/30 hover:to-blue-600/30 transition-all"
+                >
+                    <Wand2 size={13} />
+                    Auto (from analysis)
+                </button>
+            )}
+
+            {/* Frequency selector */}
+            <div className="space-y-1">
+                <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Apply To</span>
+                <div className="flex gap-1.5">
+                    {[
+                        { id: 'all', label: 'All Sections' },
+                        { id: 'drops', label: 'Drops Only' },
+                        { id: 'builds-drops', label: 'Builds + Drops' },
+                        { id: 'custom', label: 'Custom' },
+                    ].map(opt => (
+                        <button key={opt.id}
+                            onClick={() => update({ audioDynamicsScope: opt.id as any })}
+                            className={`px-2 py-1 rounded-full text-[9px] font-bold uppercase transition-all border ${
+                                (settings.audioDynamicsScope ?? 'all') === opt.id
+                                    ? 'bg-purple-600/20 border-purple-500/40 text-purple-200 shadow-[0_0_8px_rgba(168,85,247,0.15)]'
+                                    : 'bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60'
+                            }`}
+                        >
+                            {opt.label}
+                        </button>
+                    ))}
+                </div>
             </div>
 
             <div className="bg-black/30 rounded-lg p-2.5 relative">

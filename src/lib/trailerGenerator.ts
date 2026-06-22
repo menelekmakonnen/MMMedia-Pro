@@ -93,6 +93,9 @@ export interface TrailerSettings {
 
     // Speed curve (how speed changes are applied within a clip)
     speedCurvePreset?: SpeedCurvePreset;
+    speedCurvePresets?: SpeedCurvePreset[];   // Multi-select array (replaces single preset in UI)
+    speedCurveFrequency?: number;             // 0-100: % of clips that get a speed curve
+    audioDynamicsScope?: 'all' | 'drops' | 'builds-drops' | 'custom';
 
     // Zoom controls
     zoomEnabled?: boolean;
@@ -268,6 +271,22 @@ interface PoolFile extends MediaFile {
 }
 
 
+
+/**
+ * Clamp a zoom offset (pan position) so the cropped viewport stays within
+ * the source frame at the given zoom level.
+ *
+ * @param zoom - Zoom percentage (100 = no zoom, 200 = 2×)
+ * @param offset - Current pan offset in pixels
+ * @param dimension - Source dimension (width or height) in pixels
+ * @returns Clamped offset that keeps the viewport inside the frame
+ */
+function clampZoomOffset(zoom: number, offset: number, dimension: number): number {
+    // zoom is percentage (100 = no zoom, 200 = 2x)
+    const visibleSize = dimension / (zoom / 100);
+    const maxOffset = dimension - visibleSize;
+    return Math.max(0, Math.min(offset, maxOffset));
+}
 
 /**
  * Generates a procedural sequence of media clips based on dynamic constraints.
@@ -803,6 +822,25 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                         clip.zoomEnd = 100;
                     }
                     clip.zoomOrigin = 'center';
+
+                    // ── ZOOM BOUNDARY CLAMPING ──
+                    // When zoomed, the visible area shrinks. Clamp any pan offsets
+                    // so the viewport never exceeds the source frame boundaries.
+                    // For center-origin zoom no explicit offset clamping is needed
+                    // (center is always valid), but when source dimensions are
+                    // available we validate the zoom level won't cause out-of-
+                    // bounds rendering at the FFmpeg level.
+                    const maxZoom = Math.max(clip.zoomStart ?? 100, clip.zoomEnd ?? 100);
+                    const srcFile = validPool.find(f => f.path === clip.path) as PoolFile | undefined;
+                    if (srcFile?.width && srcFile?.height && maxZoom > 100) {
+                        // Validate that the zoom won't produce negative crop dimensions.
+                        // clampZoomOffset at center: offset = (dim - dim/z) / 2
+                        const clampedX = clampZoomOffset(maxZoom, (srcFile.width - srcFile.width / (maxZoom / 100)) / 2, srcFile.width);
+                        const clampedY = clampZoomOffset(maxZoom, (srcFile.height - srcFile.height / (maxZoom / 100)) / 2, srcFile.height);
+                        // Store clamped offsets for filterBuilder to use (only relevant for non-center origins)
+                        (clip as any)._zoomClampedX = clampedX;
+                        (clip as any)._zoomClampedY = clampedY;
+                    }
                     // Forward zoomSpeed from wizard settings to the clip so the
                     // filterBuilder's zoompan 'd' parameter respects the user's
                     // Instant/Fast/Slow/All selection.

@@ -300,31 +300,34 @@ export function buildZoompanFilter(
     const d = Math.max(1, Math.round(clipDurationFrames));
     const origin = clip.zoomOrigin || 'center';
 
-    // Build x/y expressions based on zoom origin
+    // Build x/y expressions based on zoom origin.
+    // BOUNDARY CLAMPING: All expressions are wrapped with min(max(expr,0),iw-iw/zoom)
+    // and min(max(expr,0),ih-ih/zoom) respectively, so the cropped viewport can never
+    // extend beyond the source frame edges — even with extreme zoom or pan values.
     let xExpr: string;
     let yExpr: string;
 
     switch (origin) {
         case 'top':
-            xExpr = "'iw/2-(iw/zoom/2)'";
+            xExpr = "'min(max(iw/2-(iw/zoom/2),0),iw-iw/zoom)'";
             yExpr = "'0'";
             break;
         case 'bottom':
-            xExpr = "'iw/2-(iw/zoom/2)'";
-            yExpr = "'ih-ih/zoom'";
+            xExpr = "'min(max(iw/2-(iw/zoom/2),0),iw-iw/zoom)'";
+            yExpr = "'min(max(ih-ih/zoom,0),ih-ih/zoom)'";
             break;
         case 'left':
             xExpr = "'0'";
-            yExpr = "'ih/2-(ih/zoom/2)'";
+            yExpr = "'min(max(ih/2-(ih/zoom/2),0),ih-ih/zoom)'";
             break;
         case 'right':
-            xExpr = "'iw-iw/zoom'";
-            yExpr = "'ih/2-(ih/zoom/2)'";
+            xExpr = "'min(max(iw-iw/zoom,0),iw-iw/zoom)'";
+            yExpr = "'min(max(ih/2-(ih/zoom/2),0),ih-ih/zoom)'";
             break;
         case 'center':
         default:
-            xExpr = "'iw/2-(iw/zoom/2)'";
-            yExpr = "'ih/2-(ih/zoom/2)'";
+            xExpr = "'min(max(iw/2-(iw/zoom/2),0),iw-iw/zoom)'";
+            yExpr = "'min(max(ih/2-(ih/zoom/2),0),ih-ih/zoom)'";
             break;
     }
 
@@ -602,45 +605,48 @@ export function buildVideoFilter(
         // Scale up slightly to allow crop offsets without black edges
         filters.push(`scale=${Math.round(outW * scaleUp)}:${Math.round(outH * scaleUp)}`);
         // Use coherent sine-based motion with decay for smooth, non-jittery shake
+        // BOUNDARY CLAMPING: All shake crop x/y offsets are wrapped with
+        // min(max(expr,0),iw-outW) / min(max(expr,0),ih-outH) to guarantee
+        // the crop window never exceeds the scaled-up source frame.
         if (sh.type === 'impact') {
             // Impact: multi-frequency sine blend with exponential decay — feels like a camera hit
             const decay = sh.decayRate || 5;
             filters.push(`crop=${outW}:${outH}:` +
-                `'(iw-${outW})/2+${maxOffset}*(sin(t*23.7)*0.6+sin(t*37.1)*0.4)*exp(-${decay}*t)':` +
-                `'(ih-${outH})/2+${maxOffset}*(sin(t*19.3)*0.5+sin(t*31.7)*0.5)*exp(-${decay}*t)'`);
+                `'min(max((iw-${outW})/2+${maxOffset}*(sin(t*23.7)*0.6+sin(t*37.1)*0.4)*exp(-${decay}*t),0),iw-${outW})':` +
+                `'min(max((ih-${outH})/2+${maxOffset}*(sin(t*19.3)*0.5+sin(t*31.7)*0.5)*exp(-${decay}*t),0),ih-${outH})'`);
         } else if (sh.type === 'vibration') {
             // Vibration: high-frequency coherent sine (not random jitter)
             const a = Math.round(maxOffset * 0.15);
             filters.push(`crop=${outW}:${outH}:` +
-                `'(iw-${outW})/2+${a}*sin(t*67.3)*sin(t*43.1)':` +
-                `'(ih-${outH})/2+${a}*sin(t*53.7)*sin(t*71.9)'`);
+                `'min(max((iw-${outW})/2+${a}*sin(t*67.3)*sin(t*43.1),0),iw-${outW})':` +
+                `'min(max((ih-${outH})/2+${a}*sin(t*53.7)*sin(t*71.9),0),ih-${outH})'`);
         } else if (sh.type === 'earthquake') {
             // Earthquake: low-freq Y-dominant sinusoidal
             filters.push(`crop=${outW}:${outH}:` +
-                `'(iw-${outW})/2+${Math.round(maxOffset * 0.3)}*sin(t*2*PI)':` +
-                `'(ih-${outH})/2+${maxOffset}*sin(t*1.5*PI)'`);
+                `'min(max((iw-${outW})/2+${Math.round(maxOffset * 0.3)}*sin(t*2*PI),0),iw-${outW})':` +
+                `'min(max((ih-${outH})/2+${maxOffset}*sin(t*1.5*PI),0),ih-${outH})'`);
         } else if (sh.type === 'handheld') {
             // Handheld: smooth organic drift via product-of-sines (Lissajous-like)
             filters.push(`crop=${outW}:${outH}:` +
-                `'(iw-${outW})/2+${Math.round(maxOffset * 0.4)}*sin(t*3.7)*sin(t*2.3)':` +
-                `'(ih-${outH})/2+${Math.round(maxOffset * 0.4)}*sin(t*2.1)*sin(t*4.1)'`);
+                `'min(max((iw-${outW})/2+${Math.round(maxOffset * 0.4)}*sin(t*3.7)*sin(t*2.3),0),iw-${outW})':` +
+                `'min(max((ih-${outH})/2+${Math.round(maxOffset * 0.4)}*sin(t*2.1)*sin(t*4.1),0),ih-${outH})'`);
         } else if (sh.type === 'whip') {
             // Single directional sweep with eased motion
             const dir = sh.direction === 'vertical' ? 'y' : 'x';
             if (dir === 'x') {
                 filters.push(`crop=${outW}:${outH}:` +
-                    `'(iw-${outW})/2+${maxOffset}*(-1+2*min(1,t*5))':` +
-                    `'(ih-${outH})/2'`);
+                    `'min(max((iw-${outW})/2+${maxOffset}*(-1+2*min(1,t*5)),0),iw-${outW})':` +
+                    `'min(max((ih-${outH})/2,0),ih-${outH})'`);
             } else {
                 filters.push(`crop=${outW}:${outH}:` +
-                    `'(iw-${outW})/2':` +
-                    `'(ih-${outH})/2+${maxOffset}*(-1+2*min(1,t*5))'`);
+                    `'min(max((iw-${outW})/2,0),iw-${outW})':` +
+                    `'min(max((ih-${outH})/2+${maxOffset}*(-1+2*min(1,t*5)),0),ih-${outH})'`);
             }
         } else {
             // Default fallback: coherent multi-sine (no random())
             filters.push(`crop=${outW}:${outH}:` +
-                `'(iw-${outW})/2+${maxOffset}*sin(t*11.3)*sin(t*7.1)':` +
-                `'(ih-${outH})/2+${maxOffset}*sin(t*13.7)*sin(t*5.3)'`);
+                `'min(max((iw-${outW})/2+${maxOffset}*sin(t*11.3)*sin(t*7.1),0),iw-${outW})':` +
+                `'min(max((ih-${outH})/2+${maxOffset}*sin(t*13.7)*sin(t*5.3),0),ih-${outH})'`);
         }
     }
 
