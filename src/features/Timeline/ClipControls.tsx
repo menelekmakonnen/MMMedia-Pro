@@ -5,6 +5,7 @@ import { SpeedControl } from '../../components/SpeedControl';
 import { AssetPicker } from '../../components/AssetPicker';
 import { EffectsPanel } from './EffectsPanel';
 import { ColorGradingPanel } from './ColorGradingPanel';
+import { ColorLabPanel } from './ColorLabPanel';
 import { TextOverlayPanel } from './TextOverlayPanel';
 import { AudioEffectsPanel } from './AudioEffectsPanel';
 import { toast } from '../../components/Toast';
@@ -278,6 +279,7 @@ export const ClipControls: React.FC<ClipControlsProps> = ({ clipId, variant = 's
                 {expandedSections.colorGrading && (
                     <div className="px-3 pb-3">
                         <ColorGradingPanel clipId={clip.id} />
+                        <ColorLabPanel clipId={clip.id} />
                     </div>
                 )}
             </div>

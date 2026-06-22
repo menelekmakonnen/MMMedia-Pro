@@ -5,6 +5,7 @@ import { useClipStore, Clip } from '../../store/clipStore';
 import { useProjectStore } from '../../store/projectStore';
 import { useUserStore } from '../../store/userStore';
 import { GridPlayer } from '../../components/GridPlayer';
+import { ClipControls } from '../Timeline/ClipControls';
 import { GridClip } from '../../types';
 import { DEFAULT_FPS } from '../../lib/time';
 
@@ -18,6 +19,7 @@ export const SequenceViewTab: React.FC = () => {
     const { timecodeFormat, masterVolume, isMasterMuted, setMasterVolume, setIsMasterMuted } = useUserStore();
 
     const [scale, setScale] = useState(DEFAULT_SCALE);
+    const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
 
     // Track-level controls: lock, visibility, solo
     const [trackLocked, setTrackLocked] = useState<Record<number, boolean>>({});
@@ -705,6 +707,7 @@ export const SequenceViewTab: React.FC = () => {
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         setCurrentGlobalFrame(clip.startFrame);
+                                                        setSelectedClipId((isShadow as string) || clip.id);
                                                     }}
                                                     onMouseDown={(e) => {
                                                         if (isLocked) return;
@@ -740,6 +743,17 @@ export const SequenceViewTab: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Premiere-style Inspector — full clip controls for the selected clip */}
+            {selectedClipId && (
+                <div className="fixed top-8 right-0 bottom-0 w-[340px] bg-[#0b0b16]/95 backdrop-blur-md border-l border-white/10 z-40 overflow-y-auto shadow-2xl">
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 sticky top-0 bg-[#0b0b16]/95 z-10">
+                        <span className="text-xs font-semibold text-white/70 uppercase tracking-wider">Inspector</span>
+                        <button onClick={() => setSelectedClipId(null)} className="text-white/40 hover:text-white/80 text-sm leading-none px-1">×</button>
+                    </div>
+                    <ClipControls clipId={selectedClipId} variant="sidebar" />
+                </div>
+            )}
         </div >
     );
 };

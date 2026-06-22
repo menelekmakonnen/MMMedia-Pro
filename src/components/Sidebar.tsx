@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Sliders, FolderOpen, Film, Grid, Wand2, Share, MonitorPlay, PlayCircle, Settings, Save, Lock, Loader2, Palette } from 'lucide-react';
+import { Sliders, FolderOpen, Film, Grid, Wand2, Share, MonitorPlay, PlayCircle, Settings, Save, Lock, Loader2 } from 'lucide-react';
 import { useViewStore } from '../store/viewStore';
 import { useExportSettingsStore } from '../store/exportSettingsStore';
 import { TabId } from '../types';
@@ -80,7 +80,6 @@ export const Sidebar: React.FC = () => {
                 <NavItem id="grideditor" icon={Grid} label="Grid" />
                 <NavItem id="sequence" icon={MonitorPlay} label="Sequence" />
                 <NavItem id="videoplayer" icon={PlayCircle} label="Player" />
-                <NavItem id="colorlab" icon={Palette} label="Color" />
             </div>
 
             {/* Separator */}
