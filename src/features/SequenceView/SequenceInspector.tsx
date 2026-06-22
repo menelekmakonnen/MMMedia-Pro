@@ -11,6 +11,7 @@ import { useProjectStore } from '../../store/projectStore';
 import { useMarkerStore } from '../../store/markerStore';
 import { useTrailerSmartStore } from '../../store/trailerSmartStore';
 import { useAutoSmartEngine } from '../../lib/smartEngine';
+import { TrailerGradeEnhance } from '../TrailerGenerator/TrailerGradeEnhance';
 import { ClipControls } from '../Timeline/ClipControls';
 import { formatTimecode } from '../../lib/time';
 
@@ -126,9 +127,9 @@ export const SequenceInspector: React.FC<SequenceInspectorProps> = ({
     maxFrame,
 }) => {
     const { clips, updateClip } = useClipStore();
-    const { settings } = useProjectStore();
+    const { settings: projectSettings, updateSettings: updateProjectSettings } = useProjectStore();
     const { markers } = useMarkerStore();
-    const fps = settings.fps || 30;
+    const fps = projectSettings.fps || 30;
 
     const selectedClip = selectedClipId ? clips.find((c) => c.id === selectedClipId) : null;
 
@@ -146,6 +147,7 @@ export const SequenceInspector: React.FC<SequenceInspectorProps> = ({
         audio: true,
         effects: false,
         energy: true,
+        gradeEnhance: true,
         markers: true,
         seqInfo: true,
         audioMeter: true,
@@ -192,8 +194,8 @@ export const SequenceInspector: React.FC<SequenceInspectorProps> = ({
                                     <InfoRow label="Duration" value={totalDurationTC} />
                                     <InfoRow label="FPS" value={`${fps}`} />
                                     <InfoRow label="Clips" value={`${clipCount}`} />
-                                    <InfoRow label="Aspect" value={settings.aspectRatio} />
-                                    <InfoRow label="Resolution" value={`${settings.resolution.width}×${settings.resolution.height}`} />
+                                    <InfoRow label="Aspect" value={projectSettings.aspectRatio} />
+                                    <InfoRow label="Resolution" value={`${projectSettings.resolution.width}×${projectSettings.resolution.height}`} />
                                     <InfoRow label="Frame" value={`${currentFrame} / ${maxFrame}`} mono />
                                 </div>
                             </motion.div>
@@ -339,6 +341,35 @@ export const SequenceInspector: React.FC<SequenceInspectorProps> = ({
                             >
                                 <div className="px-3 py-3 border-b border-white/[0.03]">
                                     <AudioMeterVisual />
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+
+                    {/* Grade & Enhance (project-wide color grading) */}
+                    <SectionHeader
+                        title="Grade & Enhance"
+                        icon={<Palette size={11} />}
+                        isOpen={openSections.gradeEnhance}
+                        onToggle={() => toggleSection('gradeEnhance')}
+                        accentColor="text-pink-400"
+                    />
+                    <AnimatePresence>
+                        {openSections.gradeEnhance && (
+                            <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.15 }}
+                                className="overflow-hidden"
+                            >
+                                <div className="px-1 py-2 border-b border-white/[0.03]">
+                                    <TrailerGradeEnhance
+                                        colorGrading={projectSettings.globalColorGrading}
+                                        effects={projectSettings.globalEffects}
+                                        onColorGradingChange={(grading) => updateProjectSettings({ globalColorGrading: grading })}
+                                        onEffectsChange={(effects) => updateProjectSettings({ globalEffects: effects })}
+                                    />
                                 </div>
                             </motion.div>
                         )}

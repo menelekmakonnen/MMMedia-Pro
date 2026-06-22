@@ -1,12 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { DEFAULT_COLOR_GRADING, ColorGrading } from '../../lib/colorGrading';
-import type { TrailerSettings } from '../../lib/trailerGenerator';
 import { toast } from '../../components/Toast';
 import { Upload } from 'lucide-react';
 
 const w = (typeof window !== 'undefined' ? (window as any) : {}) as any;
 
-interface Props { settings: TrailerSettings; update: (patch: Partial<TrailerSettings>) => void; }
+/** Generic interface — works from TrailerWizard or SequenceInspector (project store). */
+export interface GradeEnhanceProps {
+    colorGrading?: Record<string, unknown>;
+    effects?: Array<{ effectId: string; params: Record<string, number> }>;
+    onColorGradingChange: (grading: Record<string, unknown>) => void;
+    onEffectsChange: (effects: Array<{ effectId: string; params: Record<string, number> }>) => void;
+}
 
 const ENHANCERS: { id: string; label: string; params: Record<string, number> }[] = [
     { id: 'exposure', label: 'Exposure', params: { ev: 0.3 } },
@@ -44,10 +49,10 @@ const Toggle: React.FC<{ label: string; on: boolean; onChange: (v: boolean) => v
     </label>
 );
 
-/** Trailer-wide color grade + LUT + enhance effects + audio dynamics. */
-export const TrailerGradeEnhance: React.FC<Props> = ({ settings, update }) => {
-    const grade: ColorGrading = { ...DEFAULT_COLOR_GRADING, ...((settings.globalColorGrading as any) || {}) };
-    const effects = settings.globalEffects || [];
+/** Sequence-wide / Trailer-wide color grade + LUT + enhance effects. */
+export const TrailerGradeEnhance: React.FC<GradeEnhanceProps> = ({ colorGrading: rawGrading, effects: rawEffects, onColorGradingChange, onEffectsChange }) => {
+    const grade: ColorGrading = { ...DEFAULT_COLOR_GRADING, ...((rawGrading as any) || {}) };
+    const effects = rawEffects || [];
     const [luts, setLuts] = useState<Array<{ name: string; path: string }>>([]);
 
     const refreshLuts = useCallback(async () => {
@@ -55,7 +60,7 @@ export const TrailerGradeEnhance: React.FC<Props> = ({ settings, update }) => {
     }, []);
     useEffect(() => { refreshLuts(); }, [refreshLuts]);
 
-    const setGrade = (patch: Partial<ColorGrading>) => update({ globalColorGrading: { ...grade, ...patch } as any });
+    const setGrade = (patch: Partial<ColorGrading>) => onColorGradingChange({ ...grade, ...patch } as any);
     const triad = (k: 'lift' | 'gamma' | 'gain'): [number, number, number] =>
         ((grade as any)[k] as [number, number, number]) || (k === 'gamma' ? [1, 1, 1] : [0, 0, 0]);
     const setTriad = (k: 'lift' | 'gamma' | 'gain', idx: number, v: number) => {
@@ -63,8 +68,8 @@ export const TrailerGradeEnhance: React.FC<Props> = ({ settings, update }) => {
     };
     const effOn = (id: string) => effects.some((e) => e.effectId === id);
     const toggleEff = (id: string, params: Record<string, number>) => {
-        if (effOn(id)) update({ globalEffects: effects.filter((e) => e.effectId !== id) });
-        else update({ globalEffects: [...effects, { effectId: id, params }] });
+        if (effOn(id)) onEffectsChange(effects.filter((e) => e.effectId !== id));
+        else onEffectsChange([...effects, { effectId: id, params }]);
     };
     const importLut = async () => {
         try {

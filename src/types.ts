@@ -38,6 +38,10 @@ export interface ProjectSettings {
 
     // UI Persistence
     sequenceViewSplitHeight?: number;
+
+    // Global Color Grading & Enhancement (shared across Sequence + Generator)
+    globalColorGrading?: Record<string, unknown>;
+    globalEffects?: Array<{ effectId: string; params: Record<string, number> }>;
 }
 
 // Clip Types

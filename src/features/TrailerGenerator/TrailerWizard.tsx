@@ -6,7 +6,6 @@ import { Wand2, Clock, Zap, Video, Scissors, PlayCircle, Music, Upload, Play, Pa
 import { analyzeAudio, AudioAnalysisResult, SegmentType as _SegmentType } from '../../lib/audioAnalysis';
 import { TRANSITION_CATEGORIES, TRANSITION_META } from '../../lib/transitions';
 import type { TransitionType, SpeedCurvePreset, ShakeType, ShakePolicy, BeatDropIntensity, TransitionStyle, BoomerangPresetId, ZoomSpeed, EffectApplyPolicy } from '../../types';
-import { TrailerGradeEnhance } from './TrailerGradeEnhance';
 import { TrailerSmartPanel } from './TrailerSmartPanel';
 import { TrailerAudioDynamics } from './TrailerAudioDynamics';
 import { usePresetUsageStore } from '../../store/presetUsageStore';
@@ -1800,7 +1799,7 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     </label>
                 </div>
 
-                <TrailerGradeEnhance settings={settings} update={update} />
+
 
                 {/* Generate Button */}
                 <div className="flex justify-end pt-4 border-t border-white/5">
