@@ -7,6 +7,8 @@ import { analyzeAudio, AudioAnalysisResult, SegmentType as _SegmentType } from '
 import { TRANSITION_CATEGORIES, TRANSITION_META } from '../../lib/transitions';
 import type { TransitionType, SpeedCurvePreset, ShakeType, ShakePolicy, BeatDropIntensity, TransitionStyle, BoomerangPresetId, ZoomSpeed, EffectApplyPolicy } from '../../types';
 import { TrailerGradeEnhance } from './TrailerGradeEnhance';
+import { TrailerSmartPanel } from './TrailerSmartPanel';
+import { TrailerAudioDynamics } from './TrailerAudioDynamics';
 import { usePresetUsageStore } from '../../store/presetUsageStore';
 import clsx from 'clsx';
 
@@ -1043,7 +1045,11 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                 min={0} max={1} step={0.1} unit="" onChange={(v) => update({ beatSensitivity: v })} />
                         </div>
                     )}
+
+                    <TrailerAudioDynamics settings={settings} update={update} />
                 </div>
+
+                <TrailerSmartPanel settings={settings} update={update} />
 
 
 
@@ -1784,58 +1790,6 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                 </div>
 
                 <TrailerGradeEnhance settings={settings} update={update} />
-
-                {/* ── Smart (auto-editor intelligence) ── */}
-                <div className="border border-white/5 rounded-xl bg-black/20 p-5 space-y-2">
-                    <span className="text-sm font-bold text-white flex items-center gap-2">
-                        <Wand2 size={14} className="text-emerald-400" /> Smart
-                    </span>
-                    <label className="flex items-center justify-between cursor-pointer py-1">
-                        <span className="text-[10px] font-bold uppercase text-white/50">Stabilize All Clips</span>
-                        <div className="relative">
-                            <input type="checkbox" className="sr-only" checked={settings.globalStabilize?.enabled ?? false} onChange={(e) => update({ globalStabilize: { enabled: e.target.checked, smoothing: settings.globalStabilize?.smoothing ?? 10 } })} />
-                            <div className={clsx("w-10 h-5 rounded-full transition-colors", settings.globalStabilize?.enabled ?? false ? "bg-emerald-500" : "bg-black border border-white/20")}>
-                                <div className={clsx("w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform", settings.globalStabilize?.enabled ?? false ? "translate-x-5" : "translate-x-0.5")} />
-                            </div>
-                        </div>
-                    </label>
-                    <label className="flex items-center justify-between cursor-pointer py-1">
-                        <span className="text-[10px] font-bold uppercase text-white/50">Auto Fade In / Out</span>
-                        <div className="relative">
-                            <input type="checkbox" className="sr-only" checked={settings.autoFadeInOut ?? false} onChange={(e) => update({ autoFadeInOut: e.target.checked })} />
-                            <div className={clsx("w-10 h-5 rounded-full transition-colors", settings.autoFadeInOut ?? false ? "bg-emerald-500" : "bg-black border border-white/20")}>
-                                <div className={clsx("w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform", settings.autoFadeInOut ?? false ? "translate-x-5" : "translate-x-0.5")} />
-                            </div>
-                        </div>
-                    </label>
-                    <label className="flex items-center justify-between cursor-pointer py-1">
-                        <span className="text-[10px] font-bold uppercase text-white/50">Prefer High-Energy Clips</span>
-                        <div className="relative">
-                            <input type="checkbox" className="sr-only" checked={settings.preferHighEnergy ?? false} onChange={(e) => update({ preferHighEnergy: e.target.checked })} />
-                            <div className={clsx("w-10 h-5 rounded-full transition-colors", settings.preferHighEnergy ?? false ? "bg-emerald-500" : "bg-black border border-white/20")}>
-                                <div className={clsx("w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform", settings.preferHighEnergy ?? false ? "translate-x-5" : "translate-x-0.5")} />
-                            </div>
-                        </div>
-                    </label>
-                    <label className="flex items-center justify-between cursor-pointer py-1">
-                        <span className="text-[10px] font-bold uppercase text-white/50">Auto-Trim Silence</span>
-                        <div className="relative">
-                            <input type="checkbox" className="sr-only" checked={settings.autoTrimSilence ?? false} onChange={(e) => update({ autoTrimSilence: e.target.checked })} />
-                            <div className={clsx("w-10 h-5 rounded-full transition-colors", settings.autoTrimSilence ?? false ? "bg-emerald-500" : "bg-black border border-white/20")}>
-                                <div className={clsx("w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform", settings.autoTrimSilence ?? false ? "translate-x-5" : "translate-x-0.5")} />
-                            </div>
-                        </div>
-                    </label>
-                    <label className="flex items-center justify-between cursor-pointer py-1">
-                        <span className="text-[10px] font-bold uppercase text-white/50">Scene-Aware Cuts</span>
-                        <div className="relative">
-                            <input type="checkbox" className="sr-only" checked={settings.sceneAwareCuts ?? false} onChange={(e) => update({ sceneAwareCuts: e.target.checked })} />
-                            <div className={clsx("w-10 h-5 rounded-full transition-colors", settings.sceneAwareCuts ?? false ? "bg-emerald-500" : "bg-black border border-white/20")}>
-                                <div className={clsx("w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform", settings.sceneAwareCuts ?? false ? "translate-x-5" : "translate-x-0.5")} />
-                            </div>
-                        </div>
-                    </label>
-                </div>
 
                 {/* Generate Button */}
                 <div className="flex justify-end pt-4 border-t border-white/5">

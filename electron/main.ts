@@ -2216,12 +2216,12 @@ ipcMain.handle('import-lut', async () => {
 });
 
 // ── Auto-editor intelligence: scene & silence detection (FFmpeg-backed) ──────
-ipcMain.handle('score-clip', async (_e, { path: raw }: any) => {
+ipcMain.handle('score-clip', async (_e, { path: raw, maxSec = 60 }: any) => {
     try {
         const ffmpegBin = resolveFFmpegBin();
         const p = normalizeClipPath(raw || '');
         if (!p || !fs.existsSync(p)) return { success: false, error: 'File not found' };
-        const r = await runFfmpegAsync(ffmpegBin, ['-i', p, '-vf', 'tblend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG', '-an', '-f', 'null', '-'], 'scoreclip', () => {});
+        const r = await runFfmpegAsync(ffmpegBin, ['-t', String(maxSec), '-i', p, '-vf', 'scale=192:108,tblend=all_mode=difference,signalstats,metadata=print:key=lavfi.signalstats.YAVG', '-an', '-f', 'null', '-'], 'scoreclip', () => {});
         const vals = parseMetadataValues(r.stderr || '', 'lavfi.signalstats.YAVG');
         const energy = motionMean(vals);
         return { success: true, motionEnergy: energy, score: motionToScore(energy) };
@@ -2234,21 +2234,33 @@ ipcMain.handle('detect-silence', async (_e, { path: raw, noiseDb = -45, minSilen
         const p = normalizeClipPath(raw || '');
         if (!p || !fs.existsSync(p)) return { success: false, error: 'File not found' };
         const probe = probeClipFile(ffmpegBin, p);
-        const r = await runFfmpegAsync(ffmpegBin, ['-i', p, '-af', `silencedetect=n=${noiseDb}dB:d=${minSilenceSec}`, '-f', 'null', '-'], 'silencedetect', () => {});
+        const r = await runFfmpegAsync(ffmpegBin, ['-i', p, '-vn', '-af', `silencedetect=n=${noiseDb}dB:d=${minSilenceSec}`, '-f', 'null', '-'], 'silencedetect', () => {});
         const intervals = parseSilenceDetect(r.stderr || '', probe.duration || Infinity);
         const trim = computeHeadTailTrim(intervals, probe.duration || 0);
         return { success: true, duration: probe.duration, intervals, trim };
     } catch (e: any) { return { success: false, error: e?.message || String(e) }; }
 });
 
-ipcMain.handle('detect-scenes', async (_e, { path: raw, threshold = 0.3 }: any) => {
+ipcMain.handle('detect-scenes', async (_e, { path: raw, threshold = 0.3, maxSec = 60 }: any) => {
     try {
         const ffmpegBin = resolveFFmpegBin();
         const p = normalizeClipPath(raw || '');
         if (!p || !fs.existsSync(p)) return { success: false, error: 'File not found' };
-        const r = await runFfmpegAsync(ffmpegBin, ['-i', p, '-vf', `select='gt(scene,${threshold})',showinfo`, '-an', '-f', 'null', '-'], 'scenedetect', () => {});
+        const r = await runFfmpegAsync(ffmpegBin, ['-t', String(maxSec), '-i', p, '-vf', `scale=192:108,select='gt(scene,${threshold})',showinfo`, '-an', '-f', 'null', '-'], 'scenedetect', () => {});
         const cuts = parseShowinfoPtsTimes(r.stderr || '');
         return { success: true, cuts };
+    } catch (e: any) { return { success: false, error: e?.message || String(e) }; }
+});
+
+ipcMain.handle('analyze-clip-color', async (_e, { path: raw, maxSec = 60 }: any) => {
+    try {
+        const ffmpegBin = resolveFFmpegBin();
+        const p = normalizeClipPath(raw || '');
+        if (!p || !fs.existsSync(p)) return { success: false, error: 'File not found' };
+        const r = await runFfmpegAsync(ffmpegBin, ['-t', String(maxSec), '-i', p, '-vf', 'scale=192:108,signalstats,metadata=print', '-an', '-f', 'null', '-'], 'colorstats', () => {});
+        const y = parseMetadataValues(r.stderr || '', 'lavfi.signalstats.YAVG');
+        const s = parseMetadataValues(r.stderr || '', 'lavfi.signalstats.SATAVG');
+        return { success: true, yavg: motionMean(y), satavg: motionMean(s) };
     } catch (e: any) { return { success: false, error: e?.message || String(e) }; }
 });
 

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { DEFAULT_COLOR_GRADING, ColorGrading } from '../../lib/colorGrading';
-import { DEFAULT_AUDIO_EFFECTS, AudioEffects } from '../../lib/audioEffects';
 import type { TrailerSettings } from '../../lib/trailerGenerator';
 import { toast } from '../../components/Toast';
 import { Upload } from 'lucide-react';
@@ -48,7 +47,6 @@ const Toggle: React.FC<{ label: string; on: boolean; onChange: (v: boolean) => v
 /** Trailer-wide color grade + LUT + enhance effects + audio dynamics. */
 export const TrailerGradeEnhance: React.FC<Props> = ({ settings, update }) => {
     const grade: ColorGrading = { ...DEFAULT_COLOR_GRADING, ...((settings.globalColorGrading as any) || {}) };
-    const audio: AudioEffects = { ...DEFAULT_AUDIO_EFFECTS, ...((settings.globalAudioEffects as any) || {}) };
     const effects = settings.globalEffects || [];
     const [luts, setLuts] = useState<Array<{ name: string; path: string }>>([]);
 
@@ -58,7 +56,6 @@ export const TrailerGradeEnhance: React.FC<Props> = ({ settings, update }) => {
     useEffect(() => { refreshLuts(); }, [refreshLuts]);
 
     const setGrade = (patch: Partial<ColorGrading>) => update({ globalColorGrading: { ...grade, ...patch } as any });
-    const setAudio = (patch: Partial<AudioEffects>) => update({ globalAudioEffects: { ...audio, ...patch } as any });
     const triad = (k: 'lift' | 'gamma' | 'gain'): [number, number, number] =>
         ((grade as any)[k] as [number, number, number]) || (k === 'gamma' ? [1, 1, 1] : [0, 0, 0]);
     const setTriad = (k: 'lift' | 'gamma' | 'gain', idx: number, v: number) => {
@@ -119,18 +116,6 @@ export const TrailerGradeEnhance: React.FC<Props> = ({ settings, update }) => {
                 {ENHANCERS.map((e) => <Toggle key={e.id} label={e.label} on={effOn(e.id)} onChange={() => toggleEff(e.id, e.params)} />)}
             </div>
 
-            <div className={head}>Audio Dynamics</div>
-            <Toggle label="Limiter" on={audio.limiter ?? false} onChange={(v) => setAudio({ limiter: v })} />
-            <Toggle label="Noise Gate" on={audio.gate ?? false} onChange={(v) => setAudio({ gate: v })} />
-            <Toggle label="Loudness Normalize" on={audio.loudnessNorm ?? false} onChange={(v) => setAudio({ loudnessNorm: v })} />
-            {audio.loudnessNorm && (
-                <div className="grid grid-cols-3 gap-1 pt-1">
-                    {[{ l: 'YouTube', v: -14 }, { l: 'Podcast', v: -16 }, { l: 'Broadcast', v: -23 }].map((p) => (
-                        <button key={p.v} onClick={() => setAudio({ loudnessTarget: p.v })}
-                            className={`text-[9px] py-1 rounded ${(audio.loudnessTarget ?? -14) === p.v ? 'bg-primary/30 text-white' : 'bg-white/5 text-white/50 hover:bg-white/10'}`}>{p.l}</button>
-                    ))}
-                </div>
-            )}
         </div>
     );
 };

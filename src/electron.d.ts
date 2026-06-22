@@ -45,7 +45,8 @@ export interface ElectronAPI {
     generatePreviewProxy: (args: { clip: any; settings: any }) => Promise<{ success: boolean; proxyPath?: string; hash?: string; error?: string }>;
     detectSilence: (args: { path: string; noiseDb?: number; minSilenceSec?: number }) => Promise<{ success: boolean; duration?: number; intervals?: Array<{ start: number; end: number }>; trim?: { trimStart: number; trimEnd: number }; error?: string }>;
     detectScenes: (args: { path: string; threshold?: number }) => Promise<{ success: boolean; cuts?: number[]; error?: string }>;
-    scoreClip: (args: { path: string }) => Promise<{ success: boolean; motionEnergy?: number; score?: number; error?: string }>;
+    scoreClip: (args: { path: string; maxSec?: number }) => Promise<{ success: boolean; motionEnergy?: number; score?: number; error?: string }>;
+    analyzeClipColor: (args: { path: string; maxSec?: number }) => Promise<{ success: boolean; yavg?: number; satavg?: number; error?: string }>;
     generateScopes: (args: { path: string; atSec?: number }) => Promise<{ success: boolean; scopes?: Record<string, string>; error?: string }>;
     listLuts: () => Promise<{ success: boolean; luts?: Array<{ name: string; path: string }>; error?: string }>;
     importLut: () => Promise<{ success: boolean; path?: string; name?: string; canceled?: boolean; error?: string }>;

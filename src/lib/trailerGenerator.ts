@@ -158,6 +158,8 @@ export interface TrailerSettings {
     autoTrimSilence?: boolean;
     /** Snap source trim-ins to detected scene-change boundaries. */
     sceneAwareCuts?: boolean;
+    /** Clip-aware automatic cinematic color grade (per-clip, from luma/saturation). */
+    autoColorGrade?: boolean;
 }
 
 export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
@@ -220,6 +222,7 @@ export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
     preferHighEnergy: false,
     autoTrimSilence: false,
     sceneAwareCuts: false,
+    autoColorGrade: false,
     rgbSplitPolicy: 'off',
     rgbSplitAmount: 45,
     hueCyclePolicy: 'off',
@@ -532,7 +535,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         sourceOrientation: file.orientation || 'horizontal',
         rotation: file.rotation || 0,   // persist upload-page rotation into the render
         ...(s.globalEffects?.length ? { parametricEffects: s.globalEffects } : {}),
-        ...(s.globalColorGrading ? { colorGrading: s.globalColorGrading } : {}),
+        ...((file as any)._autoGrade ? { colorGrading: (file as any)._autoGrade } : (s.globalColorGrading ? { colorGrading: s.globalColorGrading } : {})),
         ...(s.globalFlipH ? { flipH: true } : {}),
         ...(s.globalFlipV ? { flipV: true } : {}),
         ...(s.globalSharpen ? { sharpen: s.globalSharpen } : {}),
