@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useMediaStore } from '../../store/mediaStore';
 import { TrailerSettings, DEFAULT_TRAILER_SETTINGS } from '../../lib/trailerGenerator';
-import { Wand2, Clock, Zap, Video, Scissors, PlayCircle, Music, Upload, Play, Pause, Trash2, Loader2, Sparkles, Smartphone, Monitor, Square, ArrowLeftRight, Layers, ChevronDown, Eye, Palette, Repeat } from 'lucide-react';
+import { Wand2, Clock, Zap, Video, Scissors, PlayCircle, Music, Upload, Play, Pause, Trash2, Loader2, Sparkles, Smartphone, Monitor, Square, ArrowLeftRight, Layers, ChevronDown, Eye, Palette, Repeat, Search, Activity } from 'lucide-react';
 import { analyzeAudio, AudioAnalysisResult, SegmentType as _SegmentType } from '../../lib/audioAnalysis';
 import { TRANSITION_CATEGORIES, TRANSITION_META } from '../../lib/transitions';
 import type { TransitionType, SpeedCurvePreset, ShakeType, ShakePolicy, BeatDropIntensity, TransitionStyle, BoomerangPresetId, ZoomSpeed, EffectApplyPolicy } from '../../types';
@@ -11,6 +11,7 @@ import { TrailerAudioDynamics } from './EditAudioDynamics';
 import { SpeedCurveVisualizer } from './SpeedCurveVisualizer';
 import { ShakePreview } from './ShakePreview';
 import { usePresetUsageStore } from '../../store/presetUsageStore';
+import { useAudioAnalysisCache } from '../../store/audioAnalysisCache';
 import { useExportSettingsStore } from '../../store/exportSettingsStore';
 import { TransitionCard } from './TransitionCard';
 import { ColorPresetCard } from './ColorPresetCard';
@@ -168,6 +169,7 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
     const { files, orientationFilter, setOrientationFilter, selectedFileIds, preloadedAudioPath, preloadedAudioName, setPreloadedAudio } = useMediaStore();
     const isExporting = useExportSettingsStore(s => s.isExporting);
     useAutoSmartEngine();
+    const audioCache = useAudioAnalysisCache();
 
     const narrationStore = useNarrationStore();
     const [mergeStrategy, setMergeStrategy] = useState<MergeStrategy>('balanced');
@@ -341,8 +343,34 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
         update({ audioUrl: null, audioFile: null, audioFilePath: undefined, useAudioGuide: false, audioAnalysis: null, audioTrimStart: undefined, audioTrimEnd: undefined });
     };
 
-    const handleRandomizeBeat = async () => {
+    const handleRandomizeBeat = async (forceRescan = false) => {
         if (!audioUrl) return;
+
+        // --- Cache lookup (skip heavy DSP if we already have results) ---
+        const cacheKey = preloadedAudioPath || settings.audioFilePath || settings.audioUrl || '';
+        const sensitivity = settings.beatSensitivity ?? 0.5;
+        if (!forceRescan && cacheKey) {
+            const cached = audioCache.getCached(cacheKey, sensitivity);
+            if (cached) {
+                console.log('[EditWizard] Using cached audio analysis for:', cacheKey);
+                setAudioAnalysis(cached);
+                update({ audioAnalysis: cached });
+
+                const dropSeg = cached.segments.find(s => s.type === 'drop');
+                if (dropSeg) {
+                    const start = Math.max(0, dropSeg.start - (Math.random() * 2));
+                    const end = Math.min(start + settings.targetDuration, cached.duration);
+                    setAudioTrimStart(start);
+                    setAudioTrimEnd(end);
+                    update({ audioTrimStart: start, audioTrimEnd: end });
+                }
+
+                setAnalysisToast(true);
+                setTimeout(() => setAnalysisToast(false), 2000);
+                return;
+            }
+        }
+
         setIsAnalyzing(true);
         try {
             const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
@@ -365,9 +393,14 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                 arrayBuffer = await response.arrayBuffer();
             }
             const decoded = await ctx.decodeAudioData(arrayBuffer);
-            const result = await analyzeAudio(decoded, settings.beatSensitivity ?? 0.5);
+            const result = await analyzeAudio(decoded, sensitivity);
             setAudioAnalysis(result);
             update({ audioAnalysis: result });
+
+            // --- Store in cache for future loads ---
+            if (cacheKey) {
+                audioCache.store(cacheKey, result, sensitivity);
+            }
             
             const dropSeg = result.segments.find(s => s.type === 'drop');
             if (dropSeg) {
@@ -972,11 +1005,19 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                         className="p-2 bg-blue-500/20 hover:bg-blue-500/40 rounded transition-colors text-blue-300 flex items-center gap-1 text-[10px] font-bold">
                                         <ArrowLeftRight size={14} /> Full Audio
                                     </button>
-                                    <button onClick={handleRandomizeBeat} disabled={isAnalyzing}
+                                    <button onClick={() => handleRandomizeBeat(false)} disabled={isAnalyzing}
                                         className="p-2 bg-purple-500/20 hover:bg-purple-500/40 rounded transition-colors text-purple-300 flex items-center gap-1 text-[10px] font-bold">
                                         {isAnalyzing ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
-                                        {!audioAnalysis ? 'Analyze' : 'Re-Analyze'}
+                                        Analyze
                                     </button>
+                                    {audioAnalysis && (
+                                        <button onClick={() => handleRandomizeBeat(true)} disabled={isAnalyzing}
+                                            title="Force re-analysis (bypass cache)"
+                                            className="p-2 bg-amber-500/20 hover:bg-amber-500/40 rounded transition-colors text-amber-300 flex items-center gap-1 text-[10px] font-bold">
+                                            <Repeat size={14} />
+                                            Re-Analyze
+                                        </button>
+                                    )}
                                     <button onClick={handleRemoveAudio} className="p-2 bg-red-500/20 hover:bg-red-500/40 rounded text-red-400"><Trash2 size={14} /></button>
                                 </div>
                             </div>
@@ -1410,7 +1451,7 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     <div className="space-y-2">
                         <div className="flex items-center justify-between">
                             <span className="text-[11px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-2">
-                                <span className="text-sm">🔍</span> Zoom
+                                <Search size={14} /> Zoom
                             </span>
                             <button onClick={() => update({ zoomEnabled: !settings.zoomEnabled })}
                                 className={clsx("px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
@@ -1499,7 +1540,7 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     {/* ── Beat Drop Impact ── */}
                     <div className="space-y-1.5">
                         <span className="text-[11px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-2">
-                            <span className="text-sm">💥</span> Beat Drop Impact
+                            <Zap size={14} /> Beat Drop Impact
                         </span>
                         <div className="flex flex-wrap gap-1.5">
                             {(['off', 'subtle', 'medium', 'heavy', 'maximum'] as BeatDropIntensity[]).map(id => (
@@ -1519,7 +1560,7 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     {/* ── Shake ── */}
                     <div className="space-y-2">
                         <span className="text-[11px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-2">
-                            <span className="text-sm">📳</span> Shake
+                            <Activity size={14} /> Shake
                         </span>
                         <div className="space-y-1">
                             <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Shake Policy</span>
@@ -1884,10 +1925,10 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     </span>
                     <div className="grid grid-cols-4 gap-2">
                         {([
-                            { id: 'filmGrainAmount', label: 'Film Grain', icon: '🎞️', description: 'Analog film texture overlay', min: 0, max: 25, step: 1 },
-                            { id: 'vignetteAmount', label: 'Vignette', icon: '🔲', description: 'Edge darkening for focus', min: 0, max: 100, step: 5, unit: '%' },
-                            { id: 'chromaticAmount', label: 'Chromatic', icon: '🌈', description: 'RGB edge fringing', min: 0, max: 20, step: 1, unit: 'px' },
-                            { id: 'letterbox', label: 'Letterbox', icon: '🎬', description: 'Cinematic 2.39:1 bars', min: 0, max: 1, step: 1 },
+                            { id: 'filmGrainAmount', label: 'Film Grain', icon: 'film', description: 'Analog film texture overlay', min: 0, max: 25, step: 1 },
+                            { id: 'vignetteAmount', label: 'Vignette', icon: 'aperture', description: 'Edge darkening for focus', min: 0, max: 100, step: 5, unit: '%' },
+                            { id: 'chromaticAmount', label: 'Chromatic', icon: 'scan', description: 'RGB edge fringing', min: 0, max: 20, step: 1, unit: 'px' },
+                            { id: 'letterbox', label: 'Letterbox', icon: 'monitor', description: 'Cinematic 2.39:1 bars', min: 0, max: 1, step: 1 },
                         ] as const).map(opt => (
                             <VisualFXCard
                                 key={opt.id}

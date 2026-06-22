@@ -12,9 +12,10 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
     Mic, Play, Pause, Square, Loader2, Trash2,
     FileText, Scissors, BarChart3, Type, Upload,
-    Clock, Zap, Activity,
+    Clock, Zap, Activity, ChevronDown, GitMerge,
 } from 'lucide-react';
 import clsx from 'clsx';
+import { AnimatePresence, motion } from 'framer-motion';
 
 // ─── Types from analysis modules ─────────────────────────────────────────────
 import type {
@@ -175,6 +176,7 @@ export const NarrationIntelligence: React.FC<NarrationIntelligenceProps> = ({
     // ── Local state ──────────────────────────────────────────────────────
     const [isPlaying, setIsPlaying] = useState(false);
     const [isDraggingOver, setIsDraggingOver] = useState(false);
+    const [isExpanded, setIsExpanded] = useState(false);
 
     // ── Audio playback ───────────────────────────────────────────────────
     const togglePlay = useCallback(() => {
@@ -210,6 +212,13 @@ export const NarrationIntelligence: React.FC<NarrationIntelligenceProps> = ({
             el.removeEventListener('pause', onPause);
         };
     }, [narrationUrl]);
+
+    // ── Auto-expand when file is uploaded ─────────────────────────────
+    useEffect(() => {
+        if (narrationFile || narrationUrl) {
+            setIsExpanded(true);
+        }
+    }, [narrationFile, narrationUrl]);
 
     // ── Waveform drawing ─────────────────────────────────────────────────
     useEffect(() => {
@@ -253,22 +262,60 @@ export const NarrationIntelligence: React.FC<NarrationIntelligenceProps> = ({
 
     // ── Render ───────────────────────────────────────────────────────────
     return (
-        <div className="border border-white/5 rounded-xl bg-black/20 p-5 space-y-4">
-            {/* ═══ Header Row ═══ */}
-            <div className="flex items-center gap-2">
-                <Mic size={16} className={hasFile ? 'text-teal-400' : 'text-white/40'} />
-                <span className="text-sm font-bold text-white">Narration Intelligence</span>
-                {hasFile && (
-                    <span className="text-[10px] bg-teal-500/20 text-teal-300 px-2 py-0.5 rounded-full font-bold ml-auto animate-pulse">
-                        Active
+        <div className="border border-white/5 rounded-xl bg-black/20 p-5">
+            {/* ═══ Header Row (clickable toggle) ═══ */}
+            <button
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="w-full flex items-center justify-between group cursor-pointer"
+            >
+                <div className="flex items-center gap-2">
+                    <Mic size={16} className={hasFile ? 'text-teal-400' : 'text-white/40'} />
+                    <span className="text-xs font-semibold text-white/80 tracking-wide uppercase">
+                        Narration Intelligence
                     </span>
-                )}
-                {analysis && (
-                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-bold">
-                        {Math.round(analysis.averageWPM)} WPM
-                    </span>
-                )}
-            </div>
+                    {hasFile && (
+                        <span className="text-[10px] bg-teal-500/20 text-teal-300 px-2 py-0.5 rounded-full font-bold animate-pulse">
+                            Active
+                        </span>
+                    )}
+                    {/* Collapsed inline status summary */}
+                    {!isExpanded && analysis && (
+                        <>
+                            <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-bold">
+                                {Math.round(analysis.averageWPM)} WPM
+                            </span>
+                            <span className="text-[10px] bg-white/5 text-white/40 px-2 py-0.5 rounded-full font-bold">
+                                {analysis.phrases.length} phrases
+                            </span>
+                        </>
+                    )}
+                    {!isExpanded && !analysis && hasFile && narrationName && (
+                        <span className="text-[10px] bg-white/5 text-white/40 px-2 py-0.5 rounded-full font-mono truncate max-w-[140px]">
+                            {narrationName}
+                        </span>
+                    )}
+                </div>
+                <ChevronDown
+                    size={14}
+                    className={clsx(
+                        'text-white/30 transition-transform duration-200',
+                        isExpanded && 'rotate-180'
+                    )}
+                />
+            </button>
+
+            {/* ═══ Expandable Content ═══ */}
+            <AnimatePresence initial={false}>
+                {isExpanded && (
+                    <motion.div
+                        key="narration-panel-content"
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.25, ease: 'easeInOut' }}
+                        className="overflow-hidden"
+                    >
+                        <div className="space-y-4 mt-3">
 
             <p className="text-[10px] text-white/40">
                 Upload narration audio for intelligent phrase detection, emphasis mapping, and speech-aware cut points.
@@ -497,7 +544,7 @@ export const NarrationIntelligence: React.FC<NarrationIntelligenceProps> = ({
             {hasBeatIntelligence && onMergeStrategyChange && (
                 <div className="space-y-2 pt-2 border-t border-white/5">
                     <div className="flex items-center gap-2">
-                        <span className="text-sm">🔀</span>
+                        <GitMerge size={14} className="text-teal-400/60" />
                         <span className="text-[10px] font-bold text-white/50 uppercase tracking-wider">
                             Intelligence Merge
                         </span>
@@ -524,6 +571,11 @@ export const NarrationIntelligence: React.FC<NarrationIntelligenceProps> = ({
                     </div>
                 </div>
             )}
+
+                        </div>{/* end .space-y-4 */}
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 };

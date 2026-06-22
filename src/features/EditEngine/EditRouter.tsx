@@ -41,7 +41,7 @@ import { useNarrationStore } from '../../store/narrationStore';
 
 export const EditRouter: React.FC = () => {
     // ── Core state machine ───────────────────────────────────────────────────
-    const [activeView, setActiveView] = useState<'home' | 'wizard' | 'player'>('home');
+    const [activeView, setActiveView] = useState<'home' | 'wizard' | 'player'>('wizard');
     const [activeMode, setActiveMode] = useState<EditType>('trailer');
     const [settings, setSettings] = useState<TrailerSettings | null>(null);
     const [preGeneratedClips, setPreGeneratedClips] = useState<any[]>([]);

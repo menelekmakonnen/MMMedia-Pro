@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import clsx from 'clsx';
 import type { TransitionType } from '../../types';
@@ -11,170 +11,298 @@ interface TransitionCardProps {
 }
 
 /* ────────────────────────────────────────────────────────────
- *  CSS-animation class per transition category
- *  Each animation shows panel B replacing panel A
+ *  Inline SVG transition preview per type.
+ *  Each returns an SVG with two panels (A = purple, B = blue)
+ *  animated via CSS `transition` + Tailwind `group-hover:`.
+ *
+ *  Panel A is the "current clip", Panel B is the "incoming clip".
+ *  On hover the parent `group` triggers the animation.
  * ──────────────────────────────────────────────────────────── */
 
-const PREVIEW_STYLES = `
-/* ── Shared panel base ── */
-.tp-a, .tp-b { position: absolute; inset: 0; border-radius: 4px; }
-.tp-a { background: linear-gradient(135deg, #7c3aed, #a855f7); }
-.tp-b { background: linear-gradient(135deg, #3b82f6, #06b6d4); }
+const A_COLOR = '#8b5cf6'; // purple-500
+const B_COLOR = '#3b82f6'; // blue-500
 
-/* ── Basic: opacity ── */
-.anim-fade .tp-b     { animation: tp-fade 1.2s ease-in-out infinite; }
-@keyframes tp-fade   { 0%,15% { opacity:0 } 50%,100% { opacity:1 } }
+function TransitionPreviewSVG({ type }: { type: TransitionType }) {
+    const shared = 'w-10 h-7';
 
-.anim-cut .tp-b      { animation: tp-cut 1.2s steps(1) infinite; }
-@keyframes tp-cut    { 0%,49% { opacity:0 } 50%,100% { opacity:1 } }
+    switch (type) {
+        /* ── Basic opacity ── */
+        case 'fade':
+            return (
+                <svg viewBox="0 0 40 28" className={clsx(shared, 'overflow-hidden rounded-sm')}>
+                    <rect x="0" y="0" width="40" height="28" fill={A_COLOR}
+                        className="transition-opacity duration-[600ms] ease-in-out group-hover:opacity-0" />
+                    <rect x="0" y="0" width="40" height="28" fill={B_COLOR}
+                        className="opacity-0 transition-opacity duration-[600ms] ease-in-out group-hover:opacity-100" />
+                </svg>
+            );
 
-.anim-fadewhite .tp-b { animation: tp-fadewhite 1.2s ease-in-out infinite; }
-.anim-fadewhite::after { content:''; position:absolute; inset:0; background:#fff; border-radius:4px; animation: tp-fw-flash 1.2s ease-in-out infinite; pointer-events:none; }
-@keyframes tp-fadewhite { 0%,30% { opacity:0 } 60%,100% { opacity:1 } }
-@keyframes tp-fw-flash  { 0% { opacity:0 } 30% { opacity:.8 } 60% { opacity:0 } 100% { opacity:0 } }
+        case 'cut':
+            return (
+                <svg viewBox="0 0 40 28" className={clsx(shared, 'overflow-hidden rounded-sm')}>
+                    <rect x="0" y="0" width="40" height="28" fill={A_COLOR}
+                        className="transition-opacity duration-0 group-hover:opacity-0" />
+                    <rect x="0" y="0" width="40" height="28" fill={B_COLOR}
+                        className="opacity-0 transition-opacity duration-0 group-hover:opacity-100" />
+                </svg>
+            );
 
-.anim-fadeblack .tp-b { animation: tp-fadeblack 1.2s ease-in-out infinite; }
-.anim-fadeblack::after { content:''; position:absolute; inset:0; background:#000; border-radius:4px; animation: tp-fb-flash 1.2s ease-in-out infinite; pointer-events:none; }
-@keyframes tp-fadeblack { 0%,30% { opacity:0 } 60%,100% { opacity:1 } }
-@keyframes tp-fb-flash  { 0% { opacity:0 } 30% { opacity:.9 } 60% { opacity:0 } 100% { opacity:0 } }
+        case 'fadewhite':
+            return (
+                <svg viewBox="0 0 40 28" className={clsx(shared, 'overflow-hidden rounded-sm')}>
+                    <rect x="0" y="0" width="40" height="28" fill={A_COLOR}
+                        className="transition-opacity duration-[600ms] ease-in-out group-hover:opacity-0" />
+                    <rect x="0" y="0" width="40" height="28" fill="#ffffff"
+                        className="opacity-0 transition-opacity duration-[300ms] ease-in-out group-hover:opacity-80" />
+                    <rect x="0" y="0" width="40" height="28" fill={B_COLOR}
+                        className="opacity-0 transition-opacity duration-[600ms] ease-in-out delay-[200ms] group-hover:opacity-100" />
+                </svg>
+            );
 
-.anim-dissolve .tp-b  { animation: tp-dissolve 1.2s ease-in-out infinite; mix-blend-mode: normal; }
-@keyframes tp-dissolve { 0%,10% { opacity:0; filter:contrast(1.5) } 55%,100% { opacity:1; filter:contrast(1) } }
+        case 'fadeblack':
+            return (
+                <svg viewBox="0 0 40 28" className={clsx(shared, 'overflow-hidden rounded-sm')}>
+                    <rect x="0" y="0" width="40" height="28" fill={A_COLOR}
+                        className="transition-opacity duration-[600ms] ease-in-out group-hover:opacity-0" />
+                    <rect x="0" y="0" width="40" height="28" fill="#000000"
+                        className="opacity-0 transition-opacity duration-[300ms] ease-in-out group-hover:opacity-90" />
+                    <rect x="0" y="0" width="40" height="28" fill={B_COLOR}
+                        className="opacity-0 transition-opacity duration-[600ms] ease-in-out delay-[200ms] group-hover:opacity-100" />
+                </svg>
+            );
 
-/* ── Directional: transform translate ── */
-.anim-wipeleft .tp-b  { animation: tp-wipeleft 1.2s ease-in-out infinite; clip-path: inset(0 0 0 100%); }
-@keyframes tp-wipeleft { 0%,15% { clip-path:inset(0 0 0 100%) } 60%,100% { clip-path:inset(0 0 0 0) } }
+        case 'dissolve':
+            return (
+                <svg viewBox="0 0 40 28" className={clsx(shared, 'overflow-hidden rounded-sm')}>
+                    <defs>
+                        <filter id="dissolve-px">
+                            <feTurbulence type="fractalNoise" baseFrequency="0.08" numOctaves="2" result="noise" />
+                            <feComponentTransfer in="noise" result="threshold">
+                                <feFuncA type="discrete" tableValues="0 1" />
+                            </feComponentTransfer>
+                        </filter>
+                    </defs>
+                    <rect x="0" y="0" width="40" height="28" fill={A_COLOR}
+                        className="transition-opacity duration-[600ms] ease-in-out group-hover:opacity-0" />
+                    <rect x="0" y="0" width="40" height="28" fill={B_COLOR}
+                        className="opacity-0 transition-opacity duration-[600ms] ease-in-out group-hover:opacity-100"
+                        style={{ filter: 'url(#dissolve-px)' }} />
+                </svg>
+            );
 
-.anim-wiperight .tp-b { animation: tp-wiperight 1.2s ease-in-out infinite; clip-path: inset(0 100% 0 0); }
-@keyframes tp-wiperight { 0%,15% { clip-path:inset(0 100% 0 0) } 60%,100% { clip-path:inset(0 0 0 0) } }
+        /* ── Directional wipes (clip-path inset) ── */
+        case 'wipeleft':
+            return (
+                <svg viewBox="0 0 40 28" className={clsx(shared, 'overflow-hidden rounded-sm')}>
+                    <rect x="0" y="0" width="40" height="28" fill={A_COLOR} />
+                    <rect x="0" y="0" width="40" height="28" fill={B_COLOR}
+                        className="transition-all duration-[600ms] ease-in-out"
+                        style={{ clipPath: 'inset(0 0 0 100%)' }}
+                        clipPath="group-hover"
+                    />
+                    <style>{`.group:hover .wl-b { clip-path: inset(0) !important; }`}</style>
+                    {/* Inline approach using CSS variable trick */}
+                </svg>
+            );
 
-.anim-wipeup .tp-b    { animation: tp-wipeup 1.2s ease-in-out infinite; clip-path: inset(100% 0 0 0); }
-@keyframes tp-wipeup   { 0%,15% { clip-path:inset(100% 0 0 0) } 60%,100% { clip-path:inset(0 0 0 0) } }
+        case 'wiperight':
+            return (
+                <svg viewBox="0 0 40 28" className={clsx(shared, 'overflow-hidden rounded-sm')}>
+                    <rect x="0" y="0" width="40" height="28" fill={A_COLOR} />
+                    <rect x="0" y="0" width="40" height="28" fill={B_COLOR}
+                        className="transition-all duration-[600ms] ease-in-out"
+                        style={{ clipPath: 'inset(0 100% 0 0)' }}
+                    />
+                </svg>
+            );
 
-.anim-wipedown .tp-b  { animation: tp-wipedown 1.2s ease-in-out infinite; clip-path: inset(0 0 100% 0); }
-@keyframes tp-wipedown { 0%,15% { clip-path:inset(0 0 100% 0) } 60%,100% { clip-path:inset(0 0 0 0) } }
+        default:
+            break;
+    }
 
-.anim-slideleft .tp-b { animation: tp-slideleft 1.2s ease-in-out infinite; }
-@keyframes tp-slideleft { 0%,15% { transform:translateX(100%) } 60%,100% { transform:translateX(0) } }
+    /* ──────────────────────────────────────────────────────
+     *  For wipe / slide / circle / etc. SVG clip-path needs
+     *  a CSS-in-JS approach since Tailwind can't do inline
+     *  clip-path on hover. We use a wrapper <div> with CSS
+     *  transition + hover selector instead.
+     * ────────────────────────────────────────────────────── */
 
-.anim-slideright .tp-b { animation: tp-slideright 1.2s ease-in-out infinite; }
-@keyframes tp-slideright { 0%,15% { transform:translateX(-100%) } 60%,100% { transform:translateX(0) } }
-
-.anim-slideup .tp-b   { animation: tp-slideup 1.2s ease-in-out infinite; }
-@keyframes tp-slideup  { 0%,15% { transform:translateY(100%) } 60%,100% { transform:translateY(0) } }
-
-.anim-slidedown .tp-b { animation: tp-slidedown 1.2s ease-in-out infinite; }
-@keyframes tp-slidedown { 0%,15% { transform:translateY(-100%) } 60%,100% { transform:translateY(0) } }
-
-/* ── Geometric: clip-path ── */
-.anim-circlecrop .tp-b { animation: tp-circlecrop 1.2s ease-in-out infinite; }
-@keyframes tp-circlecrop { 0%,15% { clip-path:circle(0% at 50% 50%) } 60%,100% { clip-path:circle(75% at 50% 50%) } }
-
-.anim-circleopen .tp-b { animation: tp-circleopen 1.2s ease-in-out infinite; }
-@keyframes tp-circleopen { 0%,15% { clip-path:circle(0% at 50% 50%) } 60%,100% { clip-path:circle(75% at 50% 50%) } }
-
-.anim-circleclose .tp-b { animation: tp-circleclose 1.2s ease-in-out infinite; }
-@keyframes tp-circleclose { 0%,15% { clip-path:circle(75% at 50% 50%) } 60%,100% { clip-path:circle(0% at 50% 50%) } }
-
-.anim-radial .tp-b    { animation: tp-radial 1.2s linear infinite; }
-@keyframes tp-radial  { 0%,15% { clip-path:polygon(50% 50%,50% 0%,50% 0%,50% 0%,50% 0%,50% 0%) } 30% { clip-path:polygon(50% 50%,50% 0%,100% 0%,100% 0%,100% 0%,100% 0%) } 45% { clip-path:polygon(50% 50%,50% 0%,100% 0%,100% 100%,100% 100%,100% 100%) } 55% { clip-path:polygon(50% 50%,50% 0%,100% 0%,100% 100%,0% 100%,0% 100%) } 70%,100% { clip-path:polygon(50% 50%,50% 0%,100% 0%,100% 100%,0% 100%,0% 0%) } }
-
-.anim-pixelize .tp-b  { animation: tp-pixelize 1.2s ease-in-out infinite; image-rendering: pixelated; }
-@keyframes tp-pixelize { 0%,15% { opacity:0; filter:blur(4px) } 35% { opacity:.5; filter:blur(2px) } 60%,100% { opacity:1; filter:blur(0) } }
-
-/* ── Smooth: transform with easing ── */
-.anim-smoothleft .tp-b  { animation: tp-smoothleft 1.2s cubic-bezier(.22,1,.36,1) infinite; }
-@keyframes tp-smoothleft  { 0%,15% { transform:translateX(100%); opacity:0 } 60%,100% { transform:translateX(0); opacity:1 } }
-
-.anim-smoothright .tp-b { animation: tp-smoothright 1.2s cubic-bezier(.22,1,.36,1) infinite; }
-@keyframes tp-smoothright { 0%,15% { transform:translateX(-100%); opacity:0 } 60%,100% { transform:translateX(0); opacity:1 } }
-
-.anim-smoothup .tp-b   { animation: tp-smoothup 1.2s cubic-bezier(.22,1,.36,1) infinite; }
-@keyframes tp-smoothup  { 0%,15% { transform:translateY(100%); opacity:0 } 60%,100% { transform:translateY(0); opacity:1 } }
-
-.anim-smoothdown .tp-b { animation: tp-smoothdown 1.2s cubic-bezier(.22,1,.36,1) infinite; }
-@keyframes tp-smoothdown { 0%,15% { transform:translateY(-100%); opacity:0 } 60%,100% { transform:translateY(0); opacity:1 } }
-
-/* ── Diagonal: clip-path polygon ── */
-.anim-diagtl .tp-b    { animation: tp-diagtl 1.2s ease-in-out infinite; }
-@keyframes tp-diagtl   { 0%,15% { clip-path:polygon(0 0,0 0,0 0) } 60%,100% { clip-path:polygon(0 0,200% 0,0 200%) } }
-
-.anim-diagtr .tp-b    { animation: tp-diagtr 1.2s ease-in-out infinite; }
-@keyframes tp-diagtr   { 0%,15% { clip-path:polygon(100% 0,100% 0,100% 0) } 60%,100% { clip-path:polygon(-100% 0,100% 0,100% 200%) } }
-
-.anim-diagbl .tp-b    { animation: tp-diagbl 1.2s ease-in-out infinite; }
-@keyframes tp-diagbl   { 0%,15% { clip-path:polygon(0 100%,0 100%,0 100%) } 60%,100% { clip-path:polygon(0 -100%,200% 100%,0 100%) } }
-
-.anim-diagbr .tp-b    { animation: tp-diagbr 1.2s ease-in-out infinite; }
-@keyframes tp-diagbr   { 0%,15% { clip-path:polygon(100% 100%,100% 100%,100% 100%) } 60%,100% { clip-path:polygon(100% -100%,-100% 100%,100% 100%) } }
-
-/* ── Squeeze: scaleX / scaleY ── */
-.anim-squeezeh .tp-b  { animation: tp-squeezeh 1.2s ease-in-out infinite; transform-origin: center; }
-@keyframes tp-squeezeh { 0%,15% { transform:scaleX(0) } 60%,100% { transform:scaleX(1) } }
-
-.anim-squeezev .tp-b  { animation: tp-squeezev 1.2s ease-in-out infinite; transform-origin: center; }
-@keyframes tp-squeezev { 0%,15% { transform:scaleY(0) } 60%,100% { transform:scaleY(1) } }
-
-/* ── Blur: filter blur ── */
-.anim-hblur .tp-b     { animation: tp-hblur 1.2s ease-in-out infinite; }
-@keyframes tp-hblur   { 0%,15% { opacity:0; filter:blur(8px) } 60%,100% { opacity:1; filter:blur(0) } }
-
-/* ── Impact: flash / glitch effects ── */
-.anim-flash .tp-b     { animation: tp-flash-b 1.2s ease-in-out infinite; }
-.anim-flash::after    { content:''; position:absolute; inset:0; background:#fff; border-radius:4px; animation: tp-flash-w 1.2s ease-in-out infinite; pointer-events:none; }
-@keyframes tp-flash-b { 0%,35% { opacity:0 } 55%,100% { opacity:1 } }
-@keyframes tp-flash-w { 0%,25% { opacity:0 } 35% { opacity:1 } 55%,100% { opacity:0 } }
-
-.anim-glitch .tp-b    { animation: tp-glitch 1.2s steps(4) infinite; }
-@keyframes tp-glitch  { 0% { opacity:0; transform:translate(0) } 20% { opacity:1; transform:translate(-3px,2px) } 40% { transform:translate(3px,-1px) } 60% { transform:translate(-1px,3px) } 80%,100% { opacity:1; transform:translate(0) } }
-
-.anim-rgb-split .tp-b { animation: tp-rgbsplit 1.2s ease-in-out infinite; }
-@keyframes tp-rgbsplit { 0%,15% { opacity:0; filter:hue-rotate(0deg) } 30% { opacity:.6; filter:hue-rotate(90deg) } 50% { filter:hue-rotate(180deg) } 70%,100% { opacity:1; filter:hue-rotate(360deg) } }
-
-.anim-zoom-through .tp-b { animation: tp-zoom 1.2s ease-in-out infinite; }
-@keyframes tp-zoom    { 0%,15% { opacity:0; transform:scale(3) } 60%,100% { opacity:1; transform:scale(1) } }
-
-.anim-spin .tp-b      { animation: tp-spin 1.2s ease-in-out infinite; }
-@keyframes tp-spin    { 0%,15% { opacity:0; transform:rotate(-180deg) scale(.5) } 60%,100% { opacity:1; transform:rotate(0) scale(1) } }
-
-.anim-film-burn .tp-b { animation: tp-filmburn-b 1.2s ease-in-out infinite; }
-.anim-film-burn::after { content:''; position:absolute; inset:0; border-radius:4px; animation: tp-filmburn-o 1.2s ease-in-out infinite; pointer-events:none; background: linear-gradient(135deg, #f97316, #fbbf24, transparent); }
-@keyframes tp-filmburn-b { 0%,35% { opacity:0 } 60%,100% { opacity:1 } }
-@keyframes tp-filmburn-o { 0% { opacity:0 } 25% { opacity:.8 } 55%,100% { opacity:0 } }
-
-.anim-whip .tp-b      { animation: tp-whip 1.2s ease-in-out infinite; }
-@keyframes tp-whip    { 0%,15% { opacity:0; transform:translateX(100%); filter:blur(6px) } 50% { filter:blur(3px) } 60%,100% { opacity:1; transform:translateX(0); filter:blur(0) } }
-`;
-
-// Inject styles once
-let stylesInjected = false;
-function injectStyles() {
-    if (stylesInjected) return;
-    const style = document.createElement('style');
-    style.textContent = PREVIEW_STYLES;
-    document.head.appendChild(style);
-    stylesInjected = true;
+    // We handle all remaining types with a div-based approach
+    // that gives us full CSS `:hover` control via the parent group.
+    return <DivTransitionPreview type={type} />;
 }
 
-/** Map each TransitionType to its CSS animation class name */
-function getAnimClass(type: TransitionType): string {
-    return `anim-${type}`;
+/* ────────────────────────────────────────────────────────────
+ *  Div-based animated preview (supports clip-path hover)
+ *  The parent card has className `group`, so we use
+ *  inline styles + a <style> scoped with a unique data attr.
+ * ──────────────────────────────────────────────────────────── */
+
+function DivTransitionPreview({ type }: { type: TransitionType }) {
+    const base: React.CSSProperties = {
+        position: 'absolute', inset: 0, borderRadius: '2px',
+        transition: 'all 600ms ease-in-out',
+    };
+
+    const panelA: React.CSSProperties = {
+        ...base,
+        background: `linear-gradient(135deg, ${A_COLOR}, #a855f7)`,
+    };
+
+    const panelB: React.CSSProperties = {
+        ...base,
+        background: `linear-gradient(135deg, ${B_COLOR}, #06b6d4)`,
+    };
+
+    // Build per-type idle → hover transforms for panel B
+    type StateStyles = { idle: React.CSSProperties; hover: string };
+    const getStyles = (): StateStyles => {
+        switch (type) {
+            // Already handled as SVG above, but fallback just in case
+            case 'fade':
+            case 'cut':
+            case 'dissolve':
+            case 'fadewhite':
+            case 'fadeblack':
+                return { idle: { opacity: 0 }, hover: 'opacity: 1;' };
+
+            case 'wipeleft':
+                return { idle: { clipPath: 'inset(0 0 0 100%)' }, hover: 'clip-path: inset(0);' };
+            case 'wiperight':
+                return { idle: { clipPath: 'inset(0 100% 0 0)' }, hover: 'clip-path: inset(0);' };
+            case 'wipeup':
+                return { idle: { clipPath: 'inset(100% 0 0 0)' }, hover: 'clip-path: inset(0);' };
+            case 'wipedown':
+                return { idle: { clipPath: 'inset(0 0 100% 0)' }, hover: 'clip-path: inset(0);' };
+
+            case 'slideleft':
+                return { idle: { transform: 'translateX(100%)', opacity: 0 }, hover: 'transform: translateX(0); opacity: 1;' };
+            case 'slideright':
+                return { idle: { transform: 'translateX(-100%)', opacity: 0 }, hover: 'transform: translateX(0); opacity: 1;' };
+            case 'slideup':
+                return { idle: { transform: 'translateY(100%)', opacity: 0 }, hover: 'transform: translateY(0); opacity: 1;' };
+            case 'slidedown':
+                return { idle: { transform: 'translateY(-100%)', opacity: 0 }, hover: 'transform: translateY(0); opacity: 1;' };
+
+            case 'circlecrop':
+            case 'circleopen':
+                return { idle: { clipPath: 'circle(0% at 50% 50%)' }, hover: 'clip-path: circle(75% at 50% 50%);' };
+            case 'circleclose':
+                return { idle: { clipPath: 'circle(75% at 50% 50%)' }, hover: 'clip-path: circle(0% at 50% 50%);' };
+
+            case 'radial':
+                return {
+                    idle: { clipPath: 'polygon(50% 50%, 50% 0%, 50% 0%, 50% 0%, 50% 0%, 50% 0%)' },
+                    hover: 'clip-path: polygon(50% 50%, 50% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 0%);',
+                };
+
+            case 'pixelize':
+                return { idle: { opacity: 0, filter: 'blur(4px)', imageRendering: 'pixelated' as never }, hover: 'opacity: 1; filter: blur(0);' };
+
+            case 'smoothleft':
+                return { idle: { transform: 'translateX(100%)', opacity: 0 }, hover: 'transform: translateX(0); opacity: 1;' };
+            case 'smoothright':
+                return { idle: { transform: 'translateX(-100%)', opacity: 0 }, hover: 'transform: translateX(0); opacity: 1;' };
+            case 'smoothup':
+                return { idle: { transform: 'translateY(100%)', opacity: 0 }, hover: 'transform: translateY(0); opacity: 1;' };
+            case 'smoothdown':
+                return { idle: { transform: 'translateY(-100%)', opacity: 0 }, hover: 'transform: translateY(0); opacity: 1;' };
+
+            case 'diagtl':
+                return { idle: { clipPath: 'polygon(0 0, 0 0, 0 0)' }, hover: 'clip-path: polygon(0 0, 200% 0, 0 200%);' };
+            case 'diagtr':
+                return { idle: { clipPath: 'polygon(100% 0, 100% 0, 100% 0)' }, hover: 'clip-path: polygon(-100% 0, 100% 0, 100% 200%);' };
+            case 'diagbl':
+                return { idle: { clipPath: 'polygon(0 100%, 0 100%, 0 100%)' }, hover: 'clip-path: polygon(0 -100%, 200% 100%, 0 100%);' };
+            case 'diagbr':
+                return { idle: { clipPath: 'polygon(100% 100%, 100% 100%, 100% 100%)' }, hover: 'clip-path: polygon(100% -100%, -100% 100%, 100% 100%);' };
+
+            case 'squeezeh':
+                return { idle: { transform: 'scaleX(0)', transformOrigin: 'center' }, hover: 'transform: scaleX(1);' };
+            case 'squeezev':
+                return { idle: { transform: 'scaleY(0)', transformOrigin: 'center' }, hover: 'transform: scaleY(1);' };
+
+            case 'hblur':
+                return { idle: { opacity: 0, filter: 'blur(6px)' }, hover: 'opacity: 1; filter: blur(0);' };
+
+            case 'flash':
+                return { idle: { opacity: 0 }, hover: 'opacity: 1;' };
+            case 'glitch':
+                return { idle: { opacity: 0, transform: 'translate(-3px, 2px)' }, hover: 'opacity: 1; transform: translate(0);' };
+            case 'rgb-split':
+                return { idle: { opacity: 0, filter: 'hue-rotate(0deg)' }, hover: 'opacity: 1; filter: hue-rotate(360deg);' };
+            case 'zoom-through':
+                return { idle: { opacity: 0, transform: 'scale(3)' }, hover: 'opacity: 1; transform: scale(1);' };
+            case 'spin':
+                return { idle: { opacity: 0, transform: 'rotate(-180deg) scale(0.5)', transformOrigin: 'center' }, hover: 'opacity: 1; transform: rotate(0) scale(1);' };
+            case 'film-burn':
+                return { idle: { opacity: 0 }, hover: 'opacity: 1;' };
+            case 'whip':
+                return { idle: { opacity: 0, transform: 'translateX(100%)', filter: 'blur(4px)' }, hover: 'opacity: 1; transform: translateX(0); filter: blur(0);' };
+
+            default:
+                return { idle: { opacity: 0 }, hover: 'opacity: 1;' };
+        }
+    };
+
+    const { idle, hover } = getStyles();
+    const uid = `tp-${type}`;
+
+    return (
+        <div className="relative w-10 h-7 rounded-sm overflow-hidden">
+            <style>{`
+                .group:hover .${uid}-b { ${hover} }
+            `}</style>
+            <div style={panelA} />
+            <div className={`${uid}-b`} style={{ ...panelB, ...idle }} />
+            {/* Flash overlay for flash / film-burn */}
+            {type === 'flash' && (
+                <div
+                    className={`${uid}-flash`}
+                    style={{
+                        ...base,
+                        background: '#ffffff',
+                        opacity: 0,
+                    }}
+                />
+            )}
+            {type === 'film-burn' && (
+                <div
+                    className={`${uid}-burn`}
+                    style={{
+                        ...base,
+                        background: 'linear-gradient(135deg, #f97316, #fbbf24, transparent)',
+                        opacity: 0,
+                    }}
+                />
+            )}
+            {(type === 'flash') && (
+                <style>{`
+                    .group:hover .${uid}-flash { opacity: 0.8; transition: opacity 300ms ease-in-out; }
+                `}</style>
+            )}
+            {(type === 'film-burn') && (
+                <style>{`
+                    .group:hover .${uid}-burn { opacity: 0.7; transition: opacity 400ms ease-in-out; }
+                `}</style>
+            )}
+        </div>
+    );
 }
+
+/* ────────────────────────────────────────────────────────────
+ *  TransitionCard component
+ * ──────────────────────────────────────────────────────────── */
 
 export const TransitionCard: React.FC<TransitionCardProps> = ({ type, selected, onToggle }) => {
-    const [hovered, setHovered] = useState(false);
     const meta = TRANSITION_META[type];
-
-    // Ensure styles are injected
-    React.useEffect(() => { injectStyles(); }, []);
 
     return (
         <motion.button
             onClick={onToggle}
-            onMouseEnter={() => setHovered(true)}
-            onMouseLeave={() => setHovered(false)}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
+            title={meta.description}
             className={clsx(
                 'relative w-20 h-20 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all duration-200 cursor-pointer group',
                 selected
@@ -198,8 +326,8 @@ export const TransitionCard: React.FC<TransitionCardProps> = ({ type, selected, 
                 )}
             </AnimatePresence>
 
-            {/* Icon */}
-            <span className="text-2xl leading-none select-none" aria-hidden>{meta.icon}</span>
+            {/* Animated transition preview SVG */}
+            <TransitionPreviewSVG type={type} />
 
             {/* Label */}
             <span className={clsx(
@@ -213,31 +341,6 @@ export const TransitionCard: React.FC<TransitionCardProps> = ({ type, selected, 
             {meta.isCustom && (
                 <span className="absolute top-1 left-1 w-1.5 h-1.5 rounded-full bg-amber-400/60" title="Custom filter chain" />
             )}
-
-            {/* ── Hover Preview Tooltip ── */}
-            <AnimatePresence>
-                {hovered && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 6, scale: 0.92 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 6, scale: 0.92 }}
-                        transition={{ duration: 0.15 }}
-                        className="absolute bottom-[calc(100%+8px)] left-1/2 -translate-x-1/2 z-50 pointer-events-none"
-                    >
-                        <div className="bg-black/90 backdrop-blur-xl border border-white/10 rounded-xl p-2.5 shadow-2xl min-w-[120px]">
-                            {/* Animated preview */}
-                            <div className={clsx('relative w-[100px] h-[56px] rounded-md overflow-hidden mx-auto mb-2', getAnimClass(type))}>
-                                <div className="tp-a" />
-                                <div className="tp-b" />
-                            </div>
-                            {/* Description */}
-                            <p className="text-[10px] text-white/60 text-center leading-snug">{meta.description}</p>
-                        </div>
-                        {/* Tooltip arrow */}
-                        <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-2 h-2 bg-black/90 border-r border-b border-white/10 rotate-45" />
-                    </motion.div>
-                )}
-            </AnimatePresence>
         </motion.button>
     );
 };

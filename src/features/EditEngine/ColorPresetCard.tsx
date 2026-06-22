@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import clsx from 'clsx';
 
@@ -8,7 +8,67 @@ interface ColorPresetCardProps {
     description: string;
     active: boolean;
     onToggle: () => void;
-    previewGradient: string; // CSS gradient showing the color effect
+    previewGradient: string; // fallback if needed
+}
+
+function ColorPreviewSVG({ id }: { id: string }) {
+    const shared = 'w-10 h-10 rounded-lg border border-white/10 overflow-hidden relative transition-all duration-300';
+    
+    switch (id) {
+        case 'colorPerSection': // Auto Grade
+            return (
+                <div className={clsx(shared, "relative flex items-center justify-center bg-black/40 group")}>
+                    {/* A spinning color wheel or gradient sector SVG */}
+                    <svg viewBox="0 0 40 40" className="w-8 h-8 transition-transform duration-[1200ms] ease-in-out group-hover:rotate-180">
+                        <defs>
+                            <linearGradient id="auto-grade-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stopColor="#3b82f6" />
+                                <stop offset="50%" stopColor="#8b5cf6" />
+                                <stop offset="100%" stopColor="#ec4899" />
+                            </linearGradient>
+                        </defs>
+                        <circle cx="20" cy="20" r="16" fill="url(#auto-grade-grad)" />
+                        <path d="M 20 20 L 20 4 A 16 16 0 0 1 36 20 Z" fill="rgba(255,255,255,0.15)" />
+                        <path d="M 20 20 L 4 20 A 16 16 0 0 1 20 4 Z" fill="rgba(0,0,0,0.15)" />
+                    </svg>
+                </div>
+            );
+        case 'desaturationBuildup': // Desat Build
+            return (
+                <div className={clsx(shared, "relative bg-black/40 group overflow-hidden flex items-center justify-center")}>
+                    {/* Left half is colorful, right half is gray. On hover, a desaturation wipe sweeps */}
+                    <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-pink-500" />
+                    <div className="absolute inset-y-0 right-0 left-1/2 bg-gray-500 mix-blend-color transition-all duration-500 ease-in-out group-hover:left-0" />
+                    <svg viewBox="0 0 40 40" className="w-8 h-8 relative z-10">
+                        <circle cx="20" cy="20" r="14" fill="none" stroke="white" strokeWidth="2" strokeDasharray="3 3" />
+                    </svg>
+                </div>
+            );
+        case 'beatFlashEnabled': // Beat Flash
+            return (
+                <div className={clsx(shared, "relative bg-black/40 group overflow-hidden flex items-center justify-center")}>
+                    <div className="absolute inset-0 bg-gradient-to-br from-amber-500 to-yellow-300 opacity-30 transition-opacity duration-300 group-hover:opacity-100" />
+                    <style>{`
+                        @keyframes beat-flash {
+                            0%, 100% { transform: scale(1); opacity: 0.3; }
+                            15% { transform: scale(1.3); opacity: 1; filter: brightness(1.5); }
+                            30% { transform: scale(1); opacity: 0.3; }
+                            45% { transform: scale(1.3); opacity: 1; filter: brightness(1.5); }
+                            60% { transform: scale(1); opacity: 0.3; }
+                        }
+                        .group:hover .flash-circle {
+                            animation: beat-flash 1.2s infinite ease-out;
+                        }
+                    `}</style>
+                    <svg viewBox="0 0 40 40" className="w-8 h-8 relative z-10 overflow-visible">
+                        <circle cx="20" cy="20" r="8" fill="white" className="flash-circle transition-all duration-300" style={{ transformOrigin: 'center' }} />
+                        <circle cx="20" cy="20" r="14" fill="none" stroke="white" strokeWidth="1.5" className="flash-circle opacity-50" style={{ transformOrigin: 'center' }} />
+                    </svg>
+                </div>
+            );
+        default:
+            return null;
+    }
 }
 
 export const ColorPresetCard: React.FC<ColorPresetCardProps> = ({
@@ -17,17 +77,13 @@ export const ColorPresetCard: React.FC<ColorPresetCardProps> = ({
     description,
     active,
     onToggle,
-    previewGradient,
 }) => {
-    const [hovered, setHovered] = useState(false);
-
     return (
         <motion.button
             onClick={onToggle}
-            onMouseEnter={() => setHovered(true)}
-            onMouseLeave={() => setHovered(false)}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
+            title={description}
             className={clsx(
                 'relative w-20 h-20 rounded-xl border flex flex-col items-center justify-center gap-1.5 transition-all duration-200 cursor-pointer group',
                 active
@@ -51,14 +107,8 @@ export const ColorPresetCard: React.FC<ColorPresetCardProps> = ({
                 )}
             </AnimatePresence>
 
-            {/* Gradient swatch */}
-            <div
-                className={clsx(
-                    'w-10 h-10 rounded-lg border transition-all duration-200',
-                    active ? 'border-purple-400/30 shadow-lg' : 'border-white/10'
-                )}
-                style={{ background: previewGradient }}
-            />
+            {/* Custom SVG preview with hover animations */}
+            <ColorPreviewSVG id={id} />
 
             {/* Label */}
             <span className={clsx(
@@ -67,25 +117,6 @@ export const ColorPresetCard: React.FC<ColorPresetCardProps> = ({
             )}>
                 {label}
             </span>
-
-            {/* ── Hover Description Tooltip ── */}
-            <AnimatePresence>
-                {hovered && (
-                    <motion.div
-                        initial={{ opacity: 0, y: 6, scale: 0.92 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 6, scale: 0.92 }}
-                        transition={{ duration: 0.15 }}
-                        className="absolute bottom-[calc(100%+8px)] left-1/2 -translate-x-1/2 z-50 pointer-events-none"
-                    >
-                        <div className="bg-black/90 backdrop-blur-xl border border-white/10 rounded-xl p-2.5 shadow-2xl min-w-[100px]">
-                            <p className="text-[10px] text-white/60 text-center leading-snug whitespace-nowrap">{description}</p>
-                        </div>
-                        {/* Tooltip arrow */}
-                        <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-2 h-2 bg-black/90 border-r border-b border-white/10 rotate-45" />
-                    </motion.div>
-                )}
-            </AnimatePresence>
         </motion.button>
     );
 };

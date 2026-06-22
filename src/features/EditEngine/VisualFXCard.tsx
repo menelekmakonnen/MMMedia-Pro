@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Film, Aperture, Scan, Monitor } from 'lucide-react';
 import clsx from 'clsx';
 
 interface VisualFXCardProps {
     id: string;
     label: string;
-    icon: string; // emoji
+    icon: string; // lucide icon identifier
     description: string;
     value: number;
     min: number;
@@ -15,68 +16,99 @@ interface VisualFXCardProps {
     onChange: (value: number) => void;
 }
 
-/* ────────────────────────────────────────────────────────────
- *  CSS-animated previews per FX type
- * ──────────────────────────────────────────────────────────── */
+function VisualFXPreviewSVG({ id }: { id: string }) {
+    const shared = 'w-10 h-7 overflow-hidden rounded-sm relative border border-white/10 bg-black/40 flex items-center justify-center';
 
-const VFX_PREVIEW_STYLES = `
-/* ── Film Grain ── */
-.vfx-grain { position: relative; overflow: hidden; }
-.vfx-grain::after {
-    content: ''; position: absolute; inset: -50%; width: 200%; height: 200%;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");
-    animation: vfx-grain-move 0.3s steps(3) infinite;
-    pointer-events: none; mix-blend-mode: overlay;
+    switch (id) {
+        case 'filmGrainAmount':
+            return (
+                <div className={shared}>
+                    <style>{`
+                        @keyframes grain-noise {
+                            0% { transform: translate(0, 0); }
+                            10% { transform: translate(-1px, -1px); }
+                            20% { transform: translate(-2px, 1px); }
+                            30% { transform: translate(1px, -2px); }
+                            40% { transform: translate(-1px, 2px); }
+                            50% { transform: translate(2px, 1px); }
+                            65% { transform: translate(1px, -1px); }
+                            80% { transform: translate(-2px, -2px); }
+                            90% { transform: translate(2px, 2px); }
+                            100% { transform: translate(0, 0); }
+                        }
+                        .group:hover .grain-overlay {
+                            animation: grain-noise 0.5s steps(5) infinite;
+                            opacity: 0.6 !important;
+                        }
+                    `}</style>
+                    <div className="absolute inset-0 bg-purple-900/20" />
+                    <div
+                        className="grain-overlay absolute inset-[-20px] opacity-10 pointer-events-none transition-opacity duration-300"
+                        style={{
+                            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23noise)'/%3E%3C/svg%3E")`,
+                        }}
+                    />
+                    <Film className="absolute inset-0 m-auto text-white/40 group-hover:text-white/80 transition-colors duration-300" size={14} />
+                </div>
+            );
+
+        case 'vignetteAmount':
+            return (
+                <div className={shared}>
+                    <div className="absolute inset-0 bg-purple-500/20 transition-all duration-300 group-hover:bg-purple-500/40" />
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_60%,rgba(0,0,0,0.85)_100%)] transition-all duration-500 ease-in-out group-hover:bg-[radial-gradient(circle_at_center,transparent_30%,rgba(0,0,0,0.95)_100%)]" />
+                    <Aperture className="absolute inset-0 m-auto text-white/40 group-hover:text-white/80 transition-colors duration-300" size={14} />
+                </div>
+            );
+
+        case 'chromaticAmount':
+            return (
+                <div className={shared}>
+                    <style>{`
+                        @keyframes chromatic-split-r {
+                            0%, 100% { transform: translate(0, 0); }
+                            50% { transform: translate(-2px, 0.5px); }
+                        }
+                        @keyframes chromatic-split-b {
+                            0%, 100% { transform: translate(0, 0); }
+                            50% { transform: translate(2px, -0.5px); }
+                        }
+                        .group:hover .chroma-r {
+                            animation: chromatic-split-r 1s infinite ease-in-out;
+                            opacity: 0.8;
+                        }
+                        .group:hover .chroma-b {
+                            animation: chromatic-split-b 1s infinite ease-in-out;
+                            opacity: 0.8;
+                        }
+                    `}</style>
+                    <div className="absolute inset-0 bg-black/40" />
+                    <div className="chroma-r absolute inset-0 flex items-center justify-center text-red-500/50 mix-blend-screen transition-all duration-300">
+                        <Scan size={14} />
+                    </div>
+                    <div className="chroma-b absolute inset-0 flex items-center justify-center text-cyan-500/50 mix-blend-screen transition-all duration-300">
+                        <Scan size={14} />
+                    </div>
+                    <div className="absolute inset-0 flex items-center justify-center text-white/40 group-hover:text-white/80 transition-colors duration-300">
+                        <Scan size={14} />
+                    </div>
+                </div>
+            );
+
+        case 'letterbox':
+            return (
+                <div className={shared}>
+                    <div className="absolute inset-0 bg-purple-500/10 transition-colors duration-300 group-hover:bg-purple-500/30" />
+                    <div className="absolute top-0 left-0 right-0 h-0 bg-black transition-all duration-300 ease-in-out group-hover:h-[6px]" />
+                    <div className="absolute bottom-0 left-0 right-0 h-0 bg-black transition-all duration-300 ease-in-out group-hover:h-[6px]" />
+                    <Monitor className="absolute inset-0 m-auto text-white/40 group-hover:text-white/80 transition-colors duration-300" size={14} />
+                </div>
+            );
+
+        default:
+            return null;
+    }
 }
-@keyframes vfx-grain-move { 0% { transform: translate(0,0) } 33% { transform: translate(-10px,5px) } 66% { transform: translate(5px,-10px) } 100% { transform: translate(0,0) } }
-
-/* ── Vignette ── */
-.vfx-vignette { position: relative; overflow: hidden; }
-.vfx-vignette::after {
-    content: ''; position: absolute; inset: 0; border-radius: 4px;
-    background: radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.8) 100%);
-    animation: vfx-vig-pulse 1.5s ease-in-out infinite alternate;
-    pointer-events: none;
-}
-@keyframes vfx-vig-pulse { 0% { opacity: 0.4 } 100% { opacity: 1 } }
-
-/* ── Chromatic Aberration ── */
-.vfx-chroma { position: relative; overflow: hidden; }
-.vfx-chroma::before, .vfx-chroma::after {
-    content: ''; position: absolute; inset: 0; border-radius: 4px; pointer-events: none;
-}
-.vfx-chroma::before { background: rgba(255,0,0,0.15); animation: vfx-chroma-r 0.8s ease-in-out infinite alternate; }
-.vfx-chroma::after  { background: rgba(0,100,255,0.15); animation: vfx-chroma-b 0.8s ease-in-out infinite alternate-reverse; }
-@keyframes vfx-chroma-r { 0% { transform: translateX(-2px) } 100% { transform: translateX(2px) } }
-@keyframes vfx-chroma-b { 0% { transform: translateX(2px) } 100% { transform: translateX(-2px) } }
-
-/* ── Letterbox ── */
-.vfx-letterbox { position: relative; overflow: hidden; }
-.vfx-letterbox::before, .vfx-letterbox::after {
-    content: ''; position: absolute; left: 0; right: 0; background: #000; pointer-events: none;
-    animation: vfx-lbox 1.2s ease-in-out infinite alternate;
-}
-.vfx-letterbox::before { top: 0; }
-.vfx-letterbox::after  { bottom: 0; }
-@keyframes vfx-lbox { 0% { height: 0 } 100% { height: 18% } }
-`;
-
-let vfxStylesInjected = false;
-function injectVfxStyles() {
-    if (vfxStylesInjected) return;
-    const style = document.createElement('style');
-    style.textContent = VFX_PREVIEW_STYLES;
-    document.head.appendChild(style);
-    vfxStylesInjected = true;
-}
-
-/** Map FX id to preview CSS class */
-const VFX_PREVIEW_CLASS: Record<string, string> = {
-    filmGrainAmount: 'vfx-grain',
-    vignetteAmount: 'vfx-vignette',
-    chromaticAmount: 'vfx-chroma',
-    letterbox: 'vfx-letterbox',
-};
 
 export const VisualFXCard: React.FC<VisualFXCardProps> = ({
     id,
@@ -90,12 +122,9 @@ export const VisualFXCard: React.FC<VisualFXCardProps> = ({
     unit,
     onChange,
 }) => {
-    const [hovered, setHovered] = useState(false);
     const [expanded, setExpanded] = useState(false);
     const isToggle = min === 0 && max === 1 && step === 1;
     const isActive = isToggle ? value === 1 : value > min;
-
-    React.useEffect(() => { injectVfxStyles(); }, []);
 
     const handleClick = () => {
         if (isToggle) {
@@ -113,10 +142,9 @@ export const VisualFXCard: React.FC<VisualFXCardProps> = ({
         <div className="flex flex-col">
             <motion.button
                 onClick={handleClick}
-                onMouseEnter={() => setHovered(true)}
-                onMouseLeave={() => setHovered(false)}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
+                title={description}
                 className={clsx(
                     'relative w-20 h-20 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all duration-200 cursor-pointer group',
                     isActive
@@ -131,8 +159,8 @@ export const VisualFXCard: React.FC<VisualFXCardProps> = ({
                     </span>
                 )}
 
-                {/* Icon */}
-                <span className="text-2xl leading-none select-none" aria-hidden>{icon}</span>
+                {/* Animated FX Preview */}
+                <VisualFXPreviewSVG id={id} />
 
                 {/* Label */}
                 <span className={clsx(
@@ -141,33 +169,6 @@ export const VisualFXCard: React.FC<VisualFXCardProps> = ({
                 )}>
                     {label}
                 </span>
-
-                {/* ── Hover Preview Tooltip ── */}
-                <AnimatePresence>
-                    {hovered && (
-                        <motion.div
-                            initial={{ opacity: 0, y: 6, scale: 0.92 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: 6, scale: 0.92 }}
-                            transition={{ duration: 0.15 }}
-                            className="absolute bottom-[calc(100%+8px)] left-1/2 -translate-x-1/2 z-50 pointer-events-none"
-                        >
-                            <div className="bg-black/90 backdrop-blur-xl border border-white/10 rounded-xl p-2.5 shadow-2xl min-w-[120px]">
-                                {/* Animated FX preview */}
-                                <div className={clsx(
-                                    'relative w-[100px] h-[56px] rounded-md overflow-hidden mx-auto mb-2',
-                                    VFX_PREVIEW_CLASS[id]
-                                )}>
-                                    <div className="absolute inset-0 rounded bg-gradient-to-br from-indigo-600 to-violet-500" />
-                                </div>
-                                {/* Description */}
-                                <p className="text-[10px] text-white/60 text-center leading-snug">{description}</p>
-                            </div>
-                            {/* Tooltip arrow */}
-                            <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-2 h-2 bg-black/90 border-r border-b border-white/10 rotate-45" />
-                        </motion.div>
-                    )}
-                </AnimatePresence>
             </motion.button>
 
             {/* ── Expanded Slider (non-toggle only) ── */}
