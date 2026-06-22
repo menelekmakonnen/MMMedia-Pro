@@ -11,7 +11,7 @@ import { useProjectStore } from '../../store/projectStore';
 import { useMarkerStore } from '../../store/markerStore';
 import { useTrailerSmartStore } from '../../store/trailerSmartStore';
 import { useAutoSmartEngine } from '../../lib/smartEngine';
-import { TrailerGradeEnhance } from '../TrailerGenerator/TrailerGradeEnhance';
+import { TrailerGradeEnhance } from '../EditEngine/EditGradeEnhance';
 import { ClipControls } from '../Timeline/ClipControls';
 import { formatTimecode } from '../../lib/time';
 

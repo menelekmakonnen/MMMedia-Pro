@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { TrailerWizard } from './TrailerWizard';
-import { TrailerPlayer } from './TrailerPlayer';
+import { EditWizard } from './EditWizard';
+import { EditPlayer } from './EditPlayer';
 import { TrailerSettings, generateTrailerSequence, extractBeatTimestamps } from '../../lib/trailerGenerator';
 import { generateSeed } from '../../lib/random';
 import { useClipStore } from '../../store/clipStore';
@@ -11,7 +11,7 @@ import { generateMusicVideoSequence } from '../../lib/musicVideoBuild';
 import { useTrailerSmartStore } from '../../store/trailerSmartStore';
 import { SmartEngineConfirmModal } from './SmartEngineConfirmModal';
 
-export const TrailerRouter: React.FC = () => {
+export const EditRouter: React.FC = () => {
     const [activeView, setActiveView] = useState<'wizard' | 'player'>('wizard');
     const [settings, setSettings] = useState<TrailerSettings | null>(null);
     const [preGeneratedClips, setPreGeneratedClips] = useState<any[]>([]);
@@ -192,9 +192,9 @@ export const TrailerRouter: React.FC = () => {
     return (
         <div className="w-full h-full bg-[#050505]">
             {activeView === 'wizard' || !settings ? (
-                <TrailerWizard onGenerate={handleGenerate} />
+                <EditWizard onGenerate={handleGenerate} />
             ) : (
-                <TrailerPlayer 
+                <EditPlayer 
                     settings={settings} 
                     preGeneratedClips={preGeneratedClips}
                     onDiscard={handleDiscard} 

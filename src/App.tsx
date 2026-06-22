@@ -6,7 +6,7 @@ import { TimelineTab } from './features/Timeline/TimelineTab';
 import { ExportTab } from './features/Export/ExportTab';
 import { SequenceViewTab } from './features/SequenceView/SequenceViewTab';
 import { GridEditorTab } from './features/GridEditor/GridEditorTab';
-import { TrailerRouter } from './features/TrailerGenerator/TrailerRouter';
+import { EditRouter } from './features/EditEngine/EditRouter';
 import { VideoPlayerTab } from './features/VideoPlayer/VideoPlayerTab';
 import { GlobalSettingsTab } from './features/GlobalSettings/GlobalSettingsTab';
 
@@ -44,7 +44,7 @@ function App() {
             case 'timeline':
                 return <TimelineTab />;
             case 'trailer':
-                return <TrailerRouter />;
+                return <EditRouter />;
             case 'global-settings':
                 return <GlobalSettingsTab />;
             case 'edits':

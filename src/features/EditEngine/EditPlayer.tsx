@@ -21,7 +21,7 @@ interface PlayerProps {
     onSettings: () => void;
 }
 
-export const TrailerPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips, onDiscard, onSettings }) => {
+export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips, onDiscard, onSettings }) => {
     const { files, selectedFileIds } = useMediaStore();
     const { setClips } = useClipStore();
     const { setActiveTab } = useViewStore();

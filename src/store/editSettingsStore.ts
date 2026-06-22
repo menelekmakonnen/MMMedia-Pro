@@ -12,7 +12,7 @@ import type { TrailerSettings } from '../lib/trailerGenerator';
 import type { ShowreelSettings } from '../lib/showreelGenerator';
 import type { VideoEssaySettings } from '../lib/videoEssayGenerator';
 import type { ActStructure, SceneDefinition } from '../lib/shortFilmAssistant';
-import type { EditType } from '../features/TrailerGenerator/EditGeneratorHome';
+import type { EditType } from '../features/EditEngine/EditGeneratorHome';
 
 // ─── Store Interface ─────────────────────────────────────────────────────────
 

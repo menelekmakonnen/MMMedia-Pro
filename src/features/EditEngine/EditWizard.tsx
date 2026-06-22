@@ -6,8 +6,8 @@ import { Wand2, Clock, Zap, Video, Scissors, PlayCircle, Music, Upload, Play, Pa
 import { analyzeAudio, AudioAnalysisResult, SegmentType as _SegmentType } from '../../lib/audioAnalysis';
 import { TRANSITION_CATEGORIES, TRANSITION_META } from '../../lib/transitions';
 import type { TransitionType, SpeedCurvePreset, ShakeType, ShakePolicy, BeatDropIntensity, TransitionStyle, BoomerangPresetId, ZoomSpeed, EffectApplyPolicy } from '../../types';
-import { TrailerSmartPanel } from './TrailerSmartPanel';
-import { TrailerAudioDynamics } from './TrailerAudioDynamics';
+import { TrailerSmartPanel } from './EditSmartPanel';
+import { TrailerAudioDynamics } from './EditAudioDynamics';
 import { SpeedCurveVisualizer } from './SpeedCurveVisualizer';
 import { ShakePreview } from './ShakePreview';
 import { usePresetUsageStore } from '../../store/presetUsageStore';
@@ -160,7 +160,7 @@ interface WizardProps {
     onGenerate: (settings: TrailerSettings) => void;
 }
 
-export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
+export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
     const { files, orientationFilter, setOrientationFilter, selectedFileIds, preloadedAudioPath, preloadedAudioName, setPreloadedAudio } = useMediaStore();
     const isExporting = useExportSettingsStore(s => s.isExporting);
     useAutoSmartEngine();
@@ -743,7 +743,7 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     </div>
                     <div>
                         <h2 className="text-lg font-black tracking-tight text-white flex items-center gap-2">
-                            Trailer Generator <span className="text-[10px] uppercase bg-white/10 px-1.5 py-0.5 rounded text-purple-300">Beta</span>
+                            Edit Engine <span className="text-[10px] uppercase bg-white/10 px-1.5 py-0.5 rounded text-purple-300">Beta</span>
                         </h2>
                         <p className="text-xs text-white/50">Procedurally generate rapid-cut sequences from your media library.</p>
                     </div>
