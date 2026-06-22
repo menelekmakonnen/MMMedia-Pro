@@ -10,6 +10,8 @@ import { TrailerGradeEnhance } from './TrailerGradeEnhance';
 import { TrailerSmartPanel } from './TrailerSmartPanel';
 import { TrailerAudioDynamics } from './TrailerAudioDynamics';
 import { usePresetUsageStore } from '../../store/presetUsageStore';
+import { useExportSettingsStore } from '../../store/exportSettingsStore';
+
 import clsx from 'clsx';
 
 interface SliderProps {
@@ -155,6 +157,9 @@ interface WizardProps {
 
 export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
     const { files, orientationFilter, setOrientationFilter, selectedFileIds, preloadedAudioPath, preloadedAudioName, setPreloadedAudio } = useMediaStore();
+    const isExporting = useExportSettingsStore(s => s.isExporting);
+
+
 
     const [settings, setSettings] = useState<TrailerSettings>(() => {
         try {
@@ -742,10 +747,16 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                 <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-purple-600/15 via-black/30 to-blue-600/15 p-5 shadow-[0_0_30px_rgba(124,58,237,0.15)]">
                     <div className="absolute -top-10 -right-10 w-40 h-40 bg-purple-500/20 blur-[60px] pointer-events-none rounded-full" />
                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Generator Mode</span>
-                    <div className="flex gap-2 mt-2">
-                        {([['trailer', 'Trailer'], ['music-video', 'Music Video']] as const).map(([m, label]) => (
+                    <div className="flex flex-wrap gap-2 mt-2">
+                        {([
+                            ['trailer', 'Trailer'],
+                            ['music-video', 'Music Video'],
+                            ['showreel', 'Showreel'],
+                            ['video-essay', 'Video Essay'],
+                            ['short-film', 'Short Film'],
+                        ] as const).map(([m, label]) => (
                             <button key={m} onClick={() => update({ generatorMode: m })}
-                                className={clsx("flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-wider border transition-all",
+                                className={clsx("px-4 py-3 rounded-xl text-xs font-black uppercase tracking-wider border transition-all",
                                     (settings.generatorMode ?? 'trailer') === m
                                         ? "bg-gradient-to-br from-purple-600/40 to-blue-600/40 border-primary/50 text-white shadow-[0_0_18px_rgba(168,85,247,0.35)]"
                                         : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10")}>
@@ -1795,11 +1806,15 @@ export const TrailerWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                 <div className="flex justify-end pt-4 border-t border-white/5">
                     <motion.button 
                         onClick={handleGenerate} 
-                        disabled={videoCount === 0}
+                        disabled={videoCount === 0 || isExporting}
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                         className="px-6 py-2.5 rounded-lg text-xs font-black uppercase tracking-wider text-white bg-gradient-to-r from-purple-600 to-blue-600 shadow-[0_0_20px_rgba(168,85,247,0.4)] hover:shadow-[0_0_30px_rgba(168,85,247,0.6)] flex items-center gap-2 disabled:opacity-50 disabled:grayscale">
-                        <PlayCircle size={16} /> Generate {settings.generatorMode === 'music-video' ? 'Music Video' : 'Trailer'}
+                        {isExporting ? (
+                            <><Loader2 size={16} className="animate-spin" /> Rendering…</>
+                        ) : (
+                            <><PlayCircle size={16} /> Generate {{ 'trailer': 'Trailer', 'music-video': 'Music Video', 'showreel': 'Showreel', 'video-essay': 'Video Essay', 'short-film': 'Short Film' }[settings.generatorMode ?? 'trailer']}</>
+                        )}
                     </motion.button>
                 </div>
             </div>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2, Check, Sparkles } from 'lucide-react';
+import { Loader2, Check, Sparkles, Activity } from 'lucide-react';
 import type { TrailerSettings } from '../../lib/trailerGenerator';
 import { useTrailerSmartStore, SmartKey } from '../../store/trailerSmartStore';
 
@@ -16,6 +16,75 @@ const StatusChip: React.FC<{ k: SmartKey; on: boolean }> = ({ k, on }) => {
     return on ? <span className="text-[9px] text-white/30">ready</span> : null;
 };
 
+/** Colored badge for energy level counts. */
+const ENERGY_COLORS: Record<string, string> = {
+    intense: 'bg-red-500/20 text-red-300 border-red-500/30',
+    high: 'bg-orange-500/20 text-orange-300 border-orange-500/30',
+    moderate: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
+    low: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+    static: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30',
+};
+
+const ENERGY_LABELS: Record<string, string> = {
+    intense: 'Intense',
+    high: 'High',
+    moderate: 'Moderate',
+    low: 'Low',
+    static: 'Static',
+};
+
+/** Shows the energy classification breakdown as colored badges. */
+const EnergyBreakdown: React.FC = () => {
+    const results = useTrailerSmartStore(s => s.analysisResults);
+    const counts: Record<string, number> = { intense: 0, high: 0, moderate: 0, low: 0, static: 0 };
+    results.forEach(r => { if (r.analyzed) counts[r.energyLevel] = (counts[r.energyLevel] || 0) + 1; });
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    if (total === 0) return null;
+
+    return (
+        <div className="flex flex-wrap gap-1.5 pt-1">
+            {Object.entries(counts).filter(([, c]) => c > 0).map(([level, count]) => (
+                <span key={level} className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${ENERGY_COLORS[level]}`}>
+                    {count} {ENERGY_LABELS[level]}
+                </span>
+            ))}
+        </div>
+    );
+};
+
+/** Progress bar for overall analysis. */
+const AnalysisProgress: React.FC = () => {
+    const analyzedCount = useTrailerSmartStore(s => s.analyzedCount);
+    const totalCount = useTrailerSmartStore(s => s.totalCount);
+    const active = useTrailerSmartStore(s => s.active);
+    const isFullyAnalyzed = useTrailerSmartStore(s => s.isFullyAnalyzed);
+
+    if (totalCount === 0) return null;
+
+    const pct = totalCount > 0 ? Math.round((analyzedCount / totalCount) * 100) : 0;
+
+    return (
+        <div className="space-y-1.5 pt-1">
+            <div className="flex items-center justify-between text-[9px]">
+                <span className="flex items-center gap-1.5">
+                    {active && <Loader2 size={9} className="animate-spin text-amber-300" />}
+                    {isFullyAnalyzed && <Check size={9} className="text-emerald-400" />}
+                    <span className={isFullyAnalyzed ? 'text-emerald-300' : 'text-white/50'}>
+                        {isFullyAnalyzed ? 'All clips analyzed' : `auto-analyzing… ${analyzedCount}/${totalCount}`}
+                    </span>
+                </span>
+                <span className="text-white/30 font-mono">{pct}%</span>
+            </div>
+            <div className="w-full h-1 rounded-full bg-white/5 overflow-hidden">
+                <div
+                    className={`h-full rounded-full transition-all duration-500 ${isFullyAnalyzed ? 'bg-emerald-500' : 'bg-amber-500/80'}`}
+                    style={{ width: `${pct}%` }}
+                />
+            </div>
+        </div>
+    );
+};
+
 interface Row { id: string; label: string; desc: string; on: boolean; set: (v: boolean) => void; storeKey?: SmartKey; }
 
 export const TrailerSmartPanel: React.FC<Props> = ({ settings, update }) => {
@@ -27,7 +96,7 @@ export const TrailerSmartPanel: React.FC<Props> = ({ settings, update }) => {
         },
         {
             id: 'autoColorGrade', label: 'Auto Color Grade', storeKey: 'color',
-            desc: 'Analyzes each clip’s luma + saturation and applies a clip-aware cinematic grade (exposure fix, vibrance, subtle teal-orange).',
+            desc: 'Analyzes each clip\'s luma + saturation and applies a clip-aware cinematic grade (exposure fix, vibrance, subtle teal-orange).',
             on: settings.autoColorGrade ?? false, set: (v) => update({ autoColorGrade: v }),
         },
         {
@@ -58,8 +127,10 @@ export const TrailerSmartPanel: React.FC<Props> = ({ settings, update }) => {
             <div className="flex items-center gap-2">
                 <Sparkles size={15} className="text-emerald-400" />
                 <span className="text-sm font-bold text-white">Smart Engine</span>
-                <span className="text-[9px] text-white/35 ml-auto">analysis runs at generate</span>
+                <Activity size={11} className="text-emerald-400/50 ml-auto" />
             </div>
+            <AnalysisProgress />
+            <EnergyBreakdown />
             <div className="space-y-2">
                 {rows.map((r) => (
                     <div key={r.id} className={`rounded-lg border p-2.5 transition-colors ${r.on ? 'border-emerald-500/25 bg-emerald-500/[0.04]' : 'border-white/5 bg-black/20'}`}>

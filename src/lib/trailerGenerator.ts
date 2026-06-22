@@ -9,6 +9,14 @@ import { Clip, TransitionType, ShakeType, ShakePolicy, BeatDropIntensity, Transi
 import { RHYTHM_PATTERNS, resolveRhythmDuration, RhythmPatternId } from './rhythmPatterns';
 import { SeededRandom, generateSeed } from './random';
 import { selectTransition } from './transitions';
+import {
+    selectContextAwareTransition,
+    classifyEnergy,
+    classifyColorTemperature,
+    type TransitionContext,
+    type EnergyLevel,
+    type ColorTemperature,
+} from './clipIntelligence';
 import { getColorForSection } from './colorEngine';
 import { VideoMode, SegmentEditType, getSectionBehavior, DEFAULT_SECTION_BEHAVIORS, SectionBehavior } from './editingModes';
 import { MixedTemplate, mixTemplates, templateToSettings } from './templateMixer';
@@ -45,7 +53,7 @@ export interface TrailerSettings {
     beatPattern: 'auto' | 'every' | 'half' | 'quarter' | 'drops' | 'risers-drops' | 'downbeats' | 'custom';
 
     // ── Generator mode (Trailer vs Music Video) ──
-    generatorMode?: 'trailer' | 'music-video';
+    generatorMode?: 'trailer' | 'music-video' | 'showreel' | 'video-essay' | 'short-film';
     mvBeatAnchor?: 'downbeat' | 'beat';
     mvIntroEnabled?: boolean;
     mvOutroEnabled?: boolean;
@@ -651,17 +659,57 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             expandedClips = laid;
         }
 
-        // ── TRANSITION ASSIGNMENT ──
-        // Assign transitions to each clip based on settings
+        // ── TRANSITION ASSIGNMENT (Context-Aware) ──
+        // Uses clip intelligence metadata when available for smarter transition selection.
+        // Falls back to segment-based selection when intelligence data is absent.
         if (s.transitionStyle && s.transitionStyle !== 'cuts-only') {
             const transitionRng = new SeededRandom(s.seed ? s.seed + '_transitions' : generateSeed());
+            const beats = settings.audioAnalysis?.gridBeats ?? [];
+            const downbeats = settings.audioAnalysis?.downbeats ?? [];
+            const beatTol = 0.12; // seconds tolerance for beat alignment
+
             for (let i = 0; i < expandedClips.length - 1; i++) {
                 const clip = expandedClips[i];
+                const nextClip = expandedClips[i + 1];
                 const segType: SegmentType = (clip as any)._segType || 'verse';
-                const transType = selectTransition(
-                    segType,
+                const nextSegType: SegmentType = (nextClip as any)._segType || 'verse';
+
+                // Determine clip energies from segment type as heuristic
+                const segEnergyMap: Record<string, EnergyLevel> = {
+                    drop: 'intense', chorus: 'high', buildup: 'high',
+                    verse: 'moderate', bridge: 'moderate',
+                    intro: 'calm', outro: 'calm', breakdown: 'calm',
+                };
+                const outEnergy = segEnergyMap[segType] || 'moderate';
+                const inEnergy = segEnergyMap[nextSegType] || 'moderate';
+
+                // Color temp heuristic from segment type
+                const segColorMap: Record<string, ColorTemperature> = {
+                    drop: 'cool', chorus: 'warm', buildup: 'neutral',
+                    verse: 'neutral', bridge: 'cool',
+                    intro: 'cool', outro: 'warm', breakdown: 'cool',
+                };
+
+                const cutTime = clip.endFrame / DEFAULT_FPS;
+                const isOnBeat = beats.some(b => Math.abs(b - cutTime) <= beatTol);
+                const isOnDownbeat = downbeats.some(d => Math.abs(d - cutTime) <= beatTol);
+                const isDropMoment = nextSegType === 'drop' && isOnDownbeat;
+
+                const ctx: TransitionContext = {
+                    segment: segType,
+                    outgoingEnergy: outEnergy,
+                    incomingEnergy: inEnergy,
+                    isOnBeat,
+                    isOnDownbeat,
+                    isDropMoment,
+                    outgoingColorTemp: segColorMap[segType] || 'neutral',
+                    incomingColorTemp: segColorMap[nextSegType] || 'neutral',
+                };
+
+                const transType = selectContextAwareTransition(
+                    ctx,
                     s.transitionTypes ?? [],
-                    s.transitionStyle,
+                    s.transitionStyle || 'mixed',
                     transitionRng,
                 );
                 if (transType !== 'cut') {

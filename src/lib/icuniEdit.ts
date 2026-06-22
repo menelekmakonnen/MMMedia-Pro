@@ -18,7 +18,7 @@
  */
 
 export const ICUNI_EDIT_SCHEMA = 'icuni-edit';
-export const ICUNI_EDIT_VERSION = '1.0';
+export const ICUNI_EDIT_VERSION = '1.2';
 
 /** Premiere Pro internal ticks per second (matches Edia's constants.js). */
 export const TICKS_PER_SECOND = 254016000000;
@@ -74,6 +74,11 @@ export const PREMIERE_SUPPORT: Record<string, SupportLevel> = {
     parametricEffects: 'unsupported',
     effectIds: 'unsupported',
     textOverlays: 'approx',   // graphics/essential text
+    // v1.2 additions
+    keyframes: 'approx',       // property animation → Premiere keyframed effects
+    rgbSplit: 'unsupported',
+    hueCycle: 'unsupported',
+    vhs: 'unsupported',
 };
 
 // ─── Clip shape ──────────────────────────────────────────────────────────────
@@ -152,9 +157,34 @@ export interface IcuniClip {
 
     // Everything else, carried verbatim.
     effects?: IcuniEffects;
+
+    /** Per-property animation keyframes (v1.2+). */
+    keyframes?: Record<string, IcuniKeyframe[]>;
+    /** AI-derived clip metadata for reference (v1.2+). */
+    clipMetadata?: IcuniClipMetadata;
 }
 
 export interface IcuniReportEntry { clipId: string; feature: string; level: SupportLevel; }
+
+/** Timeline marker for reference points, beats, and annotations. */
+export interface IcuniMarker {
+    id: string;
+    type: 'beat' | 'section' | 'cut-point' | 'note' | 'chapter';
+    frame: number;
+    label: string;
+    color: string;
+}
+
+/** Timeline region spanning a frame range (e.g., song sections). */
+export interface IcuniRegion {
+    id: string;
+    type: 'section' | 'custom';
+    startFrame: number;
+    endFrame: number;
+    label: string;
+    color: string;
+    sectionType?: string;
+}
 
 export interface IcuniEdit {
     schema: typeof ICUNI_EDIT_SCHEMA;
@@ -166,6 +196,59 @@ export interface IcuniEdit {
     clips: IcuniClip[];
     /** Degradation registry — what won't transfer cleanly to Premiere. */
     report?: IcuniReportEntry[];
+    /** Timeline markers (beats, chapters, notes) for reference in Premiere. */
+    markers?: IcuniMarker[];
+    /** Section regions (song structure, custom ranges). */
+    regions?: IcuniRegion[];
+    /** Per-clip transcription data (v1.2+ — Video Essays). */
+    transcription?: IcuniTranscription[];
+    /** Audio ducking configuration (v1.2+ — Video Essays). */
+    duckingConfig?: IcuniDuckingConfig;
+    /** Video essay structure mapping (v1.2+ — narration ↔ B-roll). */
+    essayStructure?: IcuniEssaySection[];
+}
+
+// ─── v1.2 Additions ──────────────────────────────────────────────────────────
+
+/** Keyframe for property animation. Time is normalized 0-1 within clip. */
+export interface IcuniKeyframe {
+    time: number;      // 0-1 normalized
+    value: number;
+    easing?: { cp1: [number, number]; cp2: [number, number] };
+}
+
+/** AI-derived analysis metadata for a clip. */
+export interface IcuniClipMetadata {
+    shotType?: string;          // ECU, CU, MCU, MS, MLS, LS, ELS
+    sceneType?: string;         // indoor, outdoor, studio, etc.
+    faceCount?: number;
+    dominantEmotion?: string;
+    motionScore?: number;       // 0-100
+    colorTemperature?: string;  // warm, cool, neutral
+    energyLevel?: string;       // calm, moderate, high, intense
+}
+
+/** Transcription entry for a clip. */
+export interface IcuniTranscription {
+    clipId: string;
+    words: Array<{ text: string; start: number; end: number; confidence?: number }>;
+}
+
+/** Audio ducking configuration for background music. */
+export interface IcuniDuckingConfig {
+    duckedVolume: number;   // 0-100
+    normalVolume: number;   // 0-100
+    attackTime: number;     // seconds
+    releaseTime: number;    // seconds
+}
+
+/** Essay structure: narration segment ↔ B-roll mapping. */
+export interface IcuniEssaySection {
+    segmentId: string;
+    narrationText: string;
+    startFrame: number;
+    endFrame: number;
+    brollClipIds: string[];
 }
 
 // ─── Helpers (shared logic; mirrored in Edia) ────────────────────────────────

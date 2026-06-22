@@ -10,19 +10,6 @@ import { useProjectStore } from '../../store/projectStore';
 import { generateMusicVideoSequence } from '../../lib/musicVideoBuild';
 import { useTrailerSmartStore } from '../../store/trailerSmartStore';
 
-/** Clip-aware cinematic auto-grade from average luma + saturation (signalstats). */
-function computeAutoGrade(yavg: number, satavg: number): any {
-    const exposure = Math.max(-0.6, Math.min(0.6, ((118 - yavg) / 118) * 0.7));
-    const vibrance = satavg < 60 ? 1.35 : satavg > 130 ? 1.0 : 1.15;
-    return {
-        temperature: 0, tint: 0, exposure, contrast: 1.08,
-        highlights: 0, shadows: 0, saturation: 1.0, vibrance,
-        lift: [-0.02, 0, 0.03] as [number, number, number],   // cool shadows
-        gain: [0.04, 0.0, -0.03] as [number, number, number],  // warm highlights (teal-orange)
-        gamma: [1, 1, 1] as [number, number, number],
-    };
-}
-
 export const TrailerRouter: React.FC = () => {
     const [activeView, setActiveView] = useState<'wizard' | 'player'>('wizard');
     const [settings, setSettings] = useState<TrailerSettings | null>(null);
@@ -83,50 +70,65 @@ export const TrailerRouter: React.FC = () => {
             ? files.filter(f => selectedFileIds.includes(f.id))
             : files;
 
-        // ── Smart analysis (bounded, concurrency-limited, with live progress) ──
-        //    Each ffmpeg pass is downscaled + duration-capped and only a couple run
-        //    at once, so analysis can never thrash the machine or stall generation.
+        // ── Consume pre-computed Smart Engine results ──────────────────────
+        // The background Smart Engine has been auto-analyzing clips since load.
+        // Read cached results instead of running inline analysis.
         const smart = useTrailerSmartStore.getState();
-        smart.reset();
-        let workingPool = pool;
-        const ipc = (window as any).ipcRenderer;
-        const projFps = useProjectStore.getState().settings.fps || 30;
         const needScore = !!(newSettings.preferHighEnergy && pool.length > 1);
         const needSilence = !!newSettings.autoTrimSilence;
         const needScenes = !!newSettings.sceneAwareCuts;
         const needColor = !!newSettings.autoColorGrade;
-        if (needScore || needSilence || needScenes || needColor) {
-            const vids = pool.filter((f) => f.type === 'video' && !!f.path);
-            smart.setActive(true);
-            if (needScore) smart.begin('scoring', vids.length);
-            if (needSilence) smart.begin('silence', vids.length);
-            if (needScenes) smart.begin('scenes', vids.length);
-            if (needColor) smart.begin('color', vids.length);
-            const meta = new Map<string, any>();
-            let idx = 0;
-            const worker = async () => {
-                while (idx < vids.length) {
-                    const f = vids[idx++];
-                    const fps = (f as any).fps || projFps;
-                    const m: any = {};
-                    if (needScore) { try { const r = await ipc.scoreClip({ path: f.path }); m.score = r?.success ? (r.score || 0) : 0; } catch { m.score = 0; } smart.tick('scoring'); }
-                    if (needSilence) { try { const r = await ipc.detectSilence({ path: f.path }); if (r?.success && r.trim) { m._usableInFrames = Math.round(r.trim.trimStart * fps); m._usableOutFrames = Math.round(r.trim.trimEnd * fps); } } catch { /* skip */ } smart.tick('silence'); }
-                    if (needScenes) { try { const r = await ipc.detectScenes({ path: f.path }); if (r?.success && Array.isArray(r.cuts)) m._sceneCutsFrames = r.cuts.map((t: number) => Math.round(t * fps)); } catch { /* skip */ } smart.tick('scenes'); }
-                    if (needColor) { try { const r = await ipc.analyzeClipColor({ path: f.path }); if (r?.success) m._autoGrade = computeAutoGrade(r.yavg ?? 120, r.satavg ?? 80); } catch { /* skip */ } smart.tick('color'); }
-                    meta.set(f.id, m);
-                }
-            };
-            const CONCURRENCY = Math.min(2, Math.max(1, vids.length));
-            await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
-            if (needScore) smart.finish('scoring');
-            if (needSilence) smart.finish('silence');
-            if (needScenes) smart.finish('scenes');
-            if (needColor) smart.finish('color');
-            workingPool = pool.map((f) => ({ ...f, ...(meta.get(f.id) || {}) }));
-            if (needScore) workingPool = [...workingPool].sort((a, b) => ((meta.get(b.id)?.score) || 0) - ((meta.get(a.id)?.score) || 0));
-            smart.setActive(false);
-            console.log('[TrailerRouter] smart analysis complete');
+
+        // If analysis is not fully complete and user wants smart features,
+        // show a confirmation dialog.
+        if ((needScore || needSilence || needScenes || needColor) && !smart.isFullyAnalyzed && smart.totalCount > 0) {
+            const usePartial = window.confirm(
+                `Smart Engine: ${smart.analyzedCount} of ${smart.totalCount} clips analyzed.\n\n` +
+                `OK  →  Use analyzed clips now\n` +
+                `Cancel  →  Wait for all clips to finish`
+            );
+            if (!usePartial) {
+                // Wait for analysis to complete
+                await new Promise<void>((resolve) => {
+                    const unsub = useTrailerSmartStore.subscribe((state) => {
+                        if (state.isFullyAnalyzed) {
+                            unsub();
+                            resolve();
+                        }
+                    });
+                    // Resolve immediately if it finished in the meantime
+                    if (useTrailerSmartStore.getState().isFullyAnalyzed) {
+                        unsub();
+                        resolve();
+                    }
+                });
+            }
         }
+
+        // Enrich pool with pre-computed analysis data
+        let workingPool = pool.map((f) => {
+            const result = smart.getResult(f.id);
+            if (!result) return f;
+            const enriched: any = { ...f };
+            if (needScore) enriched.score = result.score;
+            if (needSilence && result.usableInFrames != null) {
+                enriched._usableInFrames = result.usableInFrames;
+                enriched._usableOutFrames = result.usableOutFrames;
+            }
+            if (needScenes && result.sceneCutsFrames) {
+                enriched._sceneCutsFrames = result.sceneCutsFrames;
+            }
+            if (needColor && result.autoGrade) {
+                enriched._autoGrade = result.autoGrade;
+            }
+            return enriched;
+        });
+
+        // Sort by score if preferring high-energy
+        if (needScore) {
+            workingPool = [...workingPool].sort((a, b) => ((b as any).score || 0) - ((a as any).score || 0));
+        }
+        console.log('[TrailerRouter] Using pre-computed Smart Engine results');
 
         let clips: any[];
         if (newSettings.generatorMode === 'music-video' && newSettings.audioAnalysis) {

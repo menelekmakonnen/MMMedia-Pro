@@ -14,6 +14,8 @@ import {
     type IcuniClip,
     type IcuniClipType,
     type IcuniEffects,
+    type IcuniMarker,
+    type IcuniRegion,
     type IcuniReportEntry,
     type IcuniSource,
     ICUNI_EDIT_SCHEMA,
@@ -130,5 +132,7 @@ export function clipsToIcuniEdit(
         project,
         clips: icuniClips,
         report,
+        markers: [], // Will be populated from markerStore in Phase 1
+        regions: [], // Will be populated from markerStore in Phase 1
     };
 }
