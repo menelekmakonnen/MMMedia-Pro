@@ -296,22 +296,23 @@ export const SequenceInspector: React.FC<SequenceInspectorProps> = ({
                                     {/* Energy breakdown badges */}
                                     {smartStore.analyzedCount > 0 && (() => {
                                         const counts: Record<string, number> = { intense: 0, high: 0, moderate: 0, low: 0, static: 0 };
-                                        smartStore.analysisResults.forEach((r: any) => {
+                                        Object.values(smartStore.analysisResults).forEach((r: any) => {
                                             if (r?.energyLevel && counts[r.energyLevel] !== undefined) counts[r.energyLevel]++;
                                         });
-                                        const badges: Array<[string, string, string]> = [
-                                            ['intense', 'bg-red-500/20 text-red-300 border-red-500/30', '🔴'],
-                                            ['high', 'bg-orange-500/20 text-orange-300 border-orange-500/30', '🟠'],
-                                            ['moderate', 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30', '🟡'],
-                                            ['low', 'bg-blue-500/20 text-blue-300 border-blue-500/30', '🔵'],
-                                            ['static', 'bg-zinc-500/20 text-zinc-300 border-zinc-500/30', '⚪'],
+                                        const badges: Array<[string, string]> = [
+                                            ['intense', 'bg-red-500/20 text-red-300 border-red-500/30'],
+                                            ['high', 'bg-orange-500/20 text-orange-300 border-orange-500/30'],
+                                            ['moderate', 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30'],
+                                            ['low', 'bg-blue-500/20 text-blue-300 border-blue-500/30'],
+                                            ['static', 'bg-zinc-500/20 text-zinc-300 border-zinc-500/30'],
                                         ];
                                         return (
                                             <div className="flex flex-wrap gap-1">
-                                                {badges.map(([level, cls, dot]) => (
+                                                {badges.map(([level, cls]) => (
                                                     counts[level] > 0 && (
-                                                        <span key={level} className={clsx('px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase border', cls)}>
-                                                            {dot} {level} {counts[level]}
+                                                        <span key={level} className={clsx('px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase border flex items-center gap-1', cls)}>
+                                                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-current" />
+                                                            {level} {counts[level]}
                                                         </span>
                                                     )
                                                 ))}

@@ -9,14 +9,6 @@ interface Props { settings: TrailerSettings; update: (patch: Partial<TrailerSett
 
 const DPR = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
 
-/** Seed-able pseudo random so bar patterns are deterministic per-bar. */
-const seededRand = (seed: number) => {
-    let s = seed % 2147483647;
-    if (s <= 0) s += 2147483646;
-    s = (s * 16807) % 2147483647;
-    return (s - 1) / 2147483646;
-};
-
 /** Draw a single rounded bar on canvas. */
 const drawBar = (
     ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number,
@@ -43,16 +35,16 @@ const drawThresholdLine = (
     ctx.lineTo(width, y);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.font = `${9 * DPR}px Inter, system-ui, sans-serif`;
+    ctx.font = `${8 * DPR}px Inter, system-ui, sans-serif`;
     ctx.fillStyle = color;
     ctx.textAlign = 'center';
-    ctx.fillText(label, labelX ?? width / 2, y + 11 * DPR);
+    ctx.fillText(label, labelX ?? width / 2, y + 10 * DPR);
     ctx.restore();
 };
 
-/* ── NoiseGateMeter ──────────────────────────────────────────────────── */
+/* ── NoiseGateMeter (Mirror Input / Output) ─────────────────────────── */
 
-const INPUT_BARS = [0.82, 0.55, 0.18, 0.91, 0.12, 0.68, 0.08, 0.74, 0.15, 0.88, 0.22, 0.60, 0.10, 0.78];
+const INPUT_BARS = [0.82, 0.55, 0.18, 0.91, 0.12, 0.68, 0.08, 0.74, 0.15, 0.88, 0.22, 0.60, 0.10, 0.78, 0.40, 0.65, 0.30, 0.85];
 
 const NoiseGateMeter: React.FC<{ active: boolean; threshold?: number }> = ({ active, threshold = 0.35 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -69,54 +61,69 @@ const NoiseGateMeter: React.FC<{ active: boolean; threshold?: number }> = ({ act
         ctx.clearRect(0, 0, W, H);
 
         const barCount = INPUT_BARS.length;
-        const halfW = W / 2;
-        const gap = 2 * DPR;
-        const barW = (halfW - gap * barCount) / barCount;
-        const maxH = H - 14 * DPR; // leave room for label
+        const gap = 1.5 * DPR;
+        const barW = (W - gap * (barCount + 1)) / barCount;
+        const center = H / 2;
+        const maxH = center - 6 * DPR;
 
-        // Section labels
-        ctx.font = `${8 * DPR}px Inter, system-ui, sans-serif`;
-        ctx.fillStyle = 'rgba(255,255,255,0.35)';
-        ctx.textAlign = 'center';
-        ctx.fillText('Input', halfW / 2, 8 * DPR);
-        ctx.fillText('Output', halfW + halfW / 2, 8 * DPR);
-
-        const topY = 12 * DPR;
+        // Labels
+        ctx.font = `${7 * DPR}px Inter, system-ui, sans-serif`;
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.textAlign = 'left';
+        ctx.fillText('IN', 4 * DPR, 8 * DPR);
+        ctx.fillText('OUT', 4 * DPR, H - 4 * DPR);
 
         for (let i = 0; i < barCount; i++) {
             const jitter = active ? Math.sin(t * 0.0015 + i * 0.9) * 0.06 : 0;
             const h = Math.max(0.05, Math.min(1, INPUT_BARS[i] + jitter));
             const barH = h * maxH;
+            const x = gap + i * (barW + gap);
 
-            // ── Input side ──
-            const x1 = i * (barW + gap) + gap;
+            // ── Input side (UPWARD from center) ──
             const inputColor = active ? 'rgba(34,211,238,0.7)' : 'rgba(255,255,255,0.10)';
-            drawBar(ctx, x1, topY + maxH - barH, barW, barH, inputColor);
+            drawBar(ctx, x, center - barH, barW, barH, inputColor);
 
-            // ── Output side (gated) ──
-            const x2 = halfW + i * (barW + gap) + gap;
+            // ── Output side (DOWNWARD from center - GATED) ──
             if (h >= threshold) {
                 const outColor = active ? 'rgba(34,211,238,0.7)' : 'rgba(255,255,255,0.10)';
-                drawBar(ctx, x2, topY + maxH - barH, barW, barH, outColor);
+                drawBar(ctx, x, center, barW, barH, outColor);
             } else {
-                // gated — dim bar
+                // gated — flatlined dim red bar growing down slightly
                 const gateColor = active ? 'rgba(248,113,113,0.30)' : 'rgba(255,255,255,0.05)';
-                drawBar(ctx, x2, topY + maxH - 2 * DPR, barW, 2 * DPR, gateColor);
+                drawBar(ctx, x, center, barW, 2 * DPR, gateColor);
             }
         }
 
-        // Threshold line
+        // Draw center dividing line
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fillRect(0, center - 0.5 * DPR, W, 1 * DPR);
+
+        // Threshold line on top/input half
         if (active) {
-            const threshY = topY + maxH - threshold * maxH;
-            drawThresholdLine(ctx, threshY, W, 'rgba(248,113,113,0.8)', 'Threshold');
+            const threshY = center - threshold * maxH;
+            ctx.save();
+            ctx.strokeStyle = 'rgba(248,113,113,0.5)';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 2]);
+            ctx.beginPath();
+            ctx.moveTo(0, threshY);
+            ctx.lineTo(W, threshY);
+            ctx.stroke();
+            ctx.restore();
         }
     }, [active, threshold]);
 
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-        canvas.width = 200 * DPR;
-        canvas.height = 48 * DPR;
+
+        const resize = () => {
+            canvas.width = canvas.clientWidth * DPR;
+            canvas.height = canvas.clientHeight * DPR;
+            draw(timeRef.current);
+        };
+        resize();
+        window.addEventListener('resize', resize);
 
         let running = true;
         const loop = (t: number) => {
@@ -130,20 +137,24 @@ const NoiseGateMeter: React.FC<{ active: boolean; threshold?: number }> = ({ act
         } else {
             draw(0);
         }
-        return () => { running = false; cancelAnimationFrame(frameRef.current); };
+        return () => {
+            running = false;
+            cancelAnimationFrame(frameRef.current);
+            window.removeEventListener('resize', resize);
+        };
     }, [active, draw]);
 
-    return <canvas ref={canvasRef} className="mt-1" style={{ width: 200, height: 48 }} aria-hidden />;
+    return <canvas ref={canvasRef} className="mt-1 w-full h-12 rounded bg-black/10 border border-white/5" aria-hidden />;
 };
 
 /* ── LimiterMeter ────────────────────────────────────────────────────── */
 
-const LIMITER_BARS = [0.60, 0.72, 0.88, 0.55, 0.95, 0.78, 0.62, 0.92, 0.70, 0.85, 0.58, 0.90, 0.65, 0.82,
-    0.56, 0.96, 0.68, 0.74];
+const LIMITER_BARS = [0.60, 0.72, 0.88, 0.55, 0.95, 0.78, 0.62, 0.92, 0.70, 0.85, 0.58, 0.90, 0.65, 0.82, 0.56, 0.96, 0.68, 0.74, 0.80, 0.60];
 
 const LimiterMeter: React.FC<{ active: boolean; ceiling?: number }> = ({ active, ceiling = 0.78 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const frameRef = useRef(0);
+    const timeRef = useRef(0);
 
     const draw = useCallback((t: number) => {
         const canvas = canvasRef.current;
@@ -155,7 +166,7 @@ const LimiterMeter: React.FC<{ active: boolean; ceiling?: number }> = ({ active,
         ctx.clearRect(0, 0, W, H);
 
         const barCount = LIMITER_BARS.length;
-        const gap = 2 * DPR;
+        const gap = 1.5 * DPR;
         const barW = (W - gap * (barCount + 1)) / barCount;
         const topPad = 4 * DPR;
         const maxH = H - topPad - 2 * DPR;
@@ -199,12 +210,19 @@ const LimiterMeter: React.FC<{ active: boolean; ceiling?: number }> = ({ active,
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-        canvas.width = 200 * DPR;
-        canvas.height = 48 * DPR;
+
+        const resize = () => {
+            canvas.width = canvas.clientWidth * DPR;
+            canvas.height = canvas.clientHeight * DPR;
+            draw(timeRef.current);
+        };
+        resize();
+        window.addEventListener('resize', resize);
 
         let running = true;
         const loop = (t: number) => {
             if (!running) return;
+            timeRef.current = t;
             draw(t);
             frameRef.current = requestAnimationFrame(loop);
         };
@@ -213,19 +231,24 @@ const LimiterMeter: React.FC<{ active: boolean; ceiling?: number }> = ({ active,
         } else {
             draw(0);
         }
-        return () => { running = false; cancelAnimationFrame(frameRef.current); };
+        return () => {
+            running = false;
+            cancelAnimationFrame(frameRef.current);
+            window.removeEventListener('resize', resize);
+        };
     }, [active, draw]);
 
-    return <canvas ref={canvasRef} className="mt-1" style={{ width: 200, height: 48 }} aria-hidden />;
+    return <canvas ref={canvasRef} className="mt-1 w-full h-12 rounded bg-black/10 border border-white/5" aria-hidden />;
 };
 
-/* ── LoudnessNormMeter ───────────────────────────────────────────────── */
+/* ── LoudnessNormMeter (Mirror Before / After) ─────────────────────── */
 
-const LOUD_BEFORE = [0.30, 0.88, 0.22, 0.95, 0.40, 0.15, 0.85, 0.52, 0.10, 0.78];
+const LOUD_BEFORE = [0.30, 0.88, 0.22, 0.95, 0.40, 0.15, 0.85, 0.52, 0.10, 0.78, 0.45, 0.82, 0.20, 0.60, 0.35, 0.90, 0.50, 0.75];
 
 const LoudnessNormMeter: React.FC<{ active: boolean; target?: number }> = ({ active, target = -14 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const frameRef = useRef(0);
+    const timeRef = useRef(0);
 
     const draw = useCallback((t: number) => {
         const canvas = canvasRef.current;
@@ -237,57 +260,53 @@ const LoudnessNormMeter: React.FC<{ active: boolean; target?: number }> = ({ act
         ctx.clearRect(0, 0, W, H);
 
         const barCount = LOUD_BEFORE.length;
-        const halfW = W / 2;
-        const gap = 2 * DPR;
-        const barW = (halfW - gap * (barCount + 1)) / barCount;
-        const topPad = 12 * DPR;
-        const maxH = H - topPad - 2 * DPR;
+        const gap = 1.5 * DPR;
+        const barW = (W - gap * (barCount + 1)) / barCount;
+        const center = H / 2;
+        const maxH = center - 6 * DPR;
 
         // The normalized target as a 0-1 height (map LUFS roughly: -23 -> 0.35, -14 -> 0.60, -9 -> 0.75)
         const normLevel = 0.60 + (target + 14) * 0.025;
 
-        // Section labels
-        ctx.font = `${8 * DPR}px Inter, system-ui, sans-serif`;
-        ctx.fillStyle = 'rgba(255,255,255,0.35)';
-        ctx.textAlign = 'center';
-        ctx.fillText('Before', halfW / 2, 8 * DPR);
-        ctx.fillText('After', halfW + halfW / 2, 8 * DPR);
+        // Labels
+        ctx.font = `${7 * DPR}px Inter, system-ui, sans-serif`;
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.textAlign = 'left';
+        ctx.fillText('BEFORE', 4 * DPR, 8 * DPR);
+        ctx.fillText('AFTER', 4 * DPR, H - 4 * DPR);
 
         for (let i = 0; i < barCount; i++) {
             const jitter = active ? Math.sin(t * 0.0012 + i * 0.7) * 0.04 : 0;
             const raw = Math.max(0.08, Math.min(1, LOUD_BEFORE[i] + jitter));
 
-            // ── Before side ──
-            const x1 = gap + i * (barW + gap);
+            // ── Before side (UPWARD from center) ──
+            const x = gap + i * (barW + gap);
             const beforeH = raw * maxH;
             const beforeColor = active ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.10)';
-            drawBar(ctx, x1, topPad + maxH - beforeH, barW, beforeH, beforeColor);
+            drawBar(ctx, x, center - beforeH, barW, beforeH, beforeColor);
 
-            // ── After side (normalized toward target) ──
-            const x2 = halfW + gap + i * (barW + gap);
-            // Compress dynamic range: pull everything toward the target level
+            // ── After side (DOWNWARD from center - normalized) ──
             const compressed = normLevel + (raw - normLevel) * 0.25 + jitter * 0.5;
             const afterH = Math.max(0.08, Math.min(1, compressed)) * maxH;
             const afterColor = active ? 'rgba(52,211,153,0.7)' : 'rgba(255,255,255,0.10)'; // emerald-400
-            drawBar(ctx, x2, topPad + maxH - afterH, barW, afterH, afterColor);
+            drawBar(ctx, x, center, barW, afterH, afterColor);
         }
 
-        // Target line (on right half only)
+        // Draw center dividing line
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        ctx.fillRect(0, center - 0.5 * DPR, W, 1 * DPR);
+
+        // Target line (on bottom / after half)
         if (active) {
-            const targetY = topPad + maxH - normLevel * maxH;
+            const targetY = center + normLevel * maxH;
             ctx.save();
-            ctx.strokeStyle = 'rgba(52,211,153,0.85)';
+            ctx.strokeStyle = 'rgba(52,211,153,0.6)';
             ctx.lineWidth = 1;
-            ctx.setLineDash([4, 3]);
+            ctx.setLineDash([3, 2]);
             ctx.beginPath();
-            ctx.moveTo(halfW, targetY);
+            ctx.moveTo(0, targetY);
             ctx.lineTo(W, targetY);
             ctx.stroke();
-            ctx.setLineDash([]);
-            ctx.font = `${8 * DPR}px Inter, system-ui, sans-serif`;
-            ctx.fillStyle = 'rgba(52,211,153,0.85)';
-            ctx.textAlign = 'center';
-            ctx.fillText(`${target} LUFS`, halfW + halfW / 2, targetY + 10 * DPR);
             ctx.restore();
         }
     }, [active, target]);
@@ -295,12 +314,19 @@ const LoudnessNormMeter: React.FC<{ active: boolean; target?: number }> = ({ act
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-        canvas.width = 200 * DPR;
-        canvas.height = 48 * DPR;
+
+        const resize = () => {
+            canvas.width = canvas.clientWidth * DPR;
+            canvas.height = canvas.clientHeight * DPR;
+            draw(timeRef.current);
+        };
+        resize();
+        window.addEventListener('resize', resize);
 
         let running = true;
         const loop = (t: number) => {
             if (!running) return;
+            timeRef.current = t;
             draw(t);
             frameRef.current = requestAnimationFrame(loop);
         };
@@ -309,10 +335,14 @@ const LoudnessNormMeter: React.FC<{ active: boolean; target?: number }> = ({ act
         } else {
             draw(0);
         }
-        return () => { running = false; cancelAnimationFrame(frameRef.current); };
+        return () => {
+            running = false;
+            cancelAnimationFrame(frameRef.current);
+            window.removeEventListener('resize', resize);
+        };
     }, [active, draw]);
 
-    return <canvas ref={canvasRef} className="mt-1" style={{ width: 200, height: 48 }} aria-hidden />;
+    return <canvas ref={canvasRef} className="mt-1 w-full h-12 rounded bg-black/10 border border-white/5" aria-hidden />;
 };
 
 export const TrailerAudioDynamics: React.FC<Props> = ({ settings, update }) => {
@@ -336,7 +366,7 @@ export const TrailerAudioDynamics: React.FC<Props> = ({ settings, update }) => {
             <div className="flex items-center gap-2">
                 <SlidersHorizontal size={14} className="text-purple-400" />
                 <span className="text-xs font-bold text-white">Audio Dynamics</span>
-                <span className="text-[9px] text-white/35 ml-auto">applied to the mixed soundtrack</span>
+                <span className="text-[9px] text-white/35 ml-auto">applied to mixed soundtrack</span>
             </div>
 
             {/* Auto-compute from analysis */}
@@ -390,30 +420,61 @@ export const TrailerAudioDynamics: React.FC<Props> = ({ settings, update }) => {
                 </div>
             </div>
 
-            <div className="bg-black/30 rounded-lg p-2.5 relative">
-                <Toggle label="Noise Gate" on={audio.gate ?? false} onChange={(v) => setAudio({ gate: v })} />
-                <p className="text-[10px] text-white/40 mt-1">Silences signal below the threshold — kills hiss and room tone between hits.</p>
-                <NoiseGateMeter active={audio.gate ?? false} />
-            </div>
-
-            <div className="bg-black/30 rounded-lg p-2.5 relative">
-                <Toggle label="Limiter" on={audio.limiter ?? false} onChange={(v) => setAudio({ limiter: v })} />
-                <p className="text-[10px] text-white/40 mt-1">Brick-wall ceiling on peaks so the track never clips after beats/effects.</p>
-                <LimiterMeter active={audio.limiter ?? false} />
-            </div>
-
-            <div className="bg-black/30 rounded-lg p-2.5 relative">
-                <Toggle label="Loudness Normalize" on={audio.loudnessNorm ?? false} onChange={(v) => setAudio({ loudnessNorm: v })} />
-                <p className="text-[10px] text-white/40 mt-1">EBU R128 normalization to a platform target so every export lands at the same perceived volume.</p>
-                <LoudnessNormMeter active={audio.loudnessNorm ?? false} target={audio.loudnessTarget} />
-                {audio.loudnessNorm && (
-                    <div className="grid grid-cols-3 gap-1 pt-2">
-                        {[{ l: 'YouTube', v: -14 }, { l: 'Podcast', v: -16 }, { l: 'Broadcast', v: -23 }].map((p) => (
-                            <button key={p.v} onClick={() => setAudio({ loudnessTarget: p.v })}
-                                className={`text-[9px] py-1 rounded ${(audio.loudnessTarget ?? -14) === p.v ? 'bg-purple-500/30 text-white' : 'bg-white/5 text-white/50 hover:bg-white/10'}`}>{p.l}<br />{p.v} LUFS</button>
-                        ))}
+            {/* Side-by-side Economical Dynamics Layout */}
+            <div className="grid grid-cols-3 gap-2.5">
+                {/* Noise Gate */}
+                <div className="bg-black/30 rounded-lg p-2.5 flex flex-col justify-between min-h-[175px] border border-white/5">
+                    <div className="space-y-1">
+                        <Toggle label="Gate" on={audio.gate ?? false} onChange={(v) => setAudio({ gate: v })} />
+                        <p className="text-[8px] text-white/40 leading-snug">Silences audio below thresh.</p>
                     </div>
-                )}
+                    <div className="mt-auto">
+                        <NoiseGateMeter active={audio.gate ?? false} />
+                    </div>
+                </div>
+
+                {/* Limiter */}
+                <div className="bg-black/30 rounded-lg p-2.5 flex flex-col justify-between min-h-[175px] border border-white/5">
+                    <div className="space-y-1">
+                        <Toggle label="Limiter" on={audio.limiter ?? false} onChange={(v) => setAudio({ limiter: v })} />
+                        <p className="text-[8px] text-white/40 leading-snug">Hard wall ceiling against clips.</p>
+                    </div>
+                    <div className="mt-auto">
+                        <LimiterMeter active={audio.limiter ?? false} />
+                    </div>
+                </div>
+
+                {/* Loudness Normalize */}
+                <div className="bg-black/30 rounded-lg p-2.5 flex flex-col justify-between min-h-[175px] border border-white/5">
+                    <div className="space-y-1">
+                        <Toggle label="Norm" on={audio.loudnessNorm ?? false} onChange={(v) => setAudio({ loudnessNorm: v })} />
+                        <p className="text-[8px] text-white/40 leading-snug">Platform target volume (LUFS).</p>
+                    </div>
+                    <div className="mt-auto space-y-1.5">
+                        <LoudnessNormMeter active={audio.loudnessNorm ?? false} target={audio.loudnessTarget} />
+                        {audio.loudnessNorm && (
+                            <div className="grid grid-cols-3 gap-0.5">
+                                {[
+                                    { l: 'YT', v: -14 },
+                                    { l: 'Pod', v: -16 },
+                                    { l: 'Cast', v: -23 }
+                                ].map((p) => (
+                                    <button
+                                        key={p.v}
+                                        onClick={() => setAudio({ loudnessTarget: p.v })}
+                                        className={`text-[8px] py-0.5 rounded font-black transition-colors ${
+                                            (audio.loudnessTarget ?? -14) === p.v
+                                                ? 'bg-purple-500/30 text-purple-200 border border-purple-500/25'
+                                                : 'bg-white/5 text-white/40 hover:bg-white/10'
+                                        }`}
+                                    >
+                                        {p.l}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
             </div>
         </div>
     );

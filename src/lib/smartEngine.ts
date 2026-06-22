@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import { useTrailerSmartStore } from '../store/trailerSmartStore';
-import type { ClipAnalysisResult } from '../store/trailerSmartStore';
+import type { ClipAnalysisResult, SmartKey } from '../store/trailerSmartStore';
 import { useMediaStore } from '../store/mediaStore';
 import { useProjectStore } from '../store/projectStore';
 
@@ -21,7 +21,7 @@ export function classifyEnergy(score: number): 'static' | 'low' | 'moderate' | '
     return 'intense';
 }
 
-// ── Auto-grade (lifted from TrailerRouter) ───────────────────────────────────
+// ── Auto-grade ───────────────────────────────────────────────────────────────
 
 /** Clip-aware cinematic auto-grade from average luma + saturation (signalstats). */
 function computeAutoGrade(yavg: number, satavg: number): any {
@@ -39,16 +39,36 @@ function computeAutoGrade(yavg: number, satavg: number): any {
 // ── Background analysis orchestrator ─────────────────────────────────────────
 
 const CONCURRENCY = 2;
+let activeAnalysisPromise: Promise<void> | null = null;
 
 /**
  * Start background analysis of all video files.
  * Runs all 4 analysis passes (scoring, silence, scenes, color) concurrently
  * with a concurrency limit of 2.
  *
- * Called automatically when files change in the media store.
- * Safe to call multiple times — skips already-analyzed files.
+ * Safe to call multiple times — skips already-analyzed files or forces rescan for a key.
  */
-export async function runSmartAnalysis(): Promise<void> {
+export async function runSmartAnalysis(forceKey?: SmartKey): Promise<void> {
+    // If another analysis is already running, wait for it to finish first
+    if (activeAnalysisPromise) {
+        console.log('[SmartEngine] Another analysis is running. Waiting for it...');
+        await activeAnalysisPromise;
+    }
+
+    let resolvePromise: () => void = () => {};
+    activeAnalysisPromise = new Promise<void>((resolve) => {
+        resolvePromise = resolve;
+    });
+
+    try {
+        await doSmartAnalysis(forceKey);
+    } finally {
+        activeAnalysisPromise = null;
+        resolvePromise();
+    }
+}
+
+async function doSmartAnalysis(forceKey?: SmartKey): Promise<void> {
     const ipc = (window as any).ipcRenderer;
     if (!ipc) {
         console.warn('[SmartEngine] IPC not available, skipping analysis');
@@ -63,8 +83,10 @@ export async function runSmartAnalysis(): Promise<void> {
     const vids = files.filter(f => f.type === 'video' && !!f.path);
     if (vids.length === 0) return;
 
-    // Skip already-analyzed files
-    const pending = vids.filter(f => !smart.getResult(f.id));
+    // Determine pending files
+    const pending = forceKey 
+        ? vids 
+        : vids.filter(f => !smart.getResult(f.id));
     if (pending.length === 0) return;
 
     // Queue the files we're about to analyze
@@ -73,12 +95,13 @@ export async function runSmartAnalysis(): Promise<void> {
     // Set up progress tracking
     const total = pending.length;
     smart.setActive(true);
-    smart.begin('scoring', total);
-    smart.begin('silence', total);
-    smart.begin('scenes', total);
-    smart.begin('color', total);
 
-    console.log(`[SmartEngine] Starting analysis of ${total} clips (${vids.length} total, ${vids.length - total} cached)`);
+    const keysToRun: SmartKey[] = forceKey ? [forceKey] : ['scoring', 'silence', 'scenes', 'color'];
+    for (const key of keysToRun) {
+        smart.begin(key, total);
+    }
+
+    console.log(`[SmartEngine] Starting analysis of ${total} clips (forceKey: ${forceKey || 'none'})`);
 
     let idx = 0;
     const worker = async () => {
@@ -86,46 +109,60 @@ export async function runSmartAnalysis(): Promise<void> {
             const f = pending[idx++];
             const fps = (f as any).fps || projFps;
 
-            let score = 0;
-            let usableInFrames: number | undefined;
-            let usableOutFrames: number | undefined;
-            let sceneCutsFrames: number[] | undefined;
-            let autoGrade: any | undefined;
+            const existing = smart.getResult(f.id) || {
+                score: 0,
+                energyLevel: 'static' as const,
+                analyzed: false
+            };
+
+            let score = existing.score;
+            let usableInFrames = existing.usableInFrames;
+            let usableOutFrames = existing.usableOutFrames;
+            let sceneCutsFrames = existing.sceneCutsFrames;
+            let autoGrade = existing.autoGrade;
 
             // Scoring
-            try {
-                const r = await ipc.scoreClip({ path: f.path });
-                score = r?.success ? (r.score || 0) : 0;
-            } catch { score = 0; }
-            smart.tick('scoring');
+            if (!forceKey || forceKey === 'scoring') {
+                try {
+                    const r = await ipc.scoreClip({ path: f.path });
+                    score = r?.success ? (r.score || 0) : 0;
+                } catch { score = 0; }
+                smart.tick('scoring');
+            }
 
             // Silence detection
-            try {
-                const r = await ipc.detectSilence({ path: f.path });
-                if (r?.success && r.trim) {
-                    usableInFrames = Math.round(r.trim.trimStart * fps);
-                    usableOutFrames = Math.round(r.trim.trimEnd * fps);
-                }
-            } catch { /* skip */ }
-            smart.tick('silence');
+            if (!forceKey || forceKey === 'silence') {
+                try {
+                    const r = await ipc.detectSilence({ path: f.path });
+                    if (r?.success && r.trim) {
+                        usableInFrames = Math.round(r.trim.trimStart * fps);
+                        usableOutFrames = Math.round(r.trim.trimEnd * fps);
+                    }
+                } catch { /* skip */ }
+                smart.tick('silence');
+            }
 
             // Scene detection
-            try {
-                const r = await ipc.detectScenes({ path: f.path });
-                if (r?.success && Array.isArray(r.cuts)) {
-                    sceneCutsFrames = r.cuts.map((t: number) => Math.round(t * fps));
-                }
-            } catch { /* skip */ }
-            smart.tick('scenes');
+            if (!forceKey || forceKey === 'scenes') {
+                try {
+                    const r = await ipc.detectScenes({ path: f.path });
+                    if (r?.success && Array.isArray(r.cuts)) {
+                        sceneCutsFrames = r.cuts.map((t: number) => Math.round(t * fps));
+                    }
+                } catch { /* skip */ }
+                smart.tick('scenes');
+            }
 
             // Color analysis
-            try {
-                const r = await ipc.analyzeClipColor({ path: f.path });
-                if (r?.success) {
-                    autoGrade = computeAutoGrade(r.yavg ?? 120, r.satavg ?? 80);
-                }
-            } catch { /* skip */ }
-            smart.tick('color');
+            if (!forceKey || forceKey === 'color') {
+                try {
+                    const r = await ipc.analyzeClipColor({ path: f.path });
+                    if (r?.success) {
+                        autoGrade = computeAutoGrade(r.yavg ?? 120, r.satavg ?? 80);
+                    }
+                } catch { /* skip */ }
+                smart.tick('color');
+            }
 
             const result: ClipAnalysisResult = {
                 score,
@@ -144,10 +181,9 @@ export async function runSmartAnalysis(): Promise<void> {
     const workers = Math.min(CONCURRENCY, Math.max(1, pending.length));
     await Promise.all(Array.from({ length: workers }, () => worker()));
 
-    smart.finish('scoring');
-    smart.finish('silence');
-    smart.finish('scenes');
-    smart.finish('color');
+    for (const key of keysToRun) {
+        smart.finish(key);
+    }
     smart.setActive(false);
 
     console.log(`[SmartEngine] Analysis complete — ${pending.length} clips processed`);
@@ -157,7 +193,7 @@ export async function runSmartAnalysis(): Promise<void> {
 
 /**
  * React hook that auto-triggers analysis when media files change.
- * Put this in the TrailerWizard or TrailerRouter component.
+ * Mount this at the top level (e.g. EditRouter) to keep it processing in the background.
  */
 export function useAutoSmartEngine(): void {
     const files = useMediaStore(s => s.files);
@@ -173,10 +209,8 @@ export function useAutoSmartEngine(): void {
     }, []);
 
     useEffect(() => {
-        // Skip if no files
         if (files.length === 0) return;
 
-        // Debounce 500ms
         if (debounceRef.current) clearTimeout(debounceRef.current);
         debounceRef.current = setTimeout(trigger, 500);
 

@@ -24,6 +24,7 @@ import { generateAssemblyCut } from '../../lib/shortFilmAssistant';
 import type { SceneDefinition, ActStructure } from '../../lib/shortFilmAssistant';
 import { mergeIntelligence } from '../../lib/intelligenceMerger';
 import { useNarrationStore } from '../../store/narrationStore';
+import { useAutoSmartEngine } from '../../lib/smartEngine';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // EditRouter — 3-state router: home → wizard → player
@@ -40,6 +41,9 @@ import { useNarrationStore } from '../../store/narrationStore';
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export const EditRouter: React.FC = () => {
+    // ── Core background processing ───────────────────────────────────────────
+    useAutoSmartEngine();
+
     // ── Core state machine ───────────────────────────────────────────────────
     const [activeView, setActiveView] = useState<'home' | 'wizard' | 'player'>('wizard');
     const [activeMode, setActiveMode] = useState<EditType>('trailer');

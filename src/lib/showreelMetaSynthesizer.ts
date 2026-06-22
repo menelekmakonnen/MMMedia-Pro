@@ -285,14 +285,16 @@ export function synthesizeShowreelMeta(
  */
 export function synthesizeFromStore(
     files: Array<{ path: string; filename: string; type: string; id: string }>,
-    analysisResults: Map<string, { score: number; energyLevel: string; usableInFrames?: number; usableOutFrames?: number; sceneCutsFrames?: number[]; autoGrade?: any; analyzed: boolean }>,
+    analysisResults: Map<string, { score: number; energyLevel: string; usableInFrames?: number; usableOutFrames?: number; sceneCutsFrames?: number[]; autoGrade?: any; analyzed: boolean }> | Record<string, { score: number; energyLevel: string; usableInFrames?: number; usableOutFrames?: number; sceneCutsFrames?: number[]; autoGrade?: any; analyzed: boolean }>,
     fps?: number,
     closeUpBias?: number,
 ): ShowreelClipMeta[] {
     // Re-key from file IDs to file paths so synthesizeShowreelMeta can match
     const byPath = new Map<string, SmartEngineData>();
     for (const file of files) {
-        const result = analysisResults.get(file.id);
+        const result = typeof (analysisResults as any).get === 'function'
+            ? (analysisResults as any).get(file.id)
+            : (analysisResults as any)[file.id];
         if (result) {
             byPath.set(file.path, result as SmartEngineData);
         }

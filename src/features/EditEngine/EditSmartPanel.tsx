@@ -1,7 +1,9 @@
-import React from 'react';
-import { Loader2, Check, Sparkles, Activity } from 'lucide-react';
+import React, { useState } from 'react';
+import { Loader2, Check, Sparkles, Activity, RotateCw } from 'lucide-react';
 import type { TrailerSettings } from '../../lib/trailerGenerator';
 import { useTrailerSmartStore, SmartKey } from '../../store/trailerSmartStore';
+import { runSmartAnalysis } from '../../lib/smartEngine';
+import clsx from 'clsx';
 
 interface Props { settings: TrailerSettings; update: (patch: Partial<TrailerSettings>) => void; }
 
@@ -37,7 +39,7 @@ const ENERGY_LABELS: Record<string, string> = {
 const EnergyBreakdown: React.FC = () => {
     const results = useTrailerSmartStore(s => s.analysisResults);
     const counts: Record<string, number> = { intense: 0, high: 0, moderate: 0, low: 0, static: 0 };
-    results.forEach(r => { if (r.analyzed) counts[r.energyLevel] = (counts[r.energyLevel] || 0) + 1; });
+    Object.values(results).forEach(r => { if (r.analyzed) counts[r.energyLevel] = (counts[r.energyLevel] || 0) + 1; });
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     if (total === 0) return null;
 
@@ -88,6 +90,21 @@ const AnalysisProgress: React.FC = () => {
 interface Row { id: string; label: string; desc: string; on: boolean; set: (v: boolean) => void; storeKey?: SmartKey; }
 
 export const TrailerSmartPanel: React.FC<Props> = ({ settings, update }) => {
+    const smartActive = useTrailerSmartStore(s => s.active);
+    const analyzedCount = useTrailerSmartStore(s => s.analyzedCount);
+    const [rescanActive, setRescanActive] = useState<Record<string, boolean>>({});
+
+    const handleRescan = async (key: SmartKey) => {
+        setRescanActive(prev => ({ ...prev, [key]: true }));
+        try {
+            await runSmartAnalysis(key);
+        } catch (err) {
+            console.error('[SmartPanel] Rescan error:', err);
+        } finally {
+            setRescanActive(prev => ({ ...prev, [key]: false }));
+        }
+    };
+
     const rows: Row[] = [
         {
             id: 'preferHighEnergy', label: 'Prefer High-Energy Clips', storeKey: 'scoring',
@@ -138,6 +155,24 @@ export const TrailerSmartPanel: React.FC<Props> = ({ settings, update }) => {
                             <span className="flex items-center gap-2">
                                 <span className="text-[11px] font-bold uppercase tracking-wide text-white/70">{r.label}</span>
                                 {r.storeKey && <StatusChip k={r.storeKey} on={r.on} />}
+                                {r.storeKey && analyzedCount > 0 && (
+                                    <button
+                                        type="button"
+                                        title={`Rescan ${r.label}`}
+                                        onClick={(e) => {
+                                            e.preventDefault();
+                                            e.stopPropagation();
+                                            handleRescan(r.storeKey!);
+                                        }}
+                                        disabled={rescanActive[r.storeKey] || smartActive}
+                                        className={clsx(
+                                            "p-1 hover:bg-white/10 text-white/40 hover:text-white rounded transition-all cursor-pointer flex items-center justify-center",
+                                            (rescanActive[r.storeKey] || smartActive) && "opacity-50 cursor-not-allowed"
+                                        )}
+                                    >
+                                        <RotateCw size={10} className={clsx(rescanActive[r.storeKey] && "animate-spin")} />
+                                    </button>
+                                )}
                             </span>
                             <div className="relative">
                                 <input type="checkbox" className="sr-only" checked={r.on} onChange={(e) => r.set(e.target.checked)} />
