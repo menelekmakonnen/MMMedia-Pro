@@ -15,6 +15,10 @@ import { useExportSettingsStore } from '../../store/exportSettingsStore';
 import { TransitionCard } from './TransitionCard';
 import { ColorPresetCard } from './ColorPresetCard';
 import { VisualFXCard } from './VisualFXCard';
+import { NarrationIntelligence } from './NarrationIntelligence';
+import { useNarrationStore } from '../../store/narrationStore';
+import { analyzeNarration } from '../../lib/narrationAnalysis';
+import type { MergeStrategy } from '../../lib/intelligenceMerger';
 
 import clsx from 'clsx';
 import { useAutoSmartEngine } from '../../lib/smartEngine';
@@ -165,6 +169,9 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
     const isExporting = useExportSettingsStore(s => s.isExporting);
     useAutoSmartEngine();
 
+    const narrationStore = useNarrationStore();
+    const [mergeStrategy, setMergeStrategy] = useState<MergeStrategy>('balanced');
+
 
 
     const [settings, setSettings] = useState<TrailerSettings>(() => {
@@ -262,7 +269,7 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
         setPreloadedAudio(null, null);
     }, [preloadedAudioPath]);
 
-    const TRANSIENT_KEYS = new Set(['audioAnalysis']);
+    const TRANSIENT_KEYS = new Set(['audioAnalysis', 'narrationAnalysis']);
     const update = (patch: Partial<TrailerSettings>) => setSettings(s => {
         const next = { ...s, ...patch };
         try {
@@ -714,10 +721,46 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
         [effectUsage],
     );
 
+    const handleNarrationUpload = async (file: File) => {
+        const url = URL.createObjectURL(file);
+        narrationStore.setNarrationFile(file.name, file.name);
+        narrationStore.setNarrationUrl(url);
+    };
+
+    const handleNarrationAnalyze = async () => {
+        if (!narrationStore.narrationUrl) return;
+        narrationStore.setAnalyzing(true);
+        try {
+            const response = await fetch(narrationStore.narrationUrl);
+            const arrayBuffer = await response.arrayBuffer();
+            const audioCtx = new AudioContext();
+            const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+            const result = await analyzeNarration(audioBuffer, narrationStore.transcript ?? undefined);
+            narrationStore.setAnalysis(result);
+        } catch (err) {
+            console.error('[EditWizard] Narration analysis failed:', err);
+        } finally {
+            narrationStore.setAnalyzing(false);
+        }
+    };
+
+    const handleNarrationRemove = () => {
+        narrationStore.clear();
+    };
+
+    const handleTranscriptChange = (text: string) => {
+        narrationStore.setTranscript(text);
+    };
+
     const handleGenerate = () => {
         const finalSettings: TrailerSettings = {
             ...settings,
             audioTrimStart, audioTrimEnd,
+            narrationFile: narrationStore.narrationFile,
+            narrationUrl: narrationStore.narrationUrl,
+            narrationAnalysis: narrationStore.analysis,
+            transcript: narrationStore.transcript,
+            mergeStrategy: mergeStrategy,
         } as any;
 
         // Record which advanced effects were used together for future suggestions.
@@ -1065,6 +1108,23 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
 
                     <TrailerAudioDynamics settings={settings} update={update} />
                 </div>
+
+                {/* ── 🎙️ Narration Intelligence ─── */}
+                <NarrationIntelligence
+                    narrationFile={narrationStore.narrationFile}
+                    narrationName={narrationStore.narrationName}
+                    narrationUrl={narrationStore.narrationUrl}
+                    transcript={narrationStore.transcript}
+                    analysis={narrationStore.analysis}
+                    isAnalyzing={narrationStore.isAnalyzing}
+                    onUpload={handleNarrationUpload}
+                    onTranscriptChange={handleTranscriptChange}
+                    onAnalyze={handleNarrationAnalyze}
+                    onRemove={handleNarrationRemove}
+                    mergeStrategy={mergeStrategy}
+                    onMergeStrategyChange={setMergeStrategy}
+                    hasBeatIntelligence={!!settings.audioAnalysis}
+                />
 
                 <TrailerSmartPanel settings={settings} update={update} />
 

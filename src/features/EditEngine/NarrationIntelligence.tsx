@@ -16,75 +16,15 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 
-// ─── Forward-compatible types ────────────────────────────────────────────────
-// These will move to dedicated modules (narrationAnalysis.ts, intelligenceMerger.ts)
-// once the analysis engine is implemented. Kept here to avoid import errors.
-
-/** Detected phrase boundary in the narration. */
-export interface NarrationPhrase {
-    /** Start time in seconds */
-    start: number;
-    /** End time in seconds */
-    end: number;
-    /** Transcribed text (if transcript provided) */
-    text?: string;
-    /** Average speaking rate for this phrase (WPM) */
-    wpm?: number;
-}
-
-/** Emphasis point — moment of vocal stress or loudness spike. */
-export interface NarrationEmphasisPoint {
-    /** Time in seconds */
-    time: number;
-    /** 0-1 intensity */
-    intensity: number;
-    /** Associated word (if transcript provided) */
-    word?: string;
-}
-
-/** Speech region in the audio. */
-export interface SpeechRegion {
-    start: number;
-    end: number;
-    /** Average energy 0-1 */
-    energy: number;
-}
-
-/** Suggested cut point for editing. */
-export interface NarrationCutPoint {
-    /** Time in seconds */
-    time: number;
-    /** Why this is a good cut point */
-    reason: 'phrase_boundary' | 'long_pause' | 'section_break' | 'emphasis_drop';
-    /** 0-1 confidence */
-    confidence: number;
-}
-
-/** Narration section (structural segment). */
-export interface NarrationSection {
-    start: number;
-    end: number;
-    type: 'intro' | 'argument' | 'example' | 'transition' | 'climax' | 'conclusion';
-    /** Optional label/summary */
-    label?: string;
-}
-
-/** Full analysis result for a narration track. */
-export interface NarrationAnalysisResult {
-    duration: number;
-    averageWPM: number;
-    phrases: NarrationPhrase[];
-    sections: NarrationSection[];
-    speechRegions: SpeechRegion[];
-    silenceRegions: SpeechRegion[];
-    emphasisPoints: NarrationEmphasisPoint[];
-    cutPoints: NarrationCutPoint[];
-    /** Top extracted keywords from transcript */
-    keywords?: string[];
-}
-
-/** How to merge narration intelligence with beat intelligence. */
-export type MergeStrategy = 'narration_leads' | 'music_leads' | 'balanced' | 'ducking';
+// ─── Types from analysis modules ─────────────────────────────────────────────
+import type {
+    NarrationAnalysisResult,
+    NarrationPhrase,
+    NarrationSection,
+    SpeechRegion,
+    EmphasisPoint,
+} from '../../lib/narrationAnalysis';
+import type { MergeStrategy } from '../../lib/intelligenceMerger';
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -120,8 +60,8 @@ const SECTION_COLORS: Record<NarrationSection['type'], { bg: string; text: strin
 };
 
 const MERGE_OPTIONS: Array<{ key: MergeStrategy; label: string; desc: string }> = [
-    { key: 'narration_leads', label: 'Narration Leads', desc: 'Cuts on phrases, music fills gaps' },
-    { key: 'music_leads',     label: 'Music Leads',     desc: 'Cuts on beats, narration rides over' },
+    { key: 'narration-leads', label: 'Narration Leads', desc: 'Cuts on phrases, music fills gaps' },
+    { key: 'music-leads',     label: 'Music Leads',     desc: 'Cuts on beats, narration rides over' },
     { key: 'balanced',        label: 'Balanced',        desc: 'Nearest natural boundary' },
     { key: 'ducking',         label: 'Ducking',         desc: 'Music ducks under speech' },
 ];
@@ -158,7 +98,7 @@ function drawNarrationWaveform(
     for (const region of analysis.speechRegions) {
         const x = toX(region.start);
         const w = toX(region.end) - x;
-        const barH = height * 0.6 * Math.max(0.3, region.energy);
+        const barH = height * 0.6 * Math.max(0.3, region.avgEnergy);
         const y = (height - barH) / 2;
         ctx.fillRect(x, y, Math.max(1, w), barH);
     }
@@ -197,7 +137,7 @@ function drawNarrationWaveform(
     // Cut points — amber diamond markers
     ctx.fillStyle = 'rgba(245, 158, 11, 0.8)'; // amber-500
     for (const cp of analysis.cutPoints) {
-        const x = toX(cp.time);
+        const x = toX(cp);
         const size = 5;
         ctx.beginPath();
         ctx.moveTo(x, height - size * 2);
@@ -501,7 +441,7 @@ export const NarrationIntelligence: React.FC<NarrationIntelligenceProps> = ({
                         {
                             label: 'Cut Points',
                             value: analysis.cutPoints.length.toString(),
-                            sub: `${analysis.cutPoints.filter(c => c.confidence > 0.7).length} high-conf`,
+                            sub: `${analysis.cutPoints.length} total`,
                             Icon: Scissors,
                         },
                         {
