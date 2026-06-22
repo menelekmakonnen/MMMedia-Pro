@@ -294,8 +294,9 @@ export function buildZoompanFilter(
         return '';
     }
 
-    const zs = (zoomStart / 100).toFixed(4);
-    const ze = (zoomEnd / 100).toFixed(4);
+    // Zoom IN only — clamp to >=100% so zoom can never reveal beyond the frame edges.
+    const zs = (Math.max(100, zoomStart) / 100).toFixed(4);
+    const ze = (Math.max(100, zoomEnd) / 100).toFixed(4);
     const d = Math.max(1, Math.round(clipDurationFrames));
     const origin = clip.zoomOrigin || 'center';
 
@@ -597,7 +598,7 @@ export function buildVideoFilter(
     if (clip.shake && clip.shake.intensity > 0) {
         const sh = clip.shake;
         const maxOffset = Math.round((sh.intensity / 100) * 30); // 0-30px max
-        const scaleUp = 1 + (maxOffset * 2) / Math.min(outW, outH);
+        const scaleUp = 1 + (maxOffset * 2.5) / Math.min(outW, outH);
         // Scale up slightly to allow crop offsets without black edges
         filters.push(`scale=${Math.round(outW * scaleUp)}:${Math.round(outH * scaleUp)}`);
         // Use coherent sine-based motion with decay for smooth, non-jittery shake
@@ -720,6 +721,12 @@ export function buildVideoFilter(
     if (clip.smoothSlowmo && isSlowed) {
         filters.push(buildMinterpolateChain(fps));
     }
+
+    // 12c. FRAME LOCK — the canvas has a fixed, defined boundary. After every
+    //      zoom / shake / motion effect, crop back to exactly outW x outH (centered)
+    //      so nothing can breach the top, bottom, or side edges; the edges stay put.
+    filters.push(`crop=${outW}:${outH}:(iw-${outW})/2:(ih-${outH})/2`);
+    filters.push('setsar=1');
 
     // 13. Fork/merge effects (double exposure + glow bloom). Appended as a valid
     //     single-in/single-out sub-graph so the whole -vf remains one filtergraph.

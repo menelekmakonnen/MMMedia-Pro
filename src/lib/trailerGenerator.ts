@@ -684,9 +684,11 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 const maxEnergy = beatMarkers.length > 0 ? Math.max(...beatMarkers.map(b => b.energy)) : 0;
 
                 let shouldShake = false;
-                if (s.shakePolicy === 'on-every-beat' && beatMarkers.length > 0) shouldShake = true;
-                else if (s.shakePolicy === 'heavy-beats-only' && maxEnergy > 0.7) shouldShake = true;
-                else if (s.shakePolicy === 'sparingly' && segType === 'drop' && shakeRng.random() < 0.4) shouldShake = true;
+                // Per-clip beatMarkers/energy aren't populated during generation, so gate
+                // on the policy + segment type (always available) so shake actually fires.
+                if (s.shakePolicy === 'on-every-beat') shouldShake = true;
+                else if (s.shakePolicy === 'heavy-beats-only') shouldShake = (segType === 'drop' || segType === 'chorus' || maxEnergy > 0.7);
+                else if (s.shakePolicy === 'sparingly') shouldShake = ((segType === 'drop' || segType === 'chorus') && shakeRng.random() < 0.5);
 
                 if (shouldShake && !clip.shake) {
                     const shakeType = s.shakeType === 'all'
@@ -1257,10 +1259,15 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 }
 
                 // ── BEAT DROP IMPACT: apply impact preset on drop segments ──
-                if (s.beatDropImpact && s.beatDropImpact !== 'off' && segType === 'drop') {
+                if (s.beatDropImpact && s.beatDropImpact !== 'off' && (segType === 'drop' || segType === 'chorus')) {
                     const impactPreset = IMPACT_PRESETS[s.beatDropImpact];
                     if (impactPreset) {
                         clip.beatEffect = buildImpact(impactPreset, activeBeats[b]);
+                        // Render the impact's shake by merging it into the clip's shake
+                        // (the filter builder applies shake from clip.shake, not beatEffect).
+                        if (clip.beatEffect.shake && !clip.shake) {
+                            clip.shake = { type: 'impact', intensity: clip.beatEffect.shake.intensity, direction: 'random', decayRate: 6, durationFrames: Math.round(DEFAULT_FPS * 0.25) };
+                        }
                         // Stamp clip-local beat timestamps so the filterBuilder's
                         // beat-reactive flash/chromatic filters actually fire.
                         // Compute beats that fall within this clip's time window.
@@ -1332,10 +1339,15 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 }
 
                 // ── BEAT DROP IMPACT: apply impact preset on drop segments ──
-                if (s.beatDropImpact && s.beatDropImpact !== 'off' && segType === 'drop') {
+                if (s.beatDropImpact && s.beatDropImpact !== 'off' && (segType === 'drop' || segType === 'chorus')) {
                     const impactPreset = IMPACT_PRESETS[s.beatDropImpact];
                     if (impactPreset) {
                         clip.beatEffect = buildImpact(impactPreset, activeBeats[b]);
+                        // Render the impact's shake by merging it into the clip's shake
+                        // (the filter builder applies shake from clip.shake, not beatEffect).
+                        if (clip.beatEffect.shake && !clip.shake) {
+                            clip.shake = { type: 'impact', intensity: clip.beatEffect.shake.intensity, direction: 'random', decayRate: 6, durationFrames: Math.round(DEFAULT_FPS * 0.25) };
+                        }
                         // Stamp clip-local beat timestamps (see main loop above)
                         const clipStartSec = activeBeats[b];
                         const clipDurSec = (clip.endFrame - clip.startFrame) / DEFAULT_FPS;
