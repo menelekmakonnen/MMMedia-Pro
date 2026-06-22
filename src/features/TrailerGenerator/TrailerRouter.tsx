@@ -69,13 +69,29 @@ export const TrailerRouter: React.FC = () => {
             ? files.filter(f => selectedFileIds.includes(f.id))
             : files;
 
+        // ── Prefer high-energy clips: rank the pool by motion energy (FFmpeg) ──
+        let workingPool = pool;
+        if (newSettings.preferHighEnergy && pool.length > 1) {
+            try {
+                const scored = await Promise.all(pool.map(async (f) => {
+                    try {
+                        const r = await (window as any).ipcRenderer.scoreClip({ path: f.path });
+                        return { f, score: r?.success ? (r.score || 0) : 0 };
+                    } catch { return { f, score: 0 }; }
+                }));
+                scored.sort((a, b) => b.score - a.score);
+                workingPool = scored.map((s) => s.f);
+                console.log('[TrailerRouter] preferHighEnergy ranking:', scored.map(s => `${s.f.filename}:${s.score}`).join(', '));
+            } catch (e) { console.warn('[TrailerRouter] scoring failed, using original order', e); }
+        }
+
         let clips: any[];
         if (newSettings.generatorMode === 'music-video' && newSettings.audioAnalysis) {
             // Music-video mode: structure-driven, full-song edit (downbeat-anchored,
             // auto intro/outro), with the editorial rules engine applied.
             const projFps = useProjectStore.getState().settings.fps || 30;
             const seedNum = typeof newSettings.seed === 'number' ? newSettings.seed : Math.abs(String(newSettings.seed || '1').split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7)) || 1;
-            const mv = generateMusicVideoSequence(pool, newSettings.audioAnalysis, {
+            const mv = generateMusicVideoSequence(workingPool, newSettings.audioAnalysis, {
                 fps: projFps,
                 beatAnchor: newSettings.mvBeatAnchor || 'downbeat',
                 introEnabled: newSettings.mvIntroEnabled ?? true,
@@ -87,7 +103,7 @@ export const TrailerRouter: React.FC = () => {
             clips = mv.clips;
             console.log('[TrailerRouter] Music-video mode:', mv.report);
         } else {
-            clips = generateTrailerSequence(pool, { ...newSettings, beatTimestamps });
+            clips = generateTrailerSequence(workingPool, { ...newSettings, beatTimestamps });
         }
         setPreGeneratedClips(clips);
         if (clips.length > 0) {

@@ -150,6 +150,10 @@ export interface TrailerSettings {
     globalChromaKey?: { enabled: boolean; color: string; similarity: number; blend: number };
     globalStabilize?: { enabled: boolean; smoothing: number };
     globalAudioEffects?: import('./audioEffects').AudioEffects;
+    /** Auto brightness fade-in on first clip and fade-out on last (keyframe substrate). */
+    autoFadeInOut?: boolean;
+    /** Rank the source pool by motion energy and prefer the liveliest takes. */
+    preferHighEnergy?: boolean;
 }
 
 export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
@@ -208,6 +212,8 @@ export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
     vibrationFlashPolicy: 'off',
     vibrationFlashIntensity: 70,
     smoothSlowmoPolicy: 'off',
+    autoFadeInOut: false,
+    preferHighEnergy: false,
     rgbSplitPolicy: 'off',
     rgbSplitAmount: 45,
     hueCyclePolicy: 'off',
@@ -824,6 +830,17 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
 
         const totalOutputFrames = expandedClips.reduce((sum, c) => sum + (c.endFrame - c.startFrame), 0);
         console.log(`[TrailerGen] Final output: ${expandedClips.length} clips, ${totalOutputFrames}fr (${(totalOutputFrames/DEFAULT_FPS).toFixed(1)}s) target was ${targetFrames}fr (${targetDuration}s)`);
+
+        // Auto fade in/out via the keyframe substrate (brightness ramp from black).
+        if (s.autoFadeInOut && expandedClips.length > 0) {
+            const fadeF = Math.max(2, Math.round(DEFAULT_FPS * 0.5));
+            const first = expandedClips[0];
+            const firstDur = first.endFrame - first.startFrame;
+            first.brightnessKeyframes = [{ frame: 0, value: -1, interp: 'linear' }, { frame: Math.min(fadeF, Math.max(2, firstDur - 1)), value: 0, interp: 'linear' }];
+            const last = expandedClips[expandedClips.length - 1];
+            const lastDur = last.endFrame - last.startFrame;
+            last.brightnessKeyframes = [{ frame: Math.max(0, lastDur - fadeF), value: 0, interp: 'linear' }, { frame: lastDur, value: -1, interp: 'linear' }];
+        }
 
         return expandedClips;
     };
