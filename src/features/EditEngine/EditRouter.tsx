@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { EditWizard } from './EditWizard';
 import { EditPlayer } from './EditPlayer';
 import { SEQUENCE_PRESETS } from './sequencePresets';
-import { EditGeneratorHome } from './EditGeneratorHome';
+import { EDIT_TYPES } from './EditGeneratorHome';
 import type { EditType } from './EditGeneratorHome';
 import { TrailerSettings, generateTrailerSequence, extractBeatTimestamps } from '../../lib/trailerGenerator';
 import { generateSeed } from '../../lib/random';
@@ -46,7 +46,9 @@ import { toast } from '../../components/Toast';
 
 export const EditRouter: React.FC = () => {
     // ── Core state machine ───────────────────────────────────────────────────
-    const [activeView, setActiveView] = useState<'home' | 'wizard' | 'player'>('home');
+    // Open straight into the generator wizard (the mode-picker landing page was
+    // removed); modes are switched via the compact bar at the top of the wizard.
+    const [activeView, setActiveView] = useState<'home' | 'wizard' | 'player'>('wizard');
     const [activeMode, setActiveMode] = useState<EditType>('trailer');
     const [settings, setSettings] = useState<TrailerSettings | null>(null);
     const [preGeneratedClips, setPreGeneratedClips] = useState<any[]>([]);
@@ -489,34 +491,55 @@ export const EditRouter: React.FC = () => {
     // RENDER — Three-way view switch
     // ═════════════════════════════════════════════════════════════════════════
 
+    const inWizard = activeView === 'wizard' || !settings;
+
     return (
-        <div className="w-full h-full bg-[#050505]">
-            {activeView === 'home' ? (
-                /* ── HOME: Mode picker ──────────────────────────────── */
-                <EditGeneratorHome onSelect={handleModeSelect} />
-
-            ) : activeView === 'wizard' || !settings ? (
-                /* ── WIZARD: Route to mode-specific wizard ──────────── */
-                activeMode === 'showreel' ? (
-                    <ShowreelWizard onGenerate={handleShowreelGenerate} />
-                ) : activeMode === 'video-essay' ? (
-                    <VideoEssayWizard onGenerate={handleVideoEssayGenerate} />
-                ) : activeMode === 'short-film' ? (
-                    <ShortFilmDashboard onAssemblyCut={handleShortFilmGenerate} />
-                ) : (
-                    /* trailer + music-video share the same wizard */
-                    <EditWizard onGenerate={handleGenerate} />
-                )
-
-            ) : (
-                /* ── PLAYER: Generated timeline ─────────────────────── */
-                <EditPlayer
-                    settings={settings}
-                    preGeneratedClips={preGeneratedClips}
-                    onDiscard={handleDiscard}
-                    onSettings={handleSettings}
-                />
+        <div className="w-full h-full bg-[#050505] flex flex-col">
+            {/* ── Compact mode switcher (replaces the old full-page landing) ── */}
+            {inWizard && (
+                <div className="flex items-center gap-1.5 px-4 py-2 border-b border-white/5 bg-[#0a0a15]/60 backdrop-blur-sm flex-shrink-0 overflow-x-auto">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white/25 mr-1 flex-shrink-0">Edit Generator</span>
+                    {EDIT_TYPES.map((t) => {
+                        const Icon = t.icon;
+                        const active = activeMode === t.id;
+                        return (
+                            <button
+                                key={t.id}
+                                onClick={() => handleModeSelect(t.id)}
+                                title={t.description}
+                                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors flex-shrink-0 ${active ? `bg-white/10 ${t.accent}` : 'text-white/40 hover:text-white/70 hover:bg-white/5'}`}
+                            >
+                                <Icon size={13} />
+                                {t.label}
+                            </button>
+                        );
+                    })}
+                </div>
             )}
+
+            <div className="flex-1 min-h-0">
+                {inWizard ? (
+                    /* ── WIZARD: Route to mode-specific wizard ──────────── */
+                    activeMode === 'showreel' ? (
+                        <ShowreelWizard onGenerate={handleShowreelGenerate} />
+                    ) : activeMode === 'video-essay' ? (
+                        <VideoEssayWizard onGenerate={handleVideoEssayGenerate} />
+                    ) : activeMode === 'short-film' ? (
+                        <ShortFilmDashboard onAssemblyCut={handleShortFilmGenerate} />
+                    ) : (
+                        /* trailer + music-video share the same wizard */
+                        <EditWizard onGenerate={handleGenerate} />
+                    )
+                ) : (
+                    /* ── PLAYER: Generated timeline ─────────────────────── */
+                    <EditPlayer
+                        settings={settings}
+                        preGeneratedClips={preGeneratedClips}
+                        onDiscard={handleDiscard}
+                        onSettings={handleSettings}
+                    />
+                )}
+            </div>
 
             {/* Smart Engine confirmation modal (shared across all modes) */}
             <SmartEngineConfirmModal
