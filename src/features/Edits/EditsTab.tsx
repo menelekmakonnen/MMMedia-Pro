@@ -161,6 +161,7 @@ export const EditsTab: React.FC = () => {
                 const persistable = { ...edit.settingsSnapshot };
                 delete persistable.audioAnalysis;
                 delete persistable.narrationAnalysis;
+                delete persistable.seed; // don't pin future generations to this edit's seed
                 localStorage.setItem('mmm_trailer_settings', JSON.stringify(persistable));
             } catch (err) {
                 console.warn('[EditsTab] Failed to restore settings:', err);

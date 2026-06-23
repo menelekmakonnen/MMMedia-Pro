@@ -3,6 +3,7 @@ import { DEFAULT_FPS } from './time';
 import { expandClipToBoomerang, BOOMERANG_PRESETS, getBoomerangPreset } from './boomerang';
 import { IMPACT_PRESETS, presetToKeyframes } from './effectsEngine';
 import { pickDoubleExposureShape } from './editEffectFilters';
+import { getGradientColors } from './doubleExposureGradients';
 import type { SegmentType, AudioAnalysisResult } from './audioAnalysis';
 import { MediaFile } from '../store/mediaStore';
 import { Clip, TransitionType, ShakeType, ShakePolicy, BeatDropIntensity, TransitionStyle, BoomerangPresetId, ZoomSpeed, SpeedCurvePreset, EffectApplyPolicy } from '../types';
@@ -123,6 +124,11 @@ export interface TrailerSettings {
     doubleExposureOpacity?: number;       // 0-100
     doubleExposureBlend?: 'screen' | 'lighten' | 'overlay' | 'add' | 'softlight' | 'multiply';
     doubleExposureShapeMode?: 'full' | 'shaped' | 'mix'; // full-frame / always-shaped / healthy mix
+    /** Selected gradient preset ids for gradient double-exposure (replaces the
+     *  clip-overlay variant when non-empty). */
+    doubleExposureGradientIds?: string[];
+    /** 'cycle' = one gradient per clip (rotating); 'stack' = all selected on each clip. */
+    doubleExposureGradientMode?: 'cycle' | 'stack';
     vibrationFlashPolicy?: EffectApplyPolicy;
     vibrationFlashIntensity?: number;     // 0-100
     smoothSlowmoPolicy?: EffectApplyPolicy;
@@ -234,6 +240,8 @@ export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
     doubleExposurePolicy: 'off',
     doubleExposureOpacity: 45,
     doubleExposureBlend: 'screen',
+    doubleExposureGradientIds: [],
+    doubleExposureGradientMode: 'cycle',
     vibrationFlashPolicy: 'off',
     vibrationFlashIntensity: 70,
     smoothSlowmoPolicy: 'off',
@@ -911,6 +919,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 return down && fxRng.random() < 0.3;
             };
 
+            let deGradCursor = 0; // rotates gradients one-per-clip in 'cycle' mode
             for (const clip of expandedClips) {
                 if (!clip.motionBlur && shouldApply(s.motionBlurPolicy, clip)) {
                     clip.motionBlur = { amount: s.motionBlurAmount ?? 50 };
@@ -919,6 +928,27 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                     clip.glow = { intensity: s.glowIntensity ?? 55, radius: s.glowRadius ?? 50, threshold: 55 };
                 }
                 if (!clip.doubleExposure && shouldApply(s.doubleExposurePolicy, clip)) {
+                  const gradIds = (s.doubleExposureGradientIds || []).filter(Boolean);
+                  if (gradIds.length > 0) {
+                    // GRADIENT double exposure: procedural colour overlay(s).
+                    // 'cycle' rotates one gradient per clip; 'stack' applies all selected.
+                    const mode = s.doubleExposureGradientMode || 'cycle';
+                    let chosen: string[][];
+                    if (mode === 'stack') {
+                        chosen = gradIds.map(id => getGradientColors(id)).filter(c => c.length > 0);
+                    } else {
+                        chosen = [getGradientColors(gradIds[deGradCursor % gradIds.length])].filter(c => c.length > 0);
+                    }
+                    deGradCursor++;
+                    if (chosen.length > 0) {
+                        clip.doubleExposure = {
+                            blendMode: s.doubleExposureBlend ?? 'screen',
+                            opacity: s.doubleExposureOpacity ?? 45,
+                            shape: null,
+                            gradients: chosen,
+                        };
+                    }
+                  } else {
                     // TRUE double exposure: overlay a DIFFERENT source clip (never the
                     // same file), with a seeded-random source window for variance, and
                     // a shape chosen per the user's shape mode (full / shaped / mix).
@@ -943,6 +973,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                             shape,
                         };
                     }
+                  }
                 }
                 if (!clip.vibrationFlash && shouldApply(s.vibrationFlashPolicy, clip)) {
                     clip.vibrationFlash = {

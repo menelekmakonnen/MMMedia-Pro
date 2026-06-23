@@ -75,9 +75,42 @@ informed by studying the reference editors in `D:\ICUNI Group\Non_ICUNI`
     popups), `will-navigate` guard pinning the renderer to local content, and a
     CSP via `onHeadersReceived` (packaged builds only, so dev HMR is untouched).
 
+## Session 3 — code-review fixes (committed; typecheck + build green)
+- **#1 One timeline store.** The competing `src/store/timelineStore.ts` (which
+  nothing imported) now re-exports the single feature store
+  (`timeline/useTimelineStore.ts`), which gained `persist` for UI prefs.
+- **#2 Prerender request.** `requestPrerender` now sends the full clip + project
+  settings (was `{id}` only, which Electron rejected).
+- **#4 Proxy hash authority.** `proxyStore` separates a renderer `settingsSig`
+  (change detection) from Electron's MD5 `hash` (the file id used to invalidate);
+  `VideoPlayer` stores the Electron hash, so invalidation deletes the right file.
+- **#6 Edit math.** Trims scale source frames by `speed` and clamp to source
+  bounds; marquee selection now hit-tests `[data-clip-id]` elements (was a TODO).
+- **#7 Discard.** EditRouter snapshots the timeline before committing a generated
+  edit and restores it on Discard; the router starts at `home` (was `wizard`, so
+  the generator home was unreachable).
+- **#8 Export queue.** A real drain: when a render finishes, the next queued edit
+  is loaded onto the timeline (`removeQueuedEdit`) so the queue advances.
+- **#9 Premiere bridge.** Uses `generateEditDocument()` (was a wrong/stale
+  localStorage key) and validates the bridge response.
+- **#10 Smart Engine.** Analyses only imported library clips (no system-wide
+  recent-folder scan), 1 worker, and a versioned cache (`ANALYSIS_VERSION` +
+  source size/mtime) so stale results recompute.
+- **#11 Honest instrumentation.** VU meters are deterministic and gated on real
+  audio under the playhead (flat on an empty timeline); scopes show "NO SIGNAL"
+  when empty and are labelled "simulated preview"; the RAM panel reads real JS
+  heap + measured FPS, and the button clears the real proxy cache.
+- **#12 Navigation.** Old "Timeline" tab renamed "Clip Lab".
+- **#3 Exact-preview signal.** Program Monitor shows an "Exact" badge when an
+  FFmpeg proxy exists for the active clip. (Full proxy-swap playback in the
+  Sequence engine remains a runtime-tested follow-up — see below.)
+
 ## Remaining follow-ups
-- Migrate timeline components from the numeric-id stub to the richer canonical
-  `store/timelineStore.ts` (string ids) — needs the Track shape reconciled.
+- **#3/#5 deep preview parity** — make the Sequence Program Monitor *play* the
+  exact FFmpeg proxy (not just badge it) and implement a real previous→incoming
+  crossfade in the double-buffer. This rewires the delicate realtime playback
+  loop (seek/rate/reverse-step), so it must be done with the app running and
+  watched frame-by-frame — deliberately not attempted blind.
 - Whitelisted **typed IPC** + Zod payload validation + path-traversal guards
   (Electrokit pattern) — larger refactor of the IPC surface.
 - Content-hash proxy caching + idle background pre-render of the visible range.

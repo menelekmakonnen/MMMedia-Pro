@@ -26,6 +26,7 @@ import { SEQUENCE_PRESETS, PRESET_CATEGORIES, getPresetsByCategory } from './seq
 import type { PresetCategory } from './sequencePresets';
 import { PreviewBubble } from '../../components/PreviewBubble';
 import { DurationPresetPreview, SpeedCurvePreview, BoomerangPreview, ZoomValuePreview, ZoomSpeedPreview, BeatDropPreview, ShakePolicyPreview, ShakeTypePreview, DoubleExposurePreview, MotionBlurPreview, GlowPreview, VibrationFlashPreview, SlowmoPreview, RgbSplitPreview, HueCyclePreview, VhsPreview, DoubleExposurePolicyPreview, MotionBlurPolicyPreview, GlowPolicyPreview, VibrationFlashPolicyPreview, SlowmoPolicyPreview, RgbSplitPolicyPreview, HueCyclePolicyPreview, VhsPolicyPreview, DoubleExposureShapePreview } from '../../components/EffectPreviews';
+import { DOUBLE_EXPOSURE_GRADIENTS, gradientToCss } from '../../lib/doubleExposureGradients';
 import { useAutoSmartEngine } from '../../lib/smartEngine';
 
 interface SliderProps {
@@ -200,6 +201,7 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
             if (saved) {
                 const parsed = JSON.parse(saved);
                 delete parsed.audioAnalysis;
+                delete parsed.seed; // never restore a pinned seed (forces fresh variations)
                 return { ...DEFAULT_TRAILER_SETTINGS, ...parsed };
             }
         } catch {}
@@ -297,7 +299,9 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
         setPreloadedAudio(null, null);
     }, [preloadedAudioPath]);
 
-    const TRANSIENT_KEYS = new Set(['audioAnalysis', 'narrationAnalysis']);
+    // 'seed' is intentionally transient: persisting it would pin every future
+    // generation to the same selection. A fresh seed is minted on each Generate.
+    const TRANSIENT_KEYS = new Set(['audioAnalysis', 'narrationAnalysis', 'seed']);
     const update = (patch: Partial<TrailerSettings>) => setSettings(s => {
         const next = { ...s, ...patch };
         try {
@@ -1916,6 +1920,47 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                                 </PreviewBubble>
                                             ))}
                                         </div>
+                                    </div>
+                                    {/* Gradient colours — pick one or many; they cycle per clip or stack */}
+                                    <div className="space-y-1.5">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Gradient Colours</span>
+                                            <div className="flex gap-1">
+                                                {(['cycle', 'stack'] as const).map((m) => (
+                                                    <button key={m} onClick={() => update({ doubleExposureGradientMode: m })}
+                                                        title={m === 'cycle' ? 'Rotate one gradient per clip' : 'Stack all selected gradients on every clip'}
+                                                        className={clsx('px-2 py-0.5 rounded-full text-[9px] font-bold uppercase transition-all border',
+                                                            (settings.doubleExposureGradientMode ?? 'cycle') === m
+                                                                ? 'bg-indigo-600/20 border-indigo-500/40 text-indigo-200'
+                                                                : 'bg-white/5 border-white/5 text-white/40 hover:bg-white/10')}>
+                                                        {m}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {DOUBLE_EXPOSURE_GRADIENTS.map((g) => {
+                                                const sel = (settings.doubleExposureGradientIds ?? []).includes(g.id);
+                                                return (
+                                                    <button key={g.id}
+                                                        onClick={() => {
+                                                            const cur = settings.doubleExposureGradientIds ?? [];
+                                                            update({ doubleExposureGradientIds: cur.includes(g.id) ? cur.filter(x => x !== g.id) : [...cur, g.id] });
+                                                        }}
+                                                        title={g.name}
+                                                        className={clsx('h-6 w-9 rounded-md border transition-all relative overflow-hidden',
+                                                            sel ? 'border-white ring-1 ring-white/60 scale-105' : 'border-white/10 hover:border-white/30 opacity-80 hover:opacity-100')}
+                                                        style={{ background: gradientToCss(g.colors) }}>
+                                                        {sel && <span className="absolute inset-0 flex items-center justify-center text-[8px] font-black text-white drop-shadow">✓</span>}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                        <span className="text-[8px] text-white/30">
+                                            {(settings.doubleExposureGradientIds ?? []).length === 0
+                                                ? 'None selected — uses a second clip as the overlay.'
+                                                : `${(settings.doubleExposureGradientIds ?? []).length} selected · ${(settings.doubleExposureGradientMode ?? 'cycle') === 'cycle' ? 'cycling one per clip' : 'stacked on every clip'}`}
+                                        </span>
                                     </div>
                                 </EffectPolicyControl>
                             </div>

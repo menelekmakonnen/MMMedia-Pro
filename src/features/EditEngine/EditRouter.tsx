@@ -235,7 +235,14 @@ export const EditRouter: React.FC = () => {
     // ═════════════════════════════════════════════════════════════════════════
 
     const handleGenerate = async (newSettings: TrailerSettings) => {
-        if (!newSettings.seed) newSettings.seed = generateSeed();
+        // Every "Generate" must produce a NEW variation. A previously-used seed
+        // (including a stale persisted one) must never pin the output to the same
+        // selection forever. Only honour an explicit Lock Seed for reproducibility.
+        if ((newSettings as any).lockSeed) {
+            if (!newSettings.seed) newSettings.seed = generateSeed();
+        } else {
+            newSettings.seed = generateSeed();
+        }
         setSettings(newSettings);
 
         // ── Beat extraction ──────────────────────────────────────────────

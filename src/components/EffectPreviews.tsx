@@ -248,9 +248,9 @@ export const ShakeTypePreview: React.FC<{ type: string }> = ({ type }) => {
 
 export const DoubleExposurePreview: React.FC = () => (
     <div style={{ width: 72, height: 48, position: 'relative' }}>
-        <style>{`@keyframes de-shift{0%,100%{transform:translate(0,0)}50%{transform:translate(6px,4px)}}`}</style>
-        <div style={{ ...BOX, width: 48, height: 32, position: 'absolute', top: 4, left: 4, background: PURPLE_BG, opacity: 0.6 }} />
-        <div style={{ ...BOX, width: 48, height: 32, position: 'absolute', top: 8, left: 16, background: TEAL_BG, opacity: 0.5, animation: 'de-shift 2s ease-in-out infinite' }} />
+        <style>{`@keyframes de-shift{0%,100%{transform:translate(0,0)}50%{transform:translate(6px,4px)}}@keyframes de-hue{0%,100%{filter:hue-rotate(0deg)}50%{filter:hue-rotate(40deg)}}`}</style>
+        <div style={{ ...BOX, width: 48, height: 32, position: 'absolute', top: 4, left: 4, background: 'linear-gradient(135deg, #ff6b6b, #feca57, #ff9ff3)', opacity: 0.7, animation: 'de-hue 3s ease-in-out infinite' }} />
+        <div style={{ ...BOX, width: 48, height: 32, position: 'absolute', top: 8, left: 16, background: 'linear-gradient(135deg, #0abde3, #48dbfb, #1dd1a1)', opacity: 0.55, mixBlendMode: 'screen', animation: 'de-shift 2s ease-in-out infinite' }} />
     </div>
 );
 

@@ -47,17 +47,22 @@ export const DOUBLE_EXPOSURE_SHAPES: DoubleExposureShape[] = [
 ];
 
 export interface DoubleExposureConfig {
-    /** Absolute path to the SECOND clip layered over the base (the real "double"). */
-    overlayPath: string;
+    /** Absolute path to the SECOND clip layered over the base (the real "double").
+     *  Optional: when `gradients` is set instead, the overlay is procedural colour. */
+    overlayPath?: string;
     /** Source in/out of the overlay clip, in frames. */
-    overlayTrimStart: number;
-    overlayTrimEnd: number;
+    overlayTrimStart?: number;
+    overlayTrimEnd?: number;
     /** How the top layer is blended over the base. */
     blendMode: BlendMode;
     /** 0-100 — opacity of the top layer. */
     opacity: number;
     /** Shape the top layer is confined to; null/undefined = full frame. */
     shape?: DoubleExposureShape | null;
+    /** Gradient double exposure: one or more colour-stop arrays. When present
+     *  (and no overlayPath), the overlay is a procedural gradient. Multiple
+     *  entries are STACKED (blended in order). */
+    gradients?: string[][];
 }
 
 export interface VibrationFlashConfig {
@@ -229,6 +234,46 @@ export function buildDoubleExposureGraph(
     chains.push(`color=c=black:s=${W}x${H}:r=${opts.fps}[demaskbg]`);
     chains.push(`[demaskbg]geq=lum=${shapeLumaExpr(cfg.shape)}:cb=128:cr=128[demask]`);
     chains.push(`[deb2][deblend][demask]maskedmerge[${opts.outLabel}]`);
+    return chains;
+}
+
+/**
+ * Gradient double exposure: layer one or more procedural colour gradients over
+ * the base (no second clip input needed — uses FFmpeg's `gradients` source).
+ * Multiple gradients are STACKED (blended in order). Renders identically in the
+ * preview proxy and the final export since both call this shared builder.
+ */
+export function buildGradientDoubleExposureGraph(
+    cfg: DoubleExposureConfig,
+    opts: { width: number; height: number; fps: number; baseLabel: string; outLabel: string },
+): string[] {
+    const W = Math.round(opts.width), H = Math.round(opts.height);
+    const mode = ffBlendMode(cfg.blendMode);
+    const op = (clamp(cfg.opacity, 0, 100) / 100).toFixed(3);
+    const grads = (cfg.gradients || []).filter((g) => g && g.length > 0);
+    const chains: string[] = [];
+
+    if (grads.length === 0) {
+        chains.push(`[${opts.baseLabel}]copy[${opts.outLabel}]`);
+        return chains;
+    }
+
+    let cur = opts.baseLabel;
+    grads.forEach((colors, gi) => {
+        const cols = colors.slice(0, 8);
+        const colParams = cols
+            .map((c, i) => `c${i}=0x${c.replace('#', '').slice(0, 6)}`)
+            .join(':');
+        const gLabel = `degr${gi}`;
+        // Animate slowly so the gradient feels alive but not distracting.
+        chains.push(
+            `gradients=s=${W}x${H}:r=${opts.fps}:${colParams}:nb_colors=${cols.length}:x0=0:y0=0:x1=${W}:y1=${H}:speed=0.005,format=yuv420p[${gLabel}]`,
+        );
+        const out = gi === grads.length - 1 ? opts.outLabel : `degm${gi}`;
+        chains.push(`[${cur}][${gLabel}]blend=all_mode=${mode}:all_opacity=${op}[${out}]`);
+        cur = out;
+    });
+
     return chains;
 }
 

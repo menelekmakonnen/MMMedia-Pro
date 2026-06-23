@@ -10,7 +10,7 @@ import { buildAtempoChain, shouldUseIntermediateForReverse, buildVideoFilter, bu
 import { parseShowinfoPtsTimes } from '../src/lib/sceneDetection';
 import { parseSilenceDetect, computeHeadTailTrim } from '../src/lib/silenceRemoval';
 import { parseMetadataValues, mean as motionMean, motionToScore } from '../src/lib/clipScoring';
-import { buildDoubleExposureGraph } from '../src/lib/editEffectFilters';
+import { buildDoubleExposureGraph, buildGradientDoubleExposureGraph } from '../src/lib/editEffectFilters';
 import { getTransitionFFmpegName, isApproximatedTransition } from '../src/lib/transitions';
 import { getGridLayout } from '../src/lib/gridTemplates';
 import type { GridCellLayout } from '../src/lib/gridTemplates';
@@ -910,19 +910,27 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                     : ['-ss', timing.seekSec.toFixed(4), '-i', clip.path];
                 let fc: string, vmap: string, amap: string;
                 const de: any = (clip as any).doubleExposure;
-                const hasDE = !!(de && de.overlayPath);
+                const hasDEClip = !!(de && de.overlayPath);
+                const hasDEGrad = !!(de && Array.isArray(de.gradients) && de.gradients.length > 0 && !de.overlayPath);
+                const hasDE = hasDEClip || hasDEGrad;
                 if (hasDE) {
-                    // True double exposure: layer a SECOND clip over this one as a
-                    // two-input graph (optionally confined to a moving shape mask).
-                    const ovSeek = Math.max(0, (de.overlayTrimStart || 0) / projectFps);
-                    inputs.push('-ss', ovSeek.toFixed(4), '-i', de.overlayPath); // input 1 = overlay
-                    const deChains = buildDoubleExposureGraph(de, { width: outW, height: outH, fps, baseLabel: 'debase', overlayLabel: '1:v', outLabel: 'v' });
+                    let deChains: string[];
+                    if (hasDEClip) {
+                        // True double exposure: layer a SECOND clip over this one as a
+                        // two-input graph (optionally confined to a moving shape mask).
+                        const ovSeek = Math.max(0, (de.overlayTrimStart || 0) / projectFps);
+                        inputs.push('-ss', ovSeek.toFixed(4), '-i', de.overlayPath); // input 1 = overlay
+                        deChains = buildDoubleExposureGraph(de, { width: outW, height: outH, fps, baseLabel: 'debase', overlayLabel: '1:v', outLabel: 'v' });
+                    } else {
+                        // Gradient double exposure: procedural colour overlay(s), no extra input.
+                        deChains = buildGradientDoubleExposureGraph(de, { width: outW, height: outH, fps, baseLabel: 'debase', outLabel: 'v' });
+                    }
                     const videoFc = `[0:v]${vf}[debase];` + deChains.join(';');
                     if (hasAudio) {
                         fc = `${videoFc};[0:a]${af}[a]`; vmap = '[v]'; amap = '[a]';
                     } else {
-                        inputs.push('-f', 'lavfi', '-t', (timing.outDurSec + 0.25).toFixed(4), '-i', 'anullsrc=r=48000:cl=stereo'); // input 2 = silence
-                        fc = videoFc; vmap = '[v]'; amap = '2:a';
+                        inputs.push('-f', 'lavfi', '-t', (timing.outDurSec + 0.25).toFixed(4), '-i', 'anullsrc=r=48000:cl=stereo'); // input 1 = silence
+                        fc = videoFc; vmap = '[v]'; amap = `${hasDEClip ? 2 : 1}:a`;
                     }
                 } else if (hasAudio) {
                     fc = `[0:v]${vf}[v];[0:a]${af}[a]`; vmap = '[v]'; amap = '[a]';
