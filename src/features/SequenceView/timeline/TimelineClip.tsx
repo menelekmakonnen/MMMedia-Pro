@@ -1,0 +1,314 @@
+import React, { useRef, useCallback, memo } from 'react';
+import { Lock } from 'lucide-react';
+import clsx from 'clsx';
+import { useTimelineStore } from './useTimelineStore';
+import { useClipStore } from '../../../store/clipStore';
+import { useHistoryStore } from '../../../store/historyStore';
+import { createSetClipsCommand } from '../../../lib/commandPattern';
+import type { Track } from './types';
+import type { Clip } from '../../../store/clipStore';
+
+export interface SnapFn {
+  (startFrame: number, durationFrames: number): { snappedFrame: number; didSnap: boolean };
+}
+
+interface TimelineClipProps {
+  clip: Clip;
+  track: Track;
+  isSelected: boolean;
+  onSelect: (clipId: string, additive: boolean) => void;
+  onTrimStart: (clipId: string, deltaFrames: number) => void;
+  onTrimEnd: (clipId: string, deltaFrames: number) => void;
+  onContextMenu?: (e: React.MouseEvent, clip: Clip) => void;
+  /** Snap a candidate (start,duration) to nearby edges; identity when snap off. */
+  snapRange?: SnapFn;
+}
+
+const DRAG_THRESHOLD_PX = 3;
+
+function cloneClips(clips: Clip[]): Clip[] {
+  return JSON.parse(JSON.stringify(clips));
+}
+
+function trackCategory(type: string): 'video' | 'audio' {
+  return type === 'audio' ? 'audio' : 'video';
+}
+
+/** Color scheme by clip type. */
+const CLIP_STYLES: Record<string, string> = {
+  video: 'bg-indigo-900/50 border-l-4 border-l-indigo-400 border-y-indigo-400/20 border-r-indigo-400/20',
+  audio: 'bg-pink-900/50 border-l-4 border-l-pink-400 border-y-pink-400/20 border-r-pink-400/20',
+  image: 'bg-amber-900/50 border-l-4 border-l-amber-400 border-y-amber-400/20 border-r-amber-400/20',
+  grid: 'bg-purple-900/50 border-l-4 border-l-purple-400 border-y-purple-400/20 border-r-purple-400/20',
+};
+
+const CLIP_TEXT_COLOR: Record<string, string> = {
+  video: 'text-indigo-200/80',
+  audio: 'text-pink-200/80',
+  image: 'text-amber-200/80',
+  grid: 'text-purple-200/80',
+};
+
+export const TimelineClip: React.FC<TimelineClipProps> = memo(({
+  clip,
+  track,
+  isSelected,
+  onSelect,
+  onTrimStart,
+  onTrimEnd,
+  onContextMenu,
+  snapRange,
+}) => {
+  const ppf = useTimelineStore((s) => s.pixelsPerFrame);
+  const scrollX = useTimelineStore((s) => s.scrollX);
+
+  const trimRef = useRef<{ edge: 'left' | 'right'; startX: number } | null>(null);
+
+  // ── Body drag (move along time + across tracks) ───────────────────
+  const dragRef = useRef<{
+    startX: number;
+    origStart: number;
+    duration: number;
+    before: Clip[];
+    moved: boolean;
+  } | null>(null);
+
+  const handleBodyPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      // Ignore right-click, locked clips, and trim-handle origins.
+      if (e.button !== 0) return;
+      if (track.locked || clip.locked || clip.disabled) return;
+      if ((e.target as HTMLElement).dataset.trimHandle === 'true') return;
+      e.stopPropagation();
+      dragRef.current = {
+        startX: e.clientX,
+        origStart: clip.startFrame,
+        duration: clip.endFrame - clip.startFrame,
+        before: cloneClips(useClipStore.getState().clips),
+        moved: false,
+      };
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    },
+    [track.locked, clip.locked, clip.disabled, clip.startFrame, clip.endFrame],
+  );
+
+  const handleBodyPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      const dx = e.clientX - d.startX;
+      if (Math.abs(dx) >= DRAG_THRESHOLD_PX) d.moved = true;
+      let newStart = Math.max(0, d.origStart + Math.round(dx / ppf));
+      if (snapRange) {
+        const r = snapRange(newStart, d.duration);
+        if (r.didSnap) newStart = Math.max(0, r.snappedFrame);
+      }
+      useClipStore.getState().updateClip(clip.id, {
+        startFrame: newStart,
+        endFrame: newStart + d.duration,
+      });
+    },
+    [ppf, snapRange, clip.id],
+  );
+
+  const handleBodyPointerUp = useCallback(
+    (e: React.PointerEvent) => {
+      const d = dragRef.current;
+      dragRef.current = null;
+      try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* noop */ }
+      if (!d) return;
+      if (!d.moved) return; // treat as a click — selection handled elsewhere
+
+      // Resolve the track under the cursor (cross-track move). Briefly disable
+      // pointer-events on the dragged clip so it can't shadow the target lane.
+      const self = e.currentTarget as HTMLElement;
+      const prevPE = self.style.pointerEvents;
+      self.style.pointerEvents = 'none';
+      const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+      self.style.pointerEvents = prevPE;
+      const laneEl = el?.closest('[data-track-id]') as HTMLElement | null;
+      if (laneEl) {
+        const targetId = Number(laneEl.getAttribute('data-track-id'));
+        const targetCat = laneEl.getAttribute('data-track-type');
+        if (
+          !Number.isNaN(targetId) &&
+          targetId !== clip.track &&
+          targetCat === trackCategory(clip.type)
+        ) {
+          useClipStore.getState().updateClip(clip.id, { track: targetId });
+        }
+      }
+
+      // Commit as a single undo step: restore pre-drag, then push the final state.
+      const after = cloneClips(useClipStore.getState().clips);
+      useClipStore.setState({ clips: d.before });
+      const cmd = createSetClipsCommand(
+        () => useClipStore.getState(),
+        (updater) => useClipStore.setState(updater(useClipStore.getState())),
+        after,
+        `Move "${clip.filename}"`,
+      );
+      useHistoryStore.getState().execute(cmd);
+    },
+    [clip.id, clip.track, clip.type, clip.filename],
+  );
+
+  const durationFrames = clip.endFrame - clip.startFrame;
+  const left = (clip.startFrame - scrollX) * ppf;
+  const width = durationFrames * ppf;
+
+  // ── Click handler ─────────────────────────────────────────────────
+  const handleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onSelect(clip.id, e.shiftKey || e.ctrlKey || e.metaKey);
+    },
+    [clip.id, onSelect],
+  );
+
+  // ── Context menu ──────────────────────────────────────────────────
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onContextMenu?.(e, clip);
+  }, [onContextMenu, clip]);
+
+  // ── Trim handle helpers ───────────────────────────────────────────
+  const startTrim = useCallback(
+    (edge: 'left' | 'right', e: React.PointerEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      trimRef.current = { edge, startX: e.clientX };
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    },
+    [],
+  );
+
+  const moveTrim = useCallback(
+    (e: React.PointerEvent) => {
+      if (!trimRef.current) return;
+      const dx = e.clientX - trimRef.current.startX;
+      const deltaFrames = Math.round(dx / ppf);
+      if (deltaFrames === 0) return;
+      trimRef.current.startX = e.clientX;
+
+      if (trimRef.current.edge === 'left') {
+        onTrimStart(clip.id, deltaFrames);
+      } else {
+        onTrimEnd(clip.id, deltaFrames);
+      }
+    },
+    [clip.id, ppf, onTrimStart, onTrimEnd],
+  );
+
+  const endTrim = useCallback((e: React.PointerEvent) => {
+    trimRef.current = null;
+    (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+  }, []);
+
+  const isLocked = track.locked || clip.locked;
+  const isDisabled = !!clip.disabled;
+  const showSpeed = clip.speed !== 1;
+
+  const clipStyle = CLIP_STYLES[clip.type] ?? 'bg-gray-800/40 border-l-4 border-l-gray-400';
+  const textColor = CLIP_TEXT_COLOR[clip.type] ?? 'text-gray-200/80';
+
+  return (
+    <div
+      data-clip-id={clip.id}
+      className={clsx(
+        'absolute top-1 bottom-1 rounded border text-xs flex flex-col justify-between overflow-hidden transition-colors',
+        clipStyle,
+        textColor,
+        isSelected && 'ring-2 ring-purple-400/70 shadow-[0_0_8px_rgba(168,85,247,0.3)]',
+        isDisabled && 'opacity-30 grayscale border-dashed',
+        isLocked && 'cursor-not-allowed',
+        !isLocked && !isDisabled && 'hover:brightness-110 cursor-pointer',
+      )}
+      style={{
+        left,
+        width: Math.max(width, 4),
+        touchAction: 'none',
+        backgroundImage: isDisabled
+          ? 'repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(255,255,255,0.03) 4px, rgba(255,255,255,0.03) 8px)'
+          : undefined,
+      }}
+      onClick={handleClick}
+      onContextMenu={handleContextMenu}
+      onPointerDown={handleBodyPointerDown}
+      onPointerMove={handleBodyPointerMove}
+      onPointerUp={handleBodyPointerUp}
+      title={`${clip.filename} (${durationFrames}f)`}
+    >
+      {/* ── Left trim handle ── */}
+      {!isLocked && !isDisabled && (
+        <div
+          data-trim-handle="true"
+          className="absolute left-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 group/trim hover:bg-yellow-400/20"
+          onPointerDown={(e) => startTrim('left', e)}
+          onPointerMove={moveTrim}
+          onPointerUp={endTrim}
+        >
+          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-yellow-400/0 group-hover/trim:bg-yellow-400 rounded-r transition-colors" />
+        </div>
+      )}
+
+      {/* ── Right trim handle ── */}
+      {!isLocked && !isDisabled && (
+        <div
+          data-trim-handle="true"
+          className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize z-10 group/trim hover:bg-yellow-400/20"
+          onPointerDown={(e) => startTrim('right', e)}
+          onPointerMove={moveTrim}
+          onPointerUp={endTrim}
+        >
+          <div className="absolute right-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-yellow-400/0 group-hover/trim:bg-yellow-400 rounded-l transition-colors" />
+        </div>
+      )}
+
+      {/* ── Content ── */}
+      <div className="px-1.5 pt-1 truncate">
+        <span className="font-semibold text-[10px] truncate flex items-center gap-1">
+          {isLocked && <Lock size={8} className="text-red-400/70 flex-shrink-0" />}
+          {clip.filename}
+        </span>
+      </div>
+
+      {/* ── Filmstrip / Waveform placeholder ── */}
+      {clip.type === 'video' && width > 60 && (
+        <div className="flex-1 flex items-center justify-center opacity-20">
+          <div className="flex gap-px">
+            {Array.from({ length: Math.min(Math.floor(width / 30), 8) }).map((_, i) => (
+              <div key={i} className="w-5 h-3 bg-white/10 rounded-[1px]" />
+            ))}
+          </div>
+        </div>
+      )}
+      {clip.type === 'audio' && width > 40 && (
+        <div className="flex-1 flex items-end justify-center gap-px px-1 pb-0.5 opacity-30">
+          {Array.from({ length: Math.min(Math.floor(width / 3), 40) }).map((_, i) => (
+            <div
+              key={i}
+              className="w-0.5 bg-pink-400/60 rounded-t"
+              style={{ height: `${20 + Math.random() * 60}%` }}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* ── Bottom info bar ── */}
+      <div className="flex items-center justify-between px-1.5 pb-0.5">
+        {showSpeed && (
+          <span className="text-[9px] font-mono bg-black/30 px-1 rounded">
+            {clip.speed}×
+          </span>
+        )}
+        <span className="text-[9px] opacity-40 ml-auto font-mono">
+          {durationFrames}f
+        </span>
+      </div>
+    </div>
+  );
+});
+
+TimelineClip.displayName = 'TimelineClip';

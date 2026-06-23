@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback } from 'react';
+import React, { useRef, useEffect, useCallback, useMemo } from 'react';
 import { SlidersHorizontal, Wand2 } from 'lucide-react';
 import { DEFAULT_AUDIO_EFFECTS, AudioEffects } from '../../lib/audioEffects';
 import type { TrailerSettings } from '../../lib/trailerGenerator';
@@ -8,6 +8,23 @@ interface Props { settings: TrailerSettings; update: (patch: Partial<TrailerSett
 /* ── helpers ─────────────────────────────────────────────────────────── */
 
 const DPR = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+
+/** Bucket an arbitrary-length series into exactly `n` averaged bars, normalized
+ *  to 0..1 by the series peak. Returns null for empty input so meters fall back
+ *  to their illustrative pattern. */
+const toBars = (values: number[] | undefined, n: number): number[] | null => {
+    if (!values || values.length === 0) return null;
+    const peak = Math.max(...values, 1e-6);
+    const out: number[] = [];
+    for (let b = 0; b < n; b++) {
+        const start = Math.floor((b / n) * values.length);
+        const end = Math.max(start + 1, Math.floor(((b + 1) / n) * values.length));
+        let sum = 0, cnt = 0;
+        for (let i = start; i < end && i < values.length; i++) { sum += values[i]; cnt++; }
+        out.push(cnt > 0 ? Math.max(0.04, Math.min(1, (sum / cnt) / peak)) : 0.04);
+    }
+    return out;
+};
 
 /** Draw a single rounded bar on canvas. */
 const drawBar = (
@@ -46,10 +63,11 @@ const drawThresholdLine = (
 
 const INPUT_BARS = [0.82, 0.55, 0.18, 0.91, 0.12, 0.68, 0.08, 0.74, 0.15, 0.88, 0.22, 0.60, 0.10, 0.78, 0.40, 0.65, 0.30, 0.85];
 
-const NoiseGateMeter: React.FC<{ active: boolean; threshold?: number }> = ({ active, threshold = 0.35 }) => {
+const NoiseGateMeter: React.FC<{ active: boolean; threshold?: number; samples?: number[] | null }> = ({ active, threshold = 0.35, samples }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const frameRef = useRef(0);
     const timeRef = useRef(0);
+    const real = samples && samples.length > 0;
 
     const draw = useCallback((t: number) => {
         const canvas = canvasRef.current;
@@ -60,7 +78,8 @@ const NoiseGateMeter: React.FC<{ active: boolean; threshold?: number }> = ({ act
         const H = canvas.height;
         ctx.clearRect(0, 0, W, H);
 
-        const barCount = INPUT_BARS.length;
+        const bars = real ? samples! : INPUT_BARS;
+        const barCount = bars.length;
         const gap = 1.5 * DPR;
         const barW = (W - gap * (barCount + 1)) / barCount;
         const center = H / 2;
@@ -74,8 +93,10 @@ const NoiseGateMeter: React.FC<{ active: boolean; threshold?: number }> = ({ act
         ctx.fillText('OUT', 4 * DPR, H - 4 * DPR);
 
         for (let i = 0; i < barCount; i++) {
-            const jitter = active ? Math.sin(t * 0.0015 + i * 0.9) * 0.06 : 0;
-            const h = Math.max(0.05, Math.min(1, INPUT_BARS[i] + jitter));
+            // Real data is static (it's the analyzed song); only the illustrative
+            // fallback animates so the panel still feels alive when idle.
+            const jitter = active && !real ? Math.sin(t * 0.0015 + i * 0.9) * 0.06 : 0;
+            const h = Math.max(0.05, Math.min(1, bars[i] + jitter));
             const barH = h * maxH;
             const x = gap + i * (barW + gap);
 
@@ -111,7 +132,7 @@ const NoiseGateMeter: React.FC<{ active: boolean; threshold?: number }> = ({ act
             ctx.stroke();
             ctx.restore();
         }
-    }, [active, threshold]);
+    }, [active, threshold, real, samples]);
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -132,17 +153,17 @@ const NoiseGateMeter: React.FC<{ active: boolean; threshold?: number }> = ({ act
             draw(t);
             frameRef.current = requestAnimationFrame(loop);
         };
-        if (active) {
+        if (active && !real) {
             frameRef.current = requestAnimationFrame(loop);
         } else {
-            draw(0);
+            draw(timeRef.current);
         }
         return () => {
             running = false;
             cancelAnimationFrame(frameRef.current);
             window.removeEventListener('resize', resize);
         };
-    }, [active, draw]);
+    }, [active, draw, real]);
 
     return <canvas ref={canvasRef} className="mt-1 w-full h-12 rounded bg-black/10 border border-white/5" aria-hidden />;
 };
@@ -151,10 +172,11 @@ const NoiseGateMeter: React.FC<{ active: boolean; threshold?: number }> = ({ act
 
 const LIMITER_BARS = [0.60, 0.72, 0.88, 0.55, 0.95, 0.78, 0.62, 0.92, 0.70, 0.85, 0.58, 0.90, 0.65, 0.82, 0.56, 0.96, 0.68, 0.74, 0.80, 0.60];
 
-const LimiterMeter: React.FC<{ active: boolean; ceiling?: number }> = ({ active, ceiling = 0.78 }) => {
+const LimiterMeter: React.FC<{ active: boolean; ceiling?: number; samples?: number[] | null }> = ({ active, ceiling = 0.78, samples }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const frameRef = useRef(0);
     const timeRef = useRef(0);
+    const real = samples && samples.length > 0;
 
     const draw = useCallback((t: number) => {
         const canvas = canvasRef.current;
@@ -165,7 +187,8 @@ const LimiterMeter: React.FC<{ active: boolean; ceiling?: number }> = ({ active,
         const H = canvas.height;
         ctx.clearRect(0, 0, W, H);
 
-        const barCount = LIMITER_BARS.length;
+        const bars = real ? samples! : LIMITER_BARS;
+        const barCount = bars.length;
         const gap = 1.5 * DPR;
         const barW = (W - gap * (barCount + 1)) / barCount;
         const topPad = 4 * DPR;
@@ -173,8 +196,8 @@ const LimiterMeter: React.FC<{ active: boolean; ceiling?: number }> = ({ active,
         const ceilingY = topPad + maxH - ceiling * maxH;
 
         for (let i = 0; i < barCount; i++) {
-            const jitter = active ? Math.sin(t * 0.0018 + i * 1.1) * 0.05 : 0;
-            const raw = Math.max(0.1, Math.min(1, LIMITER_BARS[i] + jitter));
+            const jitter = active && !real ? Math.sin(t * 0.0018 + i * 1.1) * 0.05 : 0;
+            const raw = Math.max(0.1, Math.min(1, bars[i] + jitter));
             const barH = raw * maxH;
             const barTop = topPad + maxH - barH;
             const x = gap + i * (barW + gap);
@@ -205,7 +228,7 @@ const LimiterMeter: React.FC<{ active: boolean; ceiling?: number }> = ({ active,
         if (active) {
             drawThresholdLine(ctx, ceilingY, W, 'rgba(251,191,36,0.85)', 'Ceiling');
         }
-    }, [active, ceiling]);
+    }, [active, ceiling, real, samples]);
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -226,17 +249,17 @@ const LimiterMeter: React.FC<{ active: boolean; ceiling?: number }> = ({ active,
             draw(t);
             frameRef.current = requestAnimationFrame(loop);
         };
-        if (active) {
+        if (active && !real) {
             frameRef.current = requestAnimationFrame(loop);
         } else {
-            draw(0);
+            draw(timeRef.current);
         }
         return () => {
             running = false;
             cancelAnimationFrame(frameRef.current);
             window.removeEventListener('resize', resize);
         };
-    }, [active, draw]);
+    }, [active, draw, real]);
 
     return <canvas ref={canvasRef} className="mt-1 w-full h-12 rounded bg-black/10 border border-white/5" aria-hidden />;
 };
@@ -245,10 +268,11 @@ const LimiterMeter: React.FC<{ active: boolean; ceiling?: number }> = ({ active,
 
 const LOUD_BEFORE = [0.30, 0.88, 0.22, 0.95, 0.40, 0.15, 0.85, 0.52, 0.10, 0.78, 0.45, 0.82, 0.20, 0.60, 0.35, 0.90, 0.50, 0.75];
 
-const LoudnessNormMeter: React.FC<{ active: boolean; target?: number }> = ({ active, target = -14 }) => {
+const LoudnessNormMeter: React.FC<{ active: boolean; target?: number; samples?: number[] | null }> = ({ active, target = -14, samples }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const frameRef = useRef(0);
     const timeRef = useRef(0);
+    const real = samples && samples.length > 0;
 
     const draw = useCallback((t: number) => {
         const canvas = canvasRef.current;
@@ -259,7 +283,8 @@ const LoudnessNormMeter: React.FC<{ active: boolean; target?: number }> = ({ act
         const H = canvas.height;
         ctx.clearRect(0, 0, W, H);
 
-        const barCount = LOUD_BEFORE.length;
+        const beforeBars = real ? samples! : LOUD_BEFORE;
+        const barCount = beforeBars.length;
         const gap = 1.5 * DPR;
         const barW = (W - gap * (barCount + 1)) / barCount;
         const center = H / 2;
@@ -276,8 +301,8 @@ const LoudnessNormMeter: React.FC<{ active: boolean; target?: number }> = ({ act
         ctx.fillText('AFTER', 4 * DPR, H - 4 * DPR);
 
         for (let i = 0; i < barCount; i++) {
-            const jitter = active ? Math.sin(t * 0.0012 + i * 0.7) * 0.04 : 0;
-            const raw = Math.max(0.08, Math.min(1, LOUD_BEFORE[i] + jitter));
+            const jitter = active && !real ? Math.sin(t * 0.0012 + i * 0.7) * 0.04 : 0;
+            const raw = Math.max(0.08, Math.min(1, beforeBars[i] + jitter));
 
             // ── Before side (UPWARD from center) ──
             const x = gap + i * (barW + gap);
@@ -309,7 +334,7 @@ const LoudnessNormMeter: React.FC<{ active: boolean; target?: number }> = ({ act
             ctx.stroke();
             ctx.restore();
         }
-    }, [active, target]);
+    }, [active, target, real, samples]);
 
     useEffect(() => {
         const canvas = canvasRef.current;
@@ -330,17 +355,17 @@ const LoudnessNormMeter: React.FC<{ active: boolean; target?: number }> = ({ act
             draw(t);
             frameRef.current = requestAnimationFrame(loop);
         };
-        if (active) {
+        if (active && !real) {
             frameRef.current = requestAnimationFrame(loop);
         } else {
-            draw(0);
+            draw(timeRef.current);
         }
         return () => {
             running = false;
             cancelAnimationFrame(frameRef.current);
             window.removeEventListener('resize', resize);
         };
-    }, [active, draw]);
+    }, [active, draw, real]);
 
     return <canvas ref={canvasRef} className="mt-1 w-full h-12 rounded bg-black/10 border border-white/5" aria-hidden />;
 };
@@ -348,6 +373,14 @@ const LoudnessNormMeter: React.FC<{ active: boolean; target?: number }> = ({ act
 export const TrailerAudioDynamics: React.FC<Props> = ({ settings, update }) => {
     const audio: AudioEffects = { ...DEFAULT_AUDIO_EFFECTS, ...((settings.globalAudioEffects as any) || {}) };
     const setAudio = (patch: Partial<AudioEffects>) => update({ globalAudioEffects: { ...audio, ...patch } as any });
+
+    // Drive the meters from the REAL analyzed energy contour when available, so the
+    // bars reflect this actual song rather than an illustrative pattern. Bucketed to
+    // 20 bars and normalized to the track peak.
+    const energyBars = useMemo(() => {
+        const contour = settings.audioAnalysis?.energyContour;
+        return toBars(contour?.map(c => c.energy), 20);
+    }, [settings.audioAnalysis]);
 
     const Toggle: React.FC<{ label: string; on: boolean; onChange: (v: boolean) => void }> = ({ label, on, onChange }) => (
         <label className="flex items-center justify-between cursor-pointer">
@@ -429,7 +462,7 @@ export const TrailerAudioDynamics: React.FC<Props> = ({ settings, update }) => {
                         <p className="text-[8px] text-white/40 leading-snug">Silences audio below thresh.</p>
                     </div>
                     <div className="mt-auto">
-                        <NoiseGateMeter active={audio.gate ?? false} />
+                        <NoiseGateMeter active={audio.gate ?? false} samples={energyBars} />
                     </div>
                 </div>
 
@@ -440,7 +473,7 @@ export const TrailerAudioDynamics: React.FC<Props> = ({ settings, update }) => {
                         <p className="text-[8px] text-white/40 leading-snug">Hard wall ceiling against clips.</p>
                     </div>
                     <div className="mt-auto">
-                        <LimiterMeter active={audio.limiter ?? false} />
+                        <LimiterMeter active={audio.limiter ?? false} samples={energyBars} />
                     </div>
                 </div>
 
@@ -451,7 +484,7 @@ export const TrailerAudioDynamics: React.FC<Props> = ({ settings, update }) => {
                         <p className="text-[8px] text-white/40 leading-snug">Platform target volume (LUFS).</p>
                     </div>
                     <div className="mt-auto space-y-1.5">
-                        <LoudnessNormMeter active={audio.loudnessNorm ?? false} target={audio.loudnessTarget} />
+                        <LoudnessNormMeter active={audio.loudnessNorm ?? false} target={audio.loudnessTarget} samples={energyBars} />
                         {audio.loudnessNorm && (
                             <div className="grid grid-cols-3 gap-0.5">
                                 {[

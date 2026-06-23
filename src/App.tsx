@@ -4,7 +4,7 @@ import { SettingsTab } from './features/Settings/SettingsTab';
 import { MediaManagerTab } from './features/MediaManager/MediaManagerTab';
 import { TimelineTab } from './features/Timeline/TimelineTab';
 import { ExportTab } from './features/Export/ExportTab';
-import { SequenceViewTab } from './features/SequenceView/SequenceViewTab';
+import { SequenceLayout } from './features/SequenceView/SequenceLayout';
 import { GridEditorTab } from './features/GridEditor/GridEditorTab';
 import { EditRouter } from './features/EditEngine/EditRouter';
 import { VideoPlayerTab } from './features/VideoPlayer/VideoPlayerTab';
@@ -16,14 +16,19 @@ import { useUserStore } from './store/userStore';
 import { Minus, Square, X } from 'lucide-react';
 import { useEffect } from 'react';
 import { BridgeListener } from './components/BridgeListener';
+import { PremiereProBridge } from './components/PremiereProBridge';
 import { ToastContainer } from './components/Toast';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { MMLogo } from './components/MMLogo';
 import { AppHealthMonitor } from './components/AppHealthMonitor';
+import { useAutoSmartEngine } from './lib/smartEngine';
 
 function App() {
     const { activeTab } = useViewStore();
     const { theme, sidebarPosition, enableSpaceBackground } = useUserStore();
+
+    // Run system-wide background media analysis
+    useAutoSmartEngine();
 
     useEffect(() => {
         // Apply theme class to document body
@@ -38,7 +43,7 @@ function App() {
                 return <MediaManagerTab />;
 
             case 'sequence':
-                return <SequenceViewTab />;
+                return <SequenceLayout />;
             case 'grideditor':
                 return <GridEditorTab />;
             case 'timeline':
@@ -72,6 +77,7 @@ function App() {
                     <span className="text-xs font-semibold text-white/50 tracking-wide">MMMedia Pro</span>
                 </div>
                 <div className="flex items-center gap-2 no-drag">
+                    <PremiereProBridge />
                     <BridgeListener />
                     <button
                         className="h-6 w-6 flex items-center justify-center hover:bg-white/10 rounded transition-colors"

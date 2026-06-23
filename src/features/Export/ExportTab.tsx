@@ -3,6 +3,7 @@ import { Film, FileCode, MonitorUp, Share } from 'lucide-react';
 import { useClipStore } from '../../store/clipStore';
 import { useProjectStore } from '../../store/projectStore';
 import { useExportSettingsStore } from '../../store/exportSettingsStore';
+import { useMediaStore } from '../../store/mediaStore';
 import { useGodModeStore } from '../../store/godModeStore';
 import { generateManifest } from '../../lib/manifestBridge';
 import clsx from 'clsx';
@@ -17,13 +18,30 @@ import { QueueItem } from './Mp4Tab';
 import { v4 as uuidv4 } from 'uuid';
 
 export const ExportTab: React.FC = () => {
-    const { clips, trackMutes } = useClipStore();
+    const { clips, trackMutes, setClips } = useClipStore();
     const { settings } = useProjectStore();
     const {
         activeTab, setActiveTab,
         selectedPresetId, exportQuality, orientation, selectedFps,
         setLastExportPath, setIsExporting, renderEngine, useGpu,
+        queuedEdits, removeQueuedEdit,
     } = useExportSettingsStore();
+
+    // Serial queue drain: when a render finishes, load the next edit that was
+    // generated while we were busy, so the queue actually advances instead of
+    // accumulating with no consumer. The user then exports it (one at a time).
+    const drainQueue = useCallback(() => {
+        const { queuedEdits: q } = useExportSettingsStore.getState();
+        if (q.length === 0) return;
+        const next = q[0];
+        // Preserve manually-imported audio, like the generator commit does.
+        const existing = useClipStore.getState().clips;
+        const manualAudio = existing.filter(c => c.type === 'audio' && !(c.origin === 'auto' && c.track === 101));
+        setClips([...(next.clips as any[]), ...manualAudio]);
+        removeQueuedEdit(next.id);
+        const remaining = q.length - 1;
+        toast.success(`Loaded "${next.label}" from the render queue${remaining > 0 ? ` (${remaining} more queued)` : ''}. Ready to export.`);
+    }, [setClips, removeQueuedEdit]);
 
     const [isExportingDirect, setIsExportingDirect] = useState(false);
     const [directProgress, setDirectProgress] = useState(0);
@@ -63,6 +81,20 @@ export const ExportTab: React.FC = () => {
         if (vc.length === 0) return 0;
         return Math.max(...vc.map(c => c.endFrame)) / (settings.fps || 30);
     }, [clips, settings.fps]);
+
+    /** Build a unique export filename: project_FolderName_HHmmss */
+    const buildExportName = useCallback(() => {
+        const safeName = settings.name?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'mmmedia';
+        // Include source folder suffix if media was imported via folder
+        const { recentFolders } = useMediaStore.getState();
+        const folderSuffix = recentFolders.length > 0
+            ? `_${recentFolders[0].name.replace(/[^a-z0-9]/gi, '_')}`
+            : '';
+        // Exact timestamp for uniqueness
+        const now = new Date();
+        const ts = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+        return `${safeName}${folderSuffix}_${ts}`;
+    }, [settings.name]);
 
     const getExportClips = () => {
         const { trackVolumes } = useClipStore.getState();
@@ -169,7 +201,7 @@ export const ExportTab: React.FC = () => {
             addLog(`Export started — ${selectedPreset.name} (${exportQuality})`);
             const safeName = settings.name?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'mmmedia_project';
             const { canceled, filePath } = await window.ipcRenderer.showExportDialog({
-                defaultPath: `${safeName}_Final.${selectedPreset.ext}`,
+                defaultPath: `${buildExportName()}.${selectedPreset.ext}`,
                 filters: [{ name: `${selectedPreset.codec === 'libx265' ? 'HEVC' : 'H.264'} Video`, extensions: [selectedPreset.ext] }]
             });
             if (canceled || !filePath) { setIsExportingDirect(false); setIsExporting(false); return; }
@@ -332,7 +364,7 @@ export const ExportTab: React.FC = () => {
                 });
             } else { addLog(`Export FAILED: ${result.error || 'Unknown'}`); toast.error(`Export Failed: ${result.error || 'Unknown error'}`); }
         } catch (e) { console.error(e); addLog('Export error (unexpected)'); toast.error('Unexpected export error.'); }
-        finally { setIsExportingDirect(false); setIsPaused(false); setIsExporting(false); }
+        finally { setIsExportingDirect(false); setIsPaused(false); setIsExporting(false); drainQueue(); }
     };
 
     const handleCancelExport = async () => {
@@ -366,7 +398,7 @@ export const ExportTab: React.FC = () => {
             exportStartTime.current = Date.now();
             const safeName = settings.name?.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'mmmedia_project';
             const { canceled, filePath } = await window.ipcRenderer.showExportDialog({
-                defaultPath: `${safeName}_AME_Export.mp4`,
+                defaultPath: `${buildExportName()}.mp4`,
                 filters: [{ name: 'High Quality MP4', extensions: ['mp4'] }]
             });
             if (canceled || !filePath) { setIsExportingAME(false); return; }
@@ -382,7 +414,7 @@ export const ExportTab: React.FC = () => {
                 else toast.success('Opened in Adobe Media Encoder!');
             } else { toast.error(`Export Failed: ${result.error}`); }
         } catch (e) { console.error(e); toast.error('Unexpected error.'); }
-        finally { setIsExportingAME(false); setIsExporting(false); }
+        finally { setIsExportingAME(false); setIsExporting(false); drainQueue(); }
     };
 
     const handleExportManifest = async () => {

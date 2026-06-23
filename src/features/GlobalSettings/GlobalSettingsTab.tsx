@@ -1,8 +1,10 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { useUserStore, ThemeName, SidebarPosition, TimecodeFormat, TransitionStrategy, ViewMode } from '../../store/userStore';
-import { Palette, TerminalSquare, Check, Sidebar, Image, Play, Settings2 } from 'lucide-react';
+import { Palette, TerminalSquare, Check, Sidebar, Image, Play, Settings2, Pause, RefreshCw, CheckCircle2, Activity, Video, Loader2 } from 'lucide-react';
 import clsx from 'clsx';
+import { useTrailerSmartStore } from '../../store/trailerSmartStore';
+import { runSmartAnalysis } from '../../lib/smartEngine';
 
 export const GlobalSettingsTab: React.FC = () => {
     const { 
@@ -16,6 +18,30 @@ export const GlobalSettingsTab: React.FC = () => {
         defaultTransition, setDefaultTransition,
         mediaManagerView, setMediaManagerView
     } = useUserStore();
+
+    // ── Smart Engine Store State ──
+    const { 
+        isPaused, setPaused, active: smartActive, 
+        analysisResults, scannedFiles, 
+        analyzedCount, totalCount, clearResults 
+    } = useTrailerSmartStore();
+
+    const scannedList = Object.values(scannedFiles || {});
+
+    const handlePauseToggle = () => {
+        setPaused(!isPaused);
+        if (isPaused) {
+            runSmartAnalysis().catch(e => console.error(e));
+        }
+    };
+
+    const handleClearAndReAnalyze = () => {
+        clearResults();
+        setPaused(false);
+        runSmartAnalysis().catch(e => console.error(e));
+    };
+
+    const pct = totalCount > 0 ? Math.round((analyzedCount / totalCount) * 100) : 0;
 
     const themes: { id: ThemeName, name: string, colors: string[] }[] = [
         { id: 'purple', name: 'Deep Space Purple', colors: ['bg-[#080512]', 'bg-[#9D00FF]'] },
@@ -229,6 +255,149 @@ export const GlobalSettingsTab: React.FC = () => {
                         </div>
                     </div>
                 </div>
+
+                {/* 4. Smart Engine Diagnostics & Control */}
+                <div className="border border-white/5 rounded-xl bg-black/20 p-5 space-y-6">
+                    <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                        <div className="flex items-center gap-2">
+                            <Activity size={16} className={clsx(
+                                smartActive && !isPaused ? "text-primary animate-pulse" : 
+                                isPaused ? "text-yellow-500 animate-pulse" : "text-white/40"
+                            )} />
+                            <div>
+                                <span className="text-sm font-bold text-white block">Smart Engine Control Center</span>
+                                <span className="text-[10px] text-white/50">System-wide background analysis & diagnostics for automated edits.</span>
+                            </div>
+                        </div>
+
+                        {/* Control buttons */}
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={handlePauseToggle}
+                                className={clsx(
+                                    "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[10px] font-bold transition-all border",
+                                    isPaused 
+                                        ? "bg-yellow-500/10 border-yellow-500/30 text-yellow-400 hover:bg-yellow-500/20" 
+                                        : "bg-white/5 border-white/10 text-white hover:bg-white/10"
+                                )}
+                            >
+                                {isPaused ? (
+                                    <>
+                                        <Play size={12} fill="currentColor" /> Resume Engine
+                                    </>
+                                ) : (
+                                    <>
+                                        <Pause size={12} fill="currentColor" /> Pause Engine
+                                    </>
+                                )}
+                            </button>
+                            <button
+                                onClick={handleClearAndReAnalyze}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[10px] font-bold bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 transition-all"
+                            >
+                                <RefreshCw size={12} className={clsx(smartActive && !isPaused && "animate-spin")} /> Re-Analyze All
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Progress Bar & Status details */}
+                    <div className="bg-black/35 rounded-xl p-4 border border-white/5 space-y-3">
+                        <div className="flex justify-between items-center text-xs">
+                            <div className="flex items-center gap-2">
+                                <span className="text-white/50 text-[10px] uppercase font-black tracking-wider">Status:</span>
+                                <span className={clsx(
+                                    "font-bold text-[11px] px-2 py-0.5 rounded-full flex items-center gap-1",
+                                    isPaused ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20" :
+                                    smartActive ? "bg-primary/10 text-primary border border-primary/20 animate-pulse" :
+                                    totalCount > 0 && analyzedCount >= totalCount ? "bg-green-500/10 text-green-400 border border-green-500/20" :
+                                    "bg-white/5 text-white/40 border border-white/10"
+                                )}>
+                                    {isPaused ? "Paused" : smartActive ? "Analyzing Media" : totalCount > 0 && analyzedCount >= totalCount ? "All Done" : "Idle"}
+                                </span>
+                            </div>
+                            <div className="text-right text-[11px] font-bold text-white/80">
+                                {analyzedCount} / {totalCount} Files ({pct}%)
+                            </div>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden border border-white/5">
+                            <motion.div 
+                                className="h-full bg-gradient-to-r from-primary to-accent rounded-full"
+                                initial={{ width: 0 }}
+                                animate={{ width: `${pct}%` }}
+                                transition={{ duration: 0.5, ease: "easeOut" }}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Scrollable File Queue */}
+                    <div className="space-y-2">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-white/40 block">Media Scanning Queue ({scannedList.length} files)</span>
+                        {scannedList.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center p-8 rounded-xl border border-dashed border-white/10 bg-black/10 text-center">
+                                <Video size={24} className="text-white/20 mb-2" />
+                                <span className="text-xs text-white/50 font-bold">No files scanned yet</span>
+                                <span className="text-[10px] text-white/30 mt-0.5">Videos imported in the Media tab or sequence editor will appear here.</span>
+                            </div>
+                        ) : (
+                            <div className="max-h-60 overflow-y-auto custom-scrollbar border border-white/5 rounded-xl bg-black/40 divide-y divide-white/5">
+                                {scannedList.map((f) => {
+                                    const result = analysisResults[f.id];
+                                    const isDone = result?.analyzed;
+                                    const completed = result?.completedPasses || [];
+                                    
+                                    return (
+                                        <div key={f.id} className="flex items-center justify-between p-3 hover:bg-white/5 transition-colors gap-4">
+                                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                                                <Video size={14} className={clsx(
+                                                    isDone ? "text-green-400" : 
+                                                    smartActive && !isPaused && !isDone && !completed.includes('scoring') ? "text-primary animate-pulse" : 
+                                                    "text-white/30"
+                                                )} />
+                                                <div className="min-w-0 flex-1">
+                                                    <span className="text-xs font-bold text-white/90 truncate block" title={f.filename}>{f.filename}</span>
+                                                    <span className="text-[9px] text-white/30 truncate block" title={f.path}>{f.path}</span>
+                                                </div>
+                                            </div>
+
+                                            {/* Pass Checkmarks */}
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex gap-1">
+                                                    {(['scoring', 'silence', 'scenes', 'color'] as const).map((pass) => {
+                                                        const done = completed.includes(pass);
+                                                        const label = pass === 'scoring' ? 'Score' : pass === 'silence' ? 'Silence' : pass === 'scenes' ? 'Scenes' : 'Color';
+                                                        return (
+                                                            <div 
+                                                                key={pass}
+                                                                className={clsx(
+                                                                    "text-[8px] font-bold px-1.5 py-0.5 rounded transition-all",
+                                                                    done ? "bg-green-500/20 text-green-400 border border-green-500/30" : 
+                                                                    "bg-white/5 text-white/20 border border-white/5"
+                                                                )}
+                                                                title={`${label} analysis ${done ? 'completed' : 'pending'}`}
+                                                            >
+                                                                {label}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                                <div className="w-5 flex justify-center">
+                                                    {isDone ? (
+                                                        <CheckCircle2 size={14} className="text-green-400" />
+                                                    ) : (
+                                                        <Loader2 size={12} className="text-white/20 animate-spin" />
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
             </div>
         </div>
     );

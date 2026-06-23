@@ -8,6 +8,7 @@ import { useViewStore } from '../../store/viewStore';
 import { useUserStore } from '../../store/userStore';
 import { useGodModeStore } from '../../store/godModeStore';
 import { v4 as uuidv4 } from 'uuid';
+import { getStableMediaId } from '../../lib/mediaProbe';
 import { MediaItem } from './MediaItem';
 import { MediaDetailsPanel } from './MediaDetailsPanel';
 import { toast } from '../../components/Toast';
@@ -165,7 +166,7 @@ export const MediaManagerTab: React.FC = () => {
                         }
                     }
                     return {
-                        id: uuidv4(),
+                        id: getStableMediaId(file.path),
                         path: file.path,
                         filename: file.filename,
                         type: file.type as 'video' | 'audio' | 'image',
@@ -229,7 +230,7 @@ export const MediaManagerTab: React.FC = () => {
                         }
                     }
                     return {
-                        id: uuidv4(),
+                        id: getStableMediaId(file.path),
                         path: file.path,
                         filename: file.filename,
                         type: file.type as 'video' | 'audio' | 'image',
@@ -557,7 +558,7 @@ export const MediaManagerTab: React.FC = () => {
                     </motion.button>
                     <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => setActiveTab('trailer')}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-primary/20 text-white/50 hover:text-primary-300 transition-all border border-white/5 hover:border-primary/30 text-[10px] font-bold uppercase tracking-wider">
-                        <Wand2 size={12} /> Trailer Generator
+                        <Wand2 size={12} /> Edit Engine
                     </motion.button>
                     <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => setActiveTab('timeline')}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-accent/20 text-white/50 hover:text-accent transition-all border border-white/5 hover:border-accent/30 text-[10px] font-bold uppercase tracking-wider">

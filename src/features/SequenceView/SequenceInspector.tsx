@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
     ChevronRight, ChevronDown, Info, Film, Clock, Layers, Bookmark,
     Activity, Volume2, VolumeX, Move, RotateCcw, Gauge, Palette,
-    Sun, Contrast, Droplets, Zap, Eye, Sliders, Hash, Flame, Loader2
+    Sun, Contrast, Droplets, Zap, Eye, Sliders, Hash, Flame, Loader2,
+    Scissors, Trash2, Copy, ToggleLeft, SkipForward, FileVideo
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useClipStore, Clip } from '../../store/clipStore';
@@ -14,6 +15,14 @@ import { useAutoSmartEngine } from '../../lib/smartEngine';
 import { TrailerGradeEnhance } from '../EditEngine/EditGradeEnhance';
 import { ClipControls } from '../Timeline/ClipControls';
 import { formatTimecode } from '../../lib/time';
+import {
+    splitClipAtFrame,
+    deleteSelectedClips,
+    rippleDeleteSelectedClips,
+    duplicateSelectedClips,
+    copySelectedClips,
+    toggleClipEnabled,
+} from './actions';
 
 interface SequenceInspectorProps {
     selectedClipId: string | null;
@@ -57,6 +66,38 @@ const SectionHeader: React.FC<{
             </span>
         )}
     </button>
+);
+
+/** Compact action button for the Quick Actions grid */
+const ActionButton: React.FC<{
+    icon: React.ReactNode;
+    label: string;
+    shortcut?: string;
+    onClick: () => void;
+    variant?: 'default' | 'danger';
+    active?: boolean;
+    disabled?: boolean;
+}> = ({ icon, label, shortcut, onClick, variant = 'default', active, disabled }) => (
+    <motion.button
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.96 }}
+        onClick={onClick}
+        disabled={disabled}
+        title={shortcut ? `${label} (${shortcut})` : label}
+        className={clsx(
+            'flex flex-col items-center gap-0.5 py-1.5 px-1 rounded transition-all text-center',
+            disabled && 'opacity-30 cursor-not-allowed',
+            variant === 'danger'
+                ? 'text-red-400/60 hover:text-red-400 hover:bg-red-400/10'
+                : active
+                    ? 'text-primary/80 hover:text-primary hover:bg-primary/10'
+                    : 'text-white/40 hover:text-white/70 hover:bg-white/5'
+        )}
+    >
+        {icon}
+        <span className="text-[8px] font-medium leading-none">{label}</span>
+        {shortcut && <span className="text-[7px] opacity-40 font-mono">{shortcut}</span>}
+    </motion.button>
 );
 
 /** Slider row used for transform/color/audio controls */
@@ -431,9 +472,105 @@ export const SequenceInspector: React.FC<SequenceInspectorProps> = ({
                                 <InfoRow label="Duration" value={`${clipDuration}f · ${clipDurationTC}`} />
                                 <InfoRow label="In / Out" value={`${clip.startFrame} → ${clip.endFrame}`} mono />
                                 <InfoRow label="Track" value={`${clip.track}`} />
+                                <InfoRow label="Speed" value={`${clipSpeed}×`} mono />
                                 {clip.path && (
                                     <InfoRow label="Source" value={clip.path.split(/[\\/]/).pop() || clip.path} />
                                 )}
+                            </div>
+
+                            {/* ── Source Trim Visualization ── */}
+                            <div className="px-3 py-2 space-y-1.5 border-b border-white/[0.03]">
+                                <div className="flex items-center gap-1 mb-1">
+                                    <FileVideo size={9} className="text-white/25" />
+                                    <span className="text-[8px] uppercase tracking-wider text-white/25 font-semibold">Source Window</span>
+                                </div>
+                                <InfoRow label="Src In" value={`${clip.trimStartFrame}`} mono />
+                                <InfoRow label="Src Out" value={`${clip.trimEndFrame}`} mono />
+                                <InfoRow label="Src Total" value={`${clip.sourceDurationFrames}f`} mono />
+                                {/* Usage bar */}
+                                <div className="h-1.5 rounded-full bg-white/5 overflow-hidden mt-1">
+                                    <div
+                                        className="h-full rounded-full bg-gradient-to-r from-primary/40 to-primary/70 transition-all"
+                                        style={{
+                                            marginLeft: `${clip.sourceDurationFrames > 0 ? (clip.trimStartFrame / clip.sourceDurationFrames) * 100 : 0}%`,
+                                            width: `${clip.sourceDurationFrames > 0 ? ((clip.trimEndFrame - clip.trimStartFrame) / clip.sourceDurationFrames) * 100 : 100}%`,
+                                        }}
+                                    />
+                                </div>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* ── Quick Actions ── */}
+                <SectionHeader
+                    title="Quick Actions"
+                    icon={<Scissors size={11} />}
+                    isOpen={openSections.quickActions ?? true}
+                    onToggle={() => toggleSection('quickActions')}
+                    accentColor="text-red-400/40"
+                />
+                <AnimatePresence>
+                    {(openSections.quickActions ?? true) && (
+                        <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.15 }}
+                            className="overflow-hidden"
+                        >
+                            <div className="px-3 py-2 border-b border-white/[0.03] grid grid-cols-3 gap-1">
+                                <ActionButton
+                                    icon={<Scissors size={10} />}
+                                    label="Split"
+                                    shortcut="Ctrl+K"
+                                    onClick={() => splitClipAtFrame(clip.id, currentFrame)}
+                                />
+                                <ActionButton
+                                    icon={<Trash2 size={10} />}
+                                    label="Delete"
+                                    shortcut="Del"
+                                    onClick={() => {
+                                        useClipStore.getState().selectSingleClip(clip.id);
+                                        deleteSelectedClips();
+                                    }}
+                                    variant="danger"
+                                />
+                                <ActionButton
+                                    icon={<Trash2 size={10} />}
+                                    label="Ripple Del"
+                                    shortcut="Shift+Del"
+                                    onClick={() => {
+                                        useClipStore.getState().selectSingleClip(clip.id);
+                                        rippleDeleteSelectedClips();
+                                    }}
+                                    variant="danger"
+                                />
+                                <ActionButton
+                                    icon={<Copy size={10} />}
+                                    label="Duplicate"
+                                    shortcut="Ctrl+D"
+                                    onClick={() => {
+                                        useClipStore.getState().selectSingleClip(clip.id);
+                                        duplicateSelectedClips();
+                                    }}
+                                />
+                                <ActionButton
+                                    icon={<Copy size={10} />}
+                                    label="Copy"
+                                    shortcut="Ctrl+C"
+                                    onClick={() => {
+                                        useClipStore.getState().selectSingleClip(clip.id);
+                                        copySelectedClips();
+                                    }}
+                                />
+                                <ActionButton
+                                    icon={<ToggleLeft size={10} />}
+                                    label={clip.disabled ? 'Enable' : 'Disable'}
+                                    shortcut="E"
+                                    onClick={() => toggleClipEnabled(clip.id)}
+                                    active={!clip.disabled}
+                                />
                             </div>
                         </motion.div>
                     )}
@@ -832,3 +969,5 @@ const AudioMeterVisual: React.FC = () => {
         </div>
     );
 };
+
+

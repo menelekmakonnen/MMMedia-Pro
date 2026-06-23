@@ -37,6 +37,8 @@ interface ProgramMonitorProps {
     // Background audio
     bgAudioClips: Clip[];
     bgAudioRefs: React.MutableRefObject<Record<string, HTMLAudioElement | null>>;
+    /** True when an exact FFmpeg proxy exists for the active clip (preview == export). */
+    exactProxyAvailable?: boolean;
 }
 
 export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
@@ -63,6 +65,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
     volumeBarTimeoutRef,
     bgAudioClips,
     bgAudioRefs,
+    exactProxyAvailable,
 }) => {
     const isGrid = activeVisualClip?.type === 'grid';
     const isActA = activeBuffer === 'A';
@@ -82,6 +85,14 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                     </span>
                 </div>
                 <div className="flex items-center gap-2">
+                    {exactProxyAvailable && (
+                        <span
+                            className="text-[8px] font-bold uppercase tracking-wider text-emerald-300 bg-emerald-500/15 px-1.5 py-0.5 rounded"
+                            title="An exact FFmpeg render proxy exists for this clip — the preview matches the export."
+                        >
+                            Exact
+                        </span>
+                    )}
                     {activeVisualClip && (
                         <span className="text-[9px] font-mono text-white/25 truncate max-w-[160px]">
                             {activeVisualClip.filename}

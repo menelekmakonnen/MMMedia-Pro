@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, nativeImage, session, shell } from 'electron'
+import type { WebContents } from 'electron'
 import { join } from 'path'
 import fs from 'fs'
 import { exec } from 'child_process'
@@ -27,7 +28,61 @@ const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 
 let bridgeServer: any = null;
 
+// ─── Security hardening ─────────────────────────────────────────────────────
+// Additive, conservative Electron hardening (Electrokit pattern). CSP is applied
+// only in packaged builds so the Vite dev server (HMR over ws + eval) is not
+// affected. Navigation/window guards keep the renderer pinned to local content.
+let _securityApplied = false;
+function applySecurityHardening() {
+    if (_securityApplied) return;
+    _securityApplied = true;
+
+    // Deny all permission requests by default — the editor needs none of them.
+    session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+
+    if (app.isPackaged) {
+        session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+            callback({
+                responseHeaders: {
+                    ...details.responseHeaders,
+                    'Content-Security-Policy': [
+                        "default-src 'self' file: data: blob:",
+                        "script-src 'self' 'wasm-unsafe-eval'",
+                        "style-src 'self' 'unsafe-inline'",
+                        "img-src 'self' data: blob: file: https:",
+                        "media-src 'self' data: blob: file:",
+                        "font-src 'self' data:",
+                        "connect-src 'self' data: blob: file: https:",
+                        "worker-src 'self' blob:",
+                    ].join('; '),
+                },
+            });
+        });
+    }
+}
+
+function hardenWebContents(contents: WebContents) {
+    // Open external links in the system browser; never spawn in-app windows.
+    contents.setWindowOpenHandler(({ url }) => {
+        if (url.startsWith('http://') || url.startsWith('https://')) {
+            shell.openExternal(url);
+        }
+        return { action: 'deny' };
+    });
+    // Block navigation away from the app's own content.
+    contents.on('will-navigate', (event, url) => {
+        const isDev = !!VITE_DEV_SERVER_URL && url.startsWith(VITE_DEV_SERVER_URL);
+        if (!url.startsWith('file://') && !isDev) {
+            event.preventDefault();
+        }
+    });
+}
+
+// Cover any webContents created anywhere in the app.
+app.on('web-contents-created', (_e, contents) => hardenWebContents(contents));
+
 function createWindow() {
+    applySecurityHardening();
     const iconPath = join(process.env.VITE_PUBLIC || '', 'icon.png');
     const appIcon = nativeImage.createFromPath(iconPath);
     console.log('[Main] Icon path:', iconPath, '| exists:', fs.existsSync(iconPath), '| empty:', appIcon.isEmpty());
@@ -841,7 +896,10 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                 // suppress the inline single-pass deshake so stabilization isn't doubled.
                 const wantVidstab = !!(clip.stabilize && clip.stabilize.enabled) && !isImage;
                 if (wantVidstab) (clip as any)._vidstabApplied = true;
-                const vf = buildVideoFilter(clip, es, probeData, { preSeeked: true });
+                // padToSlot: clone the last frame to fill the clip's slot so the video
+                // length matches its audio — prevents the stitch from freezing video
+                // while audio plays on (the `-t` cap below trims any surplus).
+                const vf = buildVideoFilter(clip, es, probeData, { preSeeked: true, padToSlot: true });
                 const af = buildClipAudioFilter(clip, es, probeData, { preSeeked: true });
                 const hasAudio = probe.hasAudio && !isImage;
                 const intFile = path.join(tmpDir, `mmm_seg_${i}_${Date.now()}.mkv`);
@@ -909,6 +967,26 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                         log(`⚠ Clip ${i + 1} stabilize error: ${stabErr?.message || stabErr}`);
                     }
                 }
+                // ── POST-RENDER VALIDATION ──
+                // Probe the intermediate to verify it has actual video content.
+                // Zero-frame or ultra-short segments crash the concat/xfade stitch.
+                const intProbe = probeClipFile(ffmpegBin, finalInt);
+                if (intProbe.duration < 0.05) {
+                    log(`⚠ Clip ${i + 1}/${videoClips.length} "${clip.filename}" segment too short (${intProbe.duration.toFixed(3)}s) — skipping`);
+                    try { fs.unlinkSync(finalInt); } catch {}
+                    continue;
+                }
+                try {
+                    const intStat = fs.statSync(finalInt);
+                    if (intStat.size < 1024) {
+                        log(`⚠ Clip ${i + 1}/${videoClips.length} "${clip.filename}" segment too small (${intStat.size}b) — skipping`);
+                        try { fs.unlinkSync(finalInt); } catch {}
+                        continue;
+                    }
+                } catch {
+                    log(`⚠ Clip ${i + 1}/${videoClips.length} "${clip.filename}" segment stat failed — skipping`);
+                    continue;
+                }
                 intermediates.push(finalInt);
                 renderedClips.push(clip);
                 outDurs.push(timing.outDurSec);
@@ -921,6 +999,14 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
             const N = intermediates.length;
 
             // ── Per-boundary transitions (clip[i].transition → global strategy fallback) ──
+            // A transition may ONLY apply between clips that are comfortably longer than
+            // the fade. Fast beat-synced clips (sub-~0.45s) can't show a fade, and when
+            // EVERY boundary becomes a tiny xfade the run-grouping can't merge anything,
+            // producing a deep xfade chain that collapses/freezes the video once the
+            // offsets outrun the short clips (the "4 seconds then frozen" bug). Short
+            // boundaries hard-cut so they group into robust concat runs instead.
+            const MIN_TRANS_CLIP = 0.45; // seconds — BOTH neighbors must exceed this for a transition
+            const MAX_XFADES = 20;       // absolute cap on chained xfades (drift/freeze guard)
             type Boundary = { name: string | null; dur: number };
             const boundaries: Boundary[] = [];
             for (let i = 0; i < N - 1; i++) {
@@ -931,11 +1017,24 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                     : globalStrategy || 'cut';                          // pass any TransitionType directly
                 let durSec = ct && ct.durationFrames ? ct.durationFrames / projectFps : globalTransDur;
                 if (type === 'cut') { boundaries.push({ name: null, dur: 0 }); continue; }
-                const maxD = 0.4 * Math.min(outDurs[i], outDurs[i + 1]);
-                const D = Math.min(durSec, maxD);
+                const shorter = Math.min(outDurs[i], outDurs[i + 1]);
+                if (shorter < MIN_TRANS_CLIP) { boundaries.push({ name: null, dur: 0 }); continue; }
+                const D = Math.min(durSec, 0.4 * shorter);
                 if (D < 1 / fps) { boundaries.push({ name: null, dur: 0 }); continue; }
                 const name = getTransitionFFmpegName(type as any) || 'fade';
                 boundaries.push({ name, dur: parseFloat(D.toFixed(4)) });
+            }
+            // Hard-cap the xfade chain depth: keep transitions on the longest-neighbor
+            // boundaries and convert the rest to cuts (which group into stable concat runs).
+            const transBoundaries = boundaries
+                .map((b, i) => ({ i, shorter: Math.min(outDurs[i], outDurs[i + 1]) }))
+                .filter(x => boundaries[x.i].name);
+            if (transBoundaries.length > MAX_XFADES) {
+                transBoundaries.sort((a, c) => c.shorter - a.shorter); // longest-neighbor first
+                for (let k = MAX_XFADES; k < transBoundaries.length; k++) {
+                    boundaries[transBoundaries[k].i] = { name: null, dur: 0 };
+                }
+                log(`Capped transitions to ${MAX_XFADES} (from ${transBoundaries.length}) to keep the xfade chain stable.`);
             }
             const anyTransition = boundaries.some(b => b.name);
 
@@ -1634,14 +1733,14 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
                     }
                     if (seekClamped < 0) seekClamped = 0;
                     if (seekClamped + clipDur > sourceDuration) {
-                        clipDur = Math.max(0.04, sourceDuration - seekClamped - 0.01);
+                        clipDur = Math.max(0.2, sourceDuration - seekClamped - 0.01);
                     }
                 }
-                if (clipDur < 0.01 && clip.type !== 'audio') clipDur = 0.04;
+                if (clipDur < 0.2 && clip.type !== 'audio') clipDur = 0.2;
 
                 // Skip sub-frame clips
-                if (clip.type !== 'audio' && (clipDur / speed) < (1 / fps)) {
-                    log(`⚠ Skipping clip ${index} "${clip.filename}" — output duration ${(clipDur/speed).toFixed(4)}s is sub-frame`);
+                if (clip.type !== 'audio' && (clipDur / speed) < (6 / fps)) {
+                    log(`⚠ Skipping clip ${index} "${clip.filename}" — output duration ${(clipDur/speed).toFixed(4)}s is below 6-frame minimum`);
                     return;
                 }
 
@@ -2216,7 +2315,7 @@ ipcMain.handle('import-lut', async () => {
 });
 
 // ── Auto-editor intelligence: scene & silence detection (FFmpeg-backed) ──────
-ipcMain.handle('score-clip', async (_e, { path: raw, maxSec = 60 }: any) => {
+ipcMain.handle('score-clip', async (_e, { path: raw, maxSec = 30 }: any) => {
     try {
         const ffmpegBin = resolveFFmpegBin();
         const p = normalizeClipPath(raw || '');
@@ -2241,7 +2340,7 @@ ipcMain.handle('detect-silence', async (_e, { path: raw, noiseDb = -45, minSilen
     } catch (e: any) { return { success: false, error: e?.message || String(e) }; }
 });
 
-ipcMain.handle('detect-scenes', async (_e, { path: raw, threshold = 0.3, maxSec = 60 }: any) => {
+ipcMain.handle('detect-scenes', async (_e, { path: raw, threshold = 0.3, maxSec = 30 }: any) => {
     try {
         const ffmpegBin = resolveFFmpegBin();
         const p = normalizeClipPath(raw || '');
@@ -2252,7 +2351,7 @@ ipcMain.handle('detect-scenes', async (_e, { path: raw, threshold = 0.3, maxSec 
     } catch (e: any) { return { success: false, error: e?.message || String(e) }; }
 });
 
-ipcMain.handle('analyze-clip-color', async (_e, { path: raw, maxSec = 60 }: any) => {
+ipcMain.handle('analyze-clip-color', async (_e, { path: raw, maxSec = 30 }: any) => {
     try {
         const ffmpegBin = resolveFFmpegBin();
         const p = normalizeClipPath(raw || '');

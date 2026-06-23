@@ -9,6 +9,8 @@ import { useTrailerSmartStore } from '../store/trailerSmartStore';
 import type { ClipAnalysisResult, SmartKey } from '../store/trailerSmartStore';
 import { useMediaStore } from '../store/mediaStore';
 import { useProjectStore } from '../store/projectStore';
+import { useClipStore } from '../store/clipStore';
+import { getStableMediaId } from './mediaProbe';
 
 // ── Energy classification ────────────────────────────────────────────────────
 
@@ -38,7 +40,12 @@ function computeAutoGrade(yavg: number, satavg: number): any {
 
 // ── Background analysis orchestrator ─────────────────────────────────────────
 
-const CONCURRENCY = 2;
+// One clip at a time. Each clip already fans out up to 4 concurrent FFmpeg
+// passes, so a single worker keeps the background load to ~4 processes instead
+// of 8+, which matters when this runs while the user is editing.
+const CONCURRENCY = 1;
+/** Bump when analysis logic changes so cached results are recomputed. */
+const ANALYSIS_VERSION = 2;
 let activeAnalysisPromise: Promise<void> | null = null;
 
 /**
@@ -79,21 +86,36 @@ async function doSmartAnalysis(forceKey?: SmartKey): Promise<void> {
     const { files } = useMediaStore.getState();
     const projFps = useProjectStore.getState().settings?.fps || 30;
 
-    // Only video files with a path
-    const vids = files.filter(f => f.type === 'video' && !!f.path);
-    if (vids.length === 0) return;
+    // Analyse ONLY the clips the user has actually imported into the library.
+    // (Previously this also scanned every "recent folder" on disk, which could
+    // queue hundreds of clips that aren't even in the project — analysing 1000+
+    // files while the library/timeline were empty.)
+    const allVids = files
+        .filter(f => f.type === 'video' && !!f.path)
+        .map(v => ({ id: v.id, path: v.path, filename: v.filename, type: v.type as 'video' }));
 
-    // Determine pending files
-    const pending = forceKey 
-        ? vids 
-        : vids.filter(f => !smart.getResult(f.id));
-    if (pending.length === 0) return;
+    if (allVids.length === 0) return;
 
-    // Queue the files we're about to analyze
-    smart.queueFiles(vids.map(f => f.id));
+    // Register scanned files in the store for settings dashboard display
+    if (smart.registerScannedFiles) {
+        smart.registerScannedFiles(allVids);
+    }
+
+    // Determine pending files (only those that are not fully analyzed yet or if we force a key)
+    const pendingVids = forceKey
+        ? allVids
+        : allVids.filter(v => {
+            const res = smart.getResult(v.id);
+            return !res || !res.analyzed || res.analysisVersion !== ANALYSIS_VERSION;
+        });
+
+    if (pendingVids.length === 0) return;
+
+    // Queue the files we are about to analyze
+    smart.queueFiles(pendingVids.map(f => f.id));
 
     // Set up progress tracking
-    const total = pending.length;
+    const total = pendingVids.length;
     smart.setActive(true);
 
     const keysToRun: SmartKey[] = forceKey ? [forceKey] : ['scoring', 'silence', 'scenes', 'color'];
@@ -103,16 +125,58 @@ async function doSmartAnalysis(forceKey?: SmartKey): Promise<void> {
 
     console.log(`[SmartEngine] Starting analysis of ${total} clips (forceKey: ${forceKey || 'none'})`);
 
-    let idx = 0;
+    const inProgressIds = new Set<string>();
+
+    const getNextFile = () => {
+        const smartState = useTrailerSmartStore.getState();
+        const currentSelectedIds = new Set(useMediaStore.getState().selectedFileIds);
+        const currentTimelinePaths = new Set(useClipStore.getState().clips.map(c => c.path));
+        const currentActivePaths = new Set(useMediaStore.getState().files.filter(f => f.type === 'video').map(f => f.path));
+
+        const getPriority = (vid: { id: string; path: string }) => {
+            if (currentSelectedIds.has(vid.id)) return 4;
+            if (currentTimelinePaths.has(vid.path)) return 3;
+            if (currentActivePaths.has(vid.path)) return 2;
+            return 1;
+        };
+
+        // Filter for files that are not fully analyzed yet (or all if forceKey) and not currently being analyzed
+        const eligible = pendingVids.filter(v => {
+            if (inProgressIds.has(v.id)) return false;
+            if (forceKey) return true;
+            const res = smartState.getResult(v.id);
+            return !res || !res.analyzed || res.analysisVersion !== ANALYSIS_VERSION;
+        });
+
+        if (eligible.length === 0) return null;
+
+        // Sort descending by priority
+        eligible.sort((a, b) => getPriority(b) - getPriority(a));
+
+        const chosen = eligible[0];
+        inProgressIds.add(chosen.id);
+        return chosen;
+    };
+
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
     const worker = async () => {
-        while (idx < pending.length) {
-            const f = pending[idx++];
+        while (true) {
+            // Check pause
+            while (useTrailerSmartStore.getState().isPaused) {
+                await sleep(500);
+            }
+
+            const f = getNextFile();
+            if (!f) break; // no more files
+
             const fps = (f as any).fps || projFps;
 
-            const existing = smart.getResult(f.id) || {
+            const existing = useTrailerSmartStore.getState().getResult(f.id) || {
                 score: 0,
                 energyLevel: 'static' as const,
-                analyzed: false
+                analyzed: false,
+                completedPasses: []
             };
 
             let score = existing.score;
@@ -120,51 +184,65 @@ async function doSmartAnalysis(forceKey?: SmartKey): Promise<void> {
             let usableOutFrames = existing.usableOutFrames;
             let sceneCutsFrames = existing.sceneCutsFrames;
             let autoGrade = existing.autoGrade;
+            const completedPasses = existing.completedPasses ? [...existing.completedPasses] : [];
+            const mark = (key: SmartKey) => { if (!completedPasses.includes(key)) completedPasses.push(key); smart.tick(key); };
 
-            // Scoring
+            // ── Run the 4 independent ffmpeg passes CONCURRENTLY for this clip ──
+            // They don't depend on each other, so awaiting them sequentially just
+            // serialised four process spawns. Parallelising them cuts per-clip wall
+            // time roughly 4x. Each pass is self-contained and failure-isolated.
+            const passes: Array<Promise<void>> = [];
+
             if (!forceKey || forceKey === 'scoring') {
-                try {
-                    const r = await ipc.scoreClip({ path: f.path });
-                    score = r?.success ? (r.score || 0) : 0;
-                } catch { score = 0; }
-                smart.tick('scoring');
+                passes.push((async () => {
+                    try { const r = await ipc.scoreClip({ path: f.path }); score = r?.success ? (r.score || 0) : 0; }
+                    catch { score = 0; }
+                    mark('scoring');
+                })());
             }
-
-            // Silence detection
             if (!forceKey || forceKey === 'silence') {
-                try {
-                    const r = await ipc.detectSilence({ path: f.path });
-                    if (r?.success && r.trim) {
-                        usableInFrames = Math.round(r.trim.trimStart * fps);
-                        usableOutFrames = Math.round(r.trim.trimEnd * fps);
-                    }
-                } catch { /* skip */ }
-                smart.tick('silence');
+                passes.push((async () => {
+                    try {
+                        const r = await ipc.detectSilence({ path: f.path });
+                        if (r?.success && r.trim) {
+                            usableInFrames = Math.round(r.trim.trimStart * fps);
+                            usableOutFrames = Math.round(r.trim.trimEnd * fps);
+                        }
+                    } catch { /* skip */ }
+                    mark('silence');
+                })());
             }
-
-            // Scene detection
             if (!forceKey || forceKey === 'scenes') {
-                try {
-                    const r = await ipc.detectScenes({ path: f.path });
-                    if (r?.success && Array.isArray(r.cuts)) {
-                        sceneCutsFrames = r.cuts.map((t: number) => Math.round(t * fps));
-                    }
-                } catch { /* skip */ }
-                smart.tick('scenes');
+                passes.push((async () => {
+                    try {
+                        const r = await ipc.detectScenes({ path: f.path });
+                        if (r?.success && Array.isArray(r.cuts)) sceneCutsFrames = r.cuts.map((t: number) => Math.round(t * fps));
+                    } catch { /* skip */ }
+                    mark('scenes');
+                })());
             }
-
-            // Color analysis
             if (!forceKey || forceKey === 'color') {
-                try {
-                    const r = await ipc.analyzeClipColor({ path: f.path });
-                    if (r?.success) {
-                        autoGrade = computeAutoGrade(r.yavg ?? 120, r.satavg ?? 80);
-                    }
-                } catch { /* skip */ }
-                smart.tick('color');
+                passes.push((async () => {
+                    try {
+                        const r = await ipc.analyzeClipColor({ path: f.path });
+                        if (r?.success) autoGrade = computeAutoGrade(r.yavg ?? 120, r.satavg ?? 80);
+                    } catch { /* skip */ }
+                    mark('color');
+                })());
             }
 
-            const result: ClipAnalysisResult = {
+            await Promise.all(passes);
+
+            // Store the fully-analyzed clip once (its results only surface when complete).
+            // Capture source size/mtime so a re-imported/edited file invalidates.
+            let sourceSize: number | undefined;
+            let sourceMtimeMs: number | undefined;
+            try {
+                const stat = await ipc.statFile?.({ path: f.path });
+                if (stat?.success) { sourceSize = stat.size; sourceMtimeMs = stat.mtimeMs; }
+            } catch { /* stat optional */ }
+
+            const finalResult: ClipAnalysisResult = {
                 score,
                 energyLevel: classifyEnergy(score),
                 usableInFrames,
@@ -172,13 +250,16 @@ async function doSmartAnalysis(forceKey?: SmartKey): Promise<void> {
                 sceneCutsFrames,
                 autoGrade,
                 analyzed: true,
+                completedPasses,
+                analysisVersion: ANALYSIS_VERSION,
+                sourceSize,
+                sourceMtimeMs,
             };
-
-            useTrailerSmartStore.getState().storeResult(f.id, result);
+            useTrailerSmartStore.getState().storeResult(f.id, finalResult);
         }
     };
 
-    const workers = Math.min(CONCURRENCY, Math.max(1, pending.length));
+    const workers = Math.min(CONCURRENCY, Math.max(1, pendingVids.length));
     await Promise.all(Array.from({ length: workers }, () => worker()));
 
     for (const key of keysToRun) {
@@ -186,7 +267,7 @@ async function doSmartAnalysis(forceKey?: SmartKey): Promise<void> {
     }
     smart.setActive(false);
 
-    console.log(`[SmartEngine] Analysis complete — ${pending.length} clips processed`);
+    console.log(`[SmartEngine] Analysis complete — ${pendingVids.length} clips processed`);
 }
 
 // ── React hook: auto-trigger ─────────────────────────────────────────────────

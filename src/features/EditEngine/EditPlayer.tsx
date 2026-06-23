@@ -7,6 +7,7 @@ import { useSavedEditsStore } from '../../store/savedEditsStore';
 import { useGodModeStore } from '../../store/godModeStore';
 import { generateTrailerSequence, TrailerSettings, TrailerClip, extractBeatTimestamps } from '../../lib/trailerGenerator';
 import { generateSeed } from '../../lib/random';
+import { SEQUENCE_PRESETS } from './sequencePresets';
 
 import { DEFAULT_FPS } from '../../lib/time';
 import { Wand2, RefreshCw, Settings2, Film, Play, Pause, ArrowLeft, Volume2, VolumeX, Shuffle, Dice3, Sparkles } from 'lucide-react';
@@ -70,6 +71,56 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
     useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
     useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
 
+    const processClips = (rawClips: Clip[], settingsObj: TrailerSettings): Clip[] => {
+        let clips = rawClips.map(c => ({ ...c }));
+        
+        // 1. Apply Preset
+        if (settingsObj.sequencePresetId) {
+            const preset = SEQUENCE_PRESETS.find(p => p.id === settingsObj.sequencePresetId);
+            if (preset) {
+                const result = preset.apply(clips, DEFAULT_FPS);
+                clips = result.clips;
+            }
+        }
+
+        // 2. Loop/Fill and Clamp to Target Duration
+        const targetFrames = Math.floor((settingsObj.targetDuration || 30) * DEFAULT_FPS);
+        let currentEnd = clips.length > 0 ? Math.max(...clips.map(c => c.endFrame)) : 0;
+
+        if (currentEnd > 0 && currentEnd < targetFrames) {
+            const originalPattern = clips.map(c => ({ ...c }));
+            let loopCount = 0;
+            while (currentEnd < targetFrames && loopCount < 100) {
+                loopCount++;
+                const clonedPattern = originalPattern.map(c => ({
+                    ...c,
+                    id: (typeof crypto !== 'undefined' && crypto.randomUUID)
+                        ? crypto.randomUUID()
+                        : `c-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+                    startFrame: c.startFrame + currentEnd,
+                    endFrame: c.endFrame + currentEnd,
+                }));
+                clips.push(...clonedPattern);
+                currentEnd = Math.max(...clips.map(c => c.endFrame));
+            }
+        }
+
+        // Always clamp the sequence to targetFrames if we have clips
+        if (clips.length > 0 && targetFrames > 0) {
+            clips = clips.filter(c => c.startFrame < targetFrames);
+            clips.forEach(c => {
+                if (c.endFrame > targetFrames) {
+                    c.endFrame = targetFrames;
+                    // Adjust trimEndFrame to avoid playing past source media bounds
+                    const dur = c.endFrame - c.startFrame;
+                    const ratio = c.speed || 1.0;
+                    c.trimEndFrame = c.trimStartFrame + Math.max(1, Math.round(dur * ratio));
+                }
+            });
+        }
+
+        return clips;
+    };
 
     const buildSequence = async () => {
         setIsGenerating(true); setIsPlaying(false);
@@ -103,8 +154,9 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
         setTimeout(() => {
             // Generate a fresh seed so Flux/regeneration produces different clips
             const seq = generateTrailerSequence(pool, { ...settings, seed: generateSeed(), beatTimestamps: beats });
+            const processed = processClips(seq, settings);
             let accumulated = 0;
-            const embellished = seq.map(c => {
+            const embellished = processed.map(c => {
                 const dur = (c.endFrame - c.startFrame) / DEFAULT_FPS;
                 const ret = { ...c, globalStart: accumulated, globalEnd: accumulated + dur, localDuration: dur };
                 accumulated += dur;
@@ -134,10 +186,20 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
         }
         // Recalculate timeline positions
         let accumulated = 0;
+        let accumulatedFrames = 0;
         const reordered = shuffled.map(c => {
-            const dur = (c.endFrame - c.startFrame) / DEFAULT_FPS;
-            const ret = { ...c, globalStart: accumulated, globalEnd: accumulated + dur, localDuration: dur };
+            const durFrames = c.endFrame - c.startFrame;
+            const dur = durFrames / DEFAULT_FPS;
+            const ret = { 
+                ...c, 
+                startFrame: accumulatedFrames,
+                endFrame: accumulatedFrames + durFrames,
+                globalStart: accumulated, 
+                globalEnd: accumulated + dur, 
+                localDuration: dur 
+            };
             accumulated += dur;
+            accumulatedFrames += durFrames;
             return ret;
         });
         (reordered as any).totalDuration = accumulated;
@@ -165,19 +227,30 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
 
         setTimeout(() => {
             const seq = generateTrailerSequence(pool, { ...settings, seed: generateSeed(), beatTimestamps: beats });
+            const processed = processClips(seq, settings);
             // Separate video and audio
-            const videoClips = seq.filter(c => c.type !== 'audio');
-            const audioClips = seq.filter(c => c.type === 'audio');
+            const videoClips = processed.filter(c => c.type !== 'audio');
+            const audioClips = processed.filter(c => c.type === 'audio');
             // Shuffle video clips
             for (let i = videoClips.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [videoClips[i], videoClips[j]] = [videoClips[j], videoClips[i]];
             }
             let accumulated = 0;
+            let accumulatedFrames = 0;
             const embellished = videoClips.map(c => {
-                const dur = (c.endFrame - c.startFrame) / DEFAULT_FPS;
-                const ret = { ...c, globalStart: accumulated, globalEnd: accumulated + dur, localDuration: dur };
+                const durFrames = c.endFrame - c.startFrame;
+                const dur = durFrames / DEFAULT_FPS;
+                const ret = { 
+                    ...c, 
+                    startFrame: accumulatedFrames,
+                    endFrame: accumulatedFrames + durFrames,
+                    globalStart: accumulated, 
+                    globalEnd: accumulated + dur, 
+                    localDuration: dur 
+                };
                 accumulated += dur;
+                accumulatedFrames += durFrames;
                 return ret;
             });
             (embellished as any).totalDuration = accumulated;
@@ -442,7 +515,7 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
         const cleanSeq: Clip[] = draftSequence.map(c => ({
             ...c,                    // Preserve ALL properties (effectIds, visualTexture, zoom*, rotation, etc.)
             id: uuidv4(),            // Fresh ID for timeline instance
-            track: 1,                // All video clips go to track 1
+            track: c.track || 1,     // Preserve track assignment from preset
             origin: 'auto' as const, // Mark as auto-generated
         }));
 
@@ -526,12 +599,22 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
 
         // Save a snapshot to the Saved Edits store
         const gm = useGodModeStore.getState();
+        const mediaState = useMediaStore.getState();
         const videoClips = allClips.filter(c => c.type !== 'audio');
         const dur = videoClips.length > 0
             ? Math.round(videoClips[videoClips.length - 1].endFrame / DEFAULT_FPS)
             : settings.targetDuration;
         // Extract thumbnail from first video clip
         const firstVideoClip = videoClips.find(c => c.type === 'video' && c.path);
+
+        // Build a clean settings snapshot (exclude transient/large data)
+        const settingsSnapshot: Record<string, any> = { ...settings };
+        delete settingsSnapshot.audioAnalysis;
+        delete settingsSnapshot.narrationAnalysis;
+
+        // Collect source folder paths for project restore
+        const sourceFolders = mediaState.recentFolders.map(f => f.path);
+
         useSavedEditsStore.getState().addEdit({
             name: `Trailer — ${new Date().toLocaleTimeString()}`,
             clips: allClips,
@@ -539,6 +622,10 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
             thumbnailPath: firstVideoClip?.path || undefined,
             duration: dur,
             godModePresetId: gm.selectedPresetId || undefined,
+            sourceFolders: sourceFolders.length > 0 ? sourceFolders : undefined,
+            audioFilePath: settings.audioFilePath || undefined,
+            audioFileName: settings.audioFile || undefined,
+            settingsSnapshot,
         });
 
         setActiveTab('sequence');

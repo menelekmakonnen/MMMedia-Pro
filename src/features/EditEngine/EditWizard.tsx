@@ -22,6 +22,10 @@ import { analyzeNarration } from '../../lib/narrationAnalysis';
 import type { MergeStrategy } from '../../lib/intelligenceMerger';
 
 import clsx from 'clsx';
+import { SEQUENCE_PRESETS, PRESET_CATEGORIES, getPresetsByCategory } from './sequencePresets';
+import type { PresetCategory } from './sequencePresets';
+import { PreviewBubble } from '../../components/PreviewBubble';
+import { DurationPresetPreview, SpeedCurvePreview, BoomerangPreview, ZoomValuePreview, ZoomSpeedPreview, BeatDropPreview, ShakePolicyPreview, ShakeTypePreview, DoubleExposurePreview, MotionBlurPreview, GlowPreview, VibrationFlashPreview, SlowmoPreview, RgbSplitPreview, HueCyclePreview, VhsPreview, DoubleExposurePolicyPreview, MotionBlurPolicyPreview, GlowPolicyPreview, VibrationFlashPolicyPreview, SlowmoPolicyPreview, RgbSplitPolicyPreview, HueCyclePolicyPreview, VhsPolicyPreview, DoubleExposureShapePreview } from '../../components/EffectPreviews';
 import { useAutoSmartEngine } from '../../lib/smartEngine';
 
 interface SliderProps {
@@ -77,23 +81,37 @@ const QUICK_EFFECT_PATCH: Record<string, Partial<TrailerSettings>> = {
     vhs: { vhsPolicy: 'sparingly' },
 };
 
+const POLICY_DESCS: Record<string, string> = {
+    'off': 'Effect disabled',
+    'sparingly': 'Applied only on high-impact moments',
+    'per-beat': 'Triggered on every detected beat',
+    'every-clip': 'Applied to every single clip',
+};
+
 const EffectPolicyControl: React.FC<{
     label: string;
     policy: EffectApplyPolicy;
     onPolicy: (p: EffectApplyPolicy) => void;
+    /** Render a policy-specific preview for this effect. If omitted, shows label only. */
+    renderPreview?: (policy: EffectApplyPolicy) => React.ReactNode;
     children?: React.ReactNode;
-}> = ({ label, policy, onPolicy, children }) => (
+}> = ({ label, policy, onPolicy, renderPreview, children }) => (
     <div className="space-y-1.5">
-        <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">{label}</span>
+        {label && <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">{label}</span>}
         <div className="flex flex-wrap gap-1.5">
             {EFFECT_POLICIES.map(opt => (
-                <button key={opt.id} onClick={() => onPolicy(opt.id)}
-                    className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
-                        (policy ?? 'off') === opt.id
-                            ? "bg-indigo-600/20 border-indigo-500/40 text-indigo-200 shadow-[0_0_8px_rgba(99,102,241,0.15)]"
-                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
-                    {opt.label}
-                </button>
+                <PreviewBubble key={opt.id}
+                    preview={renderPreview ? renderPreview(opt.id) : null}
+                    description={POLICY_DESCS[opt.id]}
+                    width={renderPreview ? 200 : 160}>
+                    <button onClick={() => onPolicy(opt.id)}
+                        className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
+                            (policy ?? 'off') === opt.id
+                                ? "bg-indigo-600/20 border-indigo-500/40 text-indigo-200 shadow-[0_0_8px_rgba(99,102,241,0.15)]"
+                                : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                        {opt.label}
+                    </button>
+                </PreviewBubble>
             ))}
         </div>
         {(policy ?? 'off') !== 'off' && children && <div className="space-y-3 pl-1">{children}</div>}
@@ -221,8 +239,8 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
 
     // Collapsible section states
     const [effectsOpen, setEffectsOpen] = useState(true);
-    const [transitionsOpen, setTransitionsOpen] = useState(false);
-    const [colorOpen, setColorOpen] = useState(false);
+    const [transitionsOpen, setTransitionsOpen] = useState(true);
+    const [colorOpen, setColorOpen] = useState(true);
 
     // Restore persisted audio URL on mount
     const audioRestoredRef = useRef(false);
@@ -267,6 +285,14 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
             audioTrimEnd: 30,
         });
         addToAudioHistory(preloadedAudioName || 'Audio', preloadedAudioPath);
+
+        // Auto-load cached analysis so graph appears without clicking Analyze
+        const sensitivity = settings.beatSensitivity ?? 0.5;
+        const cached = audioCache.getCached(preloadedAudioPath, sensitivity);
+        if (cached) {
+            setAudioAnalysis(cached);
+            update({ audioAnalysis: cached });
+        }
 
         setPreloadedAudio(null, null);
     }, [preloadedAudioPath]);
@@ -313,6 +339,14 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
         setAudioUrl(url);
         update({ audioFile: picked.filename, audioUrl: url, audioFilePath: filePath, useAudioGuide: true });
         addToAudioHistory(picked.filename, filePath);
+
+        // Auto-load cached analysis so graph appears without clicking Analyze
+        const sensitivity = settings.beatSensitivity ?? 0.5;
+        const cached = audioCache.getCached(filePath, sensitivity);
+        if (cached) {
+            setAudioAnalysis(cached);
+            update({ audioAnalysis: cached });
+        }
     };
 
     const handleAudioLoaded = () => {
@@ -677,36 +711,68 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
         const dur = audioAnalysis.duration;
         const priority: Record<string, number> = { drop: 10, chorus: 9, buildup: 7, bridge: 5, verse: 4, intro: 3, breakdown: 3, outro: 1 };
 
-        // Cast a WIDE net of candidate START points (not just the single highest-
-        // priority segment, centered). Each candidate starts ON a musical moment so
-        // the trailer opens on a hook rather than mid-phrase.
+        // Cast a WIDE net of candidate START points across all musical sections.
+        // More candidate types = more variety on repeated clicks.
         const candidates: { start: number; score: number; label: string }[] = [];
         segs.forEach((sg, i) => {
             const prev = segs[i - 1];
-            const rise = prev ? Math.max(0, sg.avgEnergy - prev.avgEnergy) : 0;       // energy lift into this section
-            const base = (priority[sg.type] || 1) * (0.5 + sg.avgEnergy) + (sg.peakEnergy || 0) * 2 + rise * 3;
-            // A) Land right on the section onset (drop/chorus hit).
+            const next = segs[i + 1];
+            const rise = prev ? Math.max(0, sg.avgEnergy - prev.avgEnergy) : 0;
+            // Energy variance bonus: transitions from low→high energy are more exciting
+            const contrastBonus = prev ? Math.abs(sg.avgEnergy - prev.avgEnergy) * 2 : 0;
+            const base = (priority[sg.type] || 1) * (0.5 + sg.avgEnergy) + (sg.peakEnergy || 0) * 2 + rise * 3 + contrastBonus;
+
+            // A) Land right on the section onset
             candidates.push({ start: sg.start, score: base, label: `${sg.type}@start` });
-            // B) Lead-in: start ~1.5s early so a drop/chorus lands a beat or two in.
-            if ((sg.type === 'drop' || sg.type === 'chorus') && sg.start > 1.5) {
+
+            // B) Lead-in: start ~1.5s early so a hit lands a beat or two in
+            if (['drop', 'chorus', 'buildup'].includes(sg.type) && sg.start > 1.5) {
                 candidates.push({ start: sg.start - 1.5, score: base * 0.96, label: `${sg.type}@lead-in` });
             }
-            // C) Long sections get an extra interior option (widens the net).
-            if (sg.end - sg.start > targetDur * 1.5) {
-                candidates.push({ start: (sg.start + sg.end) / 2 - targetDur / 4, score: base * 0.8, label: `${sg.type}@mid` });
+
+            // C) Long sections get interior + late options
+            const segLen = sg.end - sg.start;
+            if (segLen > targetDur * 1.2) {
+                // Mid-point entry
+                candidates.push({ start: (sg.start + sg.end) / 2 - targetDur / 4, score: base * 0.82, label: `${sg.type}@mid` });
+            }
+            if (segLen > targetDur * 0.8) {
+                // Late entry — catch the tail end which may transition into the next section
+                const lateStart = Math.max(sg.start, sg.end - targetDur * 0.8);
+                candidates.push({ start: lateStart, score: base * 0.7, label: `${sg.type}@late` });
+            }
+
+            // D) Cross-boundary: start in this section, end in the next (captures transitions)
+            if (next && (sg.type !== 'outro')) {
+                const boundary = sg.end;
+                const crossStart = Math.max(0, boundary - targetDur * 0.4);
+                const crossScore = (base + (priority[next.type] || 1) * (0.5 + (next.avgEnergy || 0))) / 2;
+                candidates.push({ start: crossStart, score: crossScore * 0.75, label: `${sg.type}→${next.type}` });
+            }
+
+            // E) Verse/bridge entries with slight jitter for variety
+            if (['verse', 'bridge', 'breakdown'].includes(sg.type) && segLen > 4) {
+                const jittered = sg.start + Math.min(segLen * 0.3, 3);
+                candidates.push({ start: jittered, score: base * 0.65, label: `${sg.type}@offset` });
             }
         });
 
         const maxStart = Math.max(0, dur - targetDur);
+        // Distance bonus: candidates further from the last selection get boosted
+        const lastStart = audioTrimStart;
         const usable = candidates
-            .map(c => ({ ...c, start: Math.max(0, Math.min(c.start, maxStart)) }))
-            .filter((c, i, arr) => arr.findIndex(o => Math.abs(o.start - c.start) < 0.5) === i) // dedupe near-identical
+            .map(c => {
+                const clamped = Math.max(0, Math.min(c.start, maxStart));
+                const dist = Math.abs(clamped - lastStart);
+                const novelty = Math.min(dist / dur, 0.5) * 4; // up to +2 bonus for distant candidates
+                return { ...c, start: clamped, score: c.score + novelty };
+            })
+            .filter((c, i, arr) => arr.findIndex(o => Math.abs(o.start - c.start) < 0.5) === i)
             .sort((a, b) => b.score - a.score);
         if (usable.length === 0) return;
 
-        // Rotate through the top candidates so each re-roll explores a genuinely
-        // different (still strong) start — variety instead of the same pick.
-        const top = usable.slice(0, Math.min(usable.length, 6));
+        // Rotate through top 12 candidates (was 6) for much wider variety
+        const top = usable.slice(0, Math.min(usable.length, 12));
         const cycleKey = targetDur;
         const idx = ((bestSegmentCycleRef.current[cycleKey] ?? -1) + 1) % top.length;
         bestSegmentCycleRef.current[cycleKey] = idx;
@@ -831,17 +897,18 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Generator Mode</span>
                     <div className="flex flex-wrap gap-2 mt-2">
                         {([
-                            ['trailer', 'Trailer'],
-                            ['music-video', 'Music Video'],
-                            ['showreel', 'Showreel'],
-                            ['video-essay', 'Video Essay'],
-                            ['short-film', 'Short Film'],
-                        ] as const).map(([m, label]) => (
+                            { m: 'trailer' as const, label: 'Trailer', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="2" y="4" width="20" height="16" rx="2" stroke="currentColor" strokeWidth="1.5"/><line x1="7" y1="4" x2="7" y2="20" stroke="currentColor" strokeWidth="1" opacity="0.5"/><line x1="12" y1="4" x2="12" y2="20" stroke="currentColor" strokeWidth="1.5"/><line x1="17" y1="4" x2="17" y2="20" stroke="currentColor" strokeWidth="1" opacity="0.5"/><polygon points="10,9 10,15 14,12" fill="currentColor" opacity="0.7"/></svg> },
+                            { m: 'music-video' as const, label: 'Music Video', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M3 12h2l2-4 2 8 2-6 2 4 2-2h2l2-3 2 6h1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><circle cx="18" cy="16" r="2" stroke="currentColor" strokeWidth="1.5"/><line x1="20" y1="8" x2="20" y2="16" stroke="currentColor" strokeWidth="1.5"/></svg> },
+                            { m: 'showreel' as const, label: 'Showreel', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5"/><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.5"/><line x1="12" y1="3" x2="12" y2="9" stroke="currentColor" strokeWidth="1" opacity="0.4"/><line x1="12" y1="15" x2="12" y2="21" stroke="currentColor" strokeWidth="1" opacity="0.4"/><line x1="3" y1="12" x2="9" y2="12" stroke="currentColor" strokeWidth="1" opacity="0.4"/><line x1="15" y1="12" x2="21" y2="12" stroke="currentColor" strokeWidth="1" opacity="0.4"/></svg> },
+                            { m: 'video-essay' as const, label: 'Video Essay', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 19V5a2 2 0 012-2h8l6 6v10a2 2 0 01-2 2H6a2 2 0 01-2-2z" stroke="currentColor" strokeWidth="1.5"/><path d="M14 3v6h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="8" y1="13" x2="16" y2="13" stroke="currentColor" strokeWidth="1" opacity="0.5"/><line x1="8" y1="16" x2="13" y2="16" stroke="currentColor" strokeWidth="1" opacity="0.5"/></svg> },
+                            { m: 'short-film' as const, label: 'Short Film', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="3" y="8" width="18" height="13" rx="1" stroke="currentColor" strokeWidth="1.5"/><path d="M3 8l3-5h12l3 5" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><line x1="7" y1="3" x2="9" y2="8" stroke="currentColor" strokeWidth="1" opacity="0.5"/><line x1="12" y1="3" x2="13" y2="8" stroke="currentColor" strokeWidth="1" opacity="0.5"/><line x1="17" y1="3" x2="17" y2="8" stroke="currentColor" strokeWidth="1" opacity="0.5"/></svg> },
+                        ]).map(({ m, label, icon }) => (
                             <button key={m} onClick={() => update({ generatorMode: m })}
-                                className={clsx("px-4 py-3 rounded-xl text-xs font-black uppercase tracking-wider border transition-all",
+                                className={clsx("px-4 py-3 rounded-xl text-xs font-black uppercase tracking-wider border transition-all flex items-center gap-2",
                                     (settings.generatorMode ?? 'trailer') === m
                                         ? "bg-gradient-to-br from-purple-600/40 to-blue-600/40 border-primary/50 text-white shadow-[0_0_18px_rgba(168,85,247,0.35)]"
                                         : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10")}>
+                                <span className="shrink-0 opacity-80">{icon}</span>
                                 {label}
                             </button>
                         ))}
@@ -863,6 +930,55 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             </button>
                         </div>
                     )}
+                </div>
+
+                {/* ── NLE Sequence Presets ── */}
+                <div className="bg-black/40 rounded-xl border border-white/5 p-4 relative overflow-hidden">
+                    <div className="absolute -bottom-8 -left-8 w-32 h-32 bg-cyan-500/10 blur-[50px] pointer-events-none rounded-full" />
+                    <div className="flex items-center justify-between mb-3">
+                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Sequence Presets</span>
+                        <span className="text-[9px] font-bold text-cyan-400/60 uppercase">NLE Patterns</span>
+                    </div>
+                    <div className="space-y-3">
+                        {PRESET_CATEGORIES.map(cat => {
+                            const presets = getPresetsByCategory(cat.id);
+                            return (
+                                <div key={cat.id}>
+                                    <span className="text-[9px] font-bold uppercase tracking-wider text-white/30 mb-1 block">{cat.label}</span>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {presets.map(preset => (
+                                            <PreviewBubble key={preset.id}
+                                                preview={
+                                                    <div style={{ padding: 8, fontSize: 11, color: 'rgba(255,255,255,0.7)', lineHeight: 1.4 }}>
+                                                        {preset.description}
+                                                    </div>
+                                                }
+                                                description={preset.category}
+                                                width={220}>
+                                                <button
+                                                    onClick={() => {
+                                                        const isSelected = settings.sequencePresetId === preset.id;
+                                                        const nextId = isSelected ? undefined : preset.id;
+                                                        update({
+                                                            sequencePresetId: nextId,
+                                                            ...(preset.apply([], 30).videoTrackCount > 1 ? { includeGrids: 'off' as const } : {}),
+                                                        } as any);
+                                                    }}
+                                                    className={clsx(
+                                                        "px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-all flex items-center gap-1.5",
+                                                        settings.sequencePresetId === preset.id
+                                                            ? "bg-cyan-500/20 border-cyan-500/40 text-cyan-300 shadow-[0_0_8px_rgba(6,182,212,0.2)] font-black"
+                                                            : "bg-white/5 border-white/5 text-white/50 hover:bg-cyan-500/10 hover:border-cyan-500/20 hover:text-cyan-300"
+                                                    )}>
+                                                    <span className="text-[10px]">{preset.name}</span>
+                                                </button>
+                                            </PreviewBubble>
+                                        ))}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
 
                 <div className="bg-black/40 rounded-xl border border-white/5 p-4 relative overflow-hidden space-y-4">
@@ -902,8 +1018,73 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             </div>
                         </div>
                     )}
+
+                    {/* Edit Structure — compact icon-based clip ordering */}
+                    {videoCount > 0 && (
+                        <div className="space-y-1.5 pt-3 border-t border-white/5">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Edit Structure</span>
+                            <div className="flex gap-1.5">
+                                {([
+                                    { id: 'none', label: 'Default', desc: 'Engine decides the best clip order',
+                                      icon: <svg width="16" height="16" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 2"/><circle cx="10" cy="10" r="2" fill="currentColor"/></svg> },
+                                    { id: 'sequential', label: 'Sequential', desc: 'Clips in chronological / name order',
+                                      icon: <svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M4 10h12M13 7l3 3-3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg> },
+                                    { id: 'sequential-randomized', label: 'Seq Shuffle', desc: 'Chronological clips, shuffled segments within each',
+                                      icon: <svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M4 10h5M11 10h5M13 7l3 3-3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><path d="M8 7v6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeDasharray="1.5 1.5"/></svg> },
+                                    { id: 'randomized-sequential', label: 'Shuf Keep', desc: 'Shuffled clip order, segments stay in source order',
+                                      icon: <svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M4 7h4M4 13h4M12 7h4M12 13h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M8 7l4 6M8 13l4-6" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.5"/></svg> },
+                                    { id: 'randomize', label: 'Random', desc: 'Fully random — clips and segments interleaved',
+                                      icon: <svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M4 7h3l6 6h3M4 13h3l6-6h3M15 5l2 2-2 2M15 11l2 2-2 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg> },
+                                ]).map(o => (
+                                    <PreviewBubble key={o.id}
+                                        preview={
+                                            <div style={{ width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                <div style={{ color: (settings.clipOrderMode ?? 'none') === o.id ? '#a78bfa' : 'rgba(255,255,255,0.5)', transform: 'scale(2)' }}>{o.icon}</div>
+                                            </div>
+                                        }
+                                        description={o.desc}
+                                        width={180}>
+                                        <button onClick={() => update({ clipOrderMode: o.id as any })}
+                                            className={clsx("flex-1 flex items-center justify-center gap-1.5 py-1.5 px-1 rounded-lg border transition-all min-w-0",
+                                                (settings.clipOrderMode ?? 'none') === o.id
+                                                    ? "bg-purple-600/20 border-purple-500/40 text-purple-200"
+                                                    : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60")}>
+                                            <span className="shrink-0">{o.icon}</span>
+                                            <span className="text-[9px] font-bold uppercase truncate hidden sm:inline">{o.label}</span>
+                                        </button>
+                                    </PreviewBubble>
+                                ))}
+                            </div>
+                            {/* Order By — stackable multi-select with date variants */}
+                            {(settings.clipOrderMode === 'sequential' || settings.clipOrderMode === 'sequential-randomized') && (
+                                <div className="flex flex-wrap gap-1 items-center">
+                                    <span className="text-[9px] font-bold uppercase text-white/30 mr-1">Order by</span>
+                                    {([
+                                        { id: 'filename', label: 'Filename' },
+                                        { id: 'date-modified', label: 'Modified' },
+                                        { id: 'date-created', label: 'Created' },
+                                    ]).map(o => {
+                                        const active = (Array.isArray(settings.sequentialBy) ? settings.sequentialBy : [settings.sequentialBy ?? 'date-modified']).includes(o.id as import('../../lib/clipOrdering').SequentialBy);
+                                        return (
+                                            <button key={o.id} onClick={() => {
+                                                const cur = Array.isArray(settings.sequentialBy) ? settings.sequentialBy : [settings.sequentialBy ?? 'date-modified'];
+                                                const next = active ? cur.filter((x) => x !== o.id) : [...cur, o.id as import('../../lib/clipOrdering').SequentialBy];
+                                                update({ sequentialBy: next.length > 0 ? next as import('../../lib/clipOrdering').SequentialBy[] : ['date-modified'] });
+                                            }}
+                                                className={clsx("px-2 py-0.5 rounded text-[9px] font-bold uppercase border transition-all",
+                                                    active
+                                                        ? "bg-purple-600/20 border-purple-500/40 text-purple-200"
+                                                        : "bg-white/5 border-white/5 text-white/30 hover:bg-white/10")}>
+                                                {o.label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
-                
+
                 <div className="border border-white/5 rounded-xl bg-black/20 p-5 space-y-4">
                     <div className="flex items-center gap-2">
                         <Music size={16} className={settings.useAudioGuide ? "text-purple-400" : "text-white/40"} />
@@ -951,6 +1132,15 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                                         setAudioUrl(url);
                                                         update({ audioFile: h.name, audioUrl: url, audioFilePath: h.path, useAudioGuide: true });
                                                         setShowAudioHistory(false);
+                                                        // Auto-load cached analysis
+                                                        const sensitivity = settings.beatSensitivity ?? 0.5;
+                                                        const cached = audioCache.getCached(h.path, sensitivity);
+                                                        if (cached) {
+                                                            setAudioAnalysis(cached);
+                                                            update({ audioAnalysis: cached });
+                                                        } else {
+                                                            setAudioAnalysis(null);
+                                                        }
                                                     }}
                                                     className="flex-1 px-3 py-2 text-left text-xs text-white/70 hover:text-white transition-colors flex items-center gap-2 truncate min-w-0">
                                                     <Music size={11} className="text-purple-400 flex-shrink-0" />
@@ -1106,9 +1296,17 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                 <div className="space-y-2">
                                     <div className="flex items-center justify-between">
                                         <span className="text-[10px] font-bold text-white/40 uppercase tracking-wider">Select Segments</span>
-                                        <div className="flex items-center gap-1">
+                                        <div className="flex items-center gap-1 flex-wrap">
+                                            {[15, 30, 60].map(val => (
+                                                <button key={`first-${val}`}
+                                                    onClick={() => { setAudioTrimStart(0); setAudioTrimEnd(val); update({ audioTrimStart: 0, audioTrimEnd: Math.min(val, audioAnalysis.duration), targetDuration: val }); }}
+                                                    className="px-1.5 py-0.5 rounded bg-white/5 text-white/40 hover:bg-white/15 hover:text-white/70 transition-colors text-[9px] font-bold border border-white/5">
+                                                    First {val}s
+                                                </button>
+                                            ))}
+                                            <span className="w-px h-3 bg-white/10" />
                                             {[10, 15, 30, 60].map(val => (
-                                                <button key={val} onClick={() => { autoSelectBestSegment(val); update({ targetDuration: val }); }}
+                                                <button key={`best-${val}`} onClick={() => { autoSelectBestSegment(val); update({ targetDuration: val }); }}
                                                     className="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 hover:bg-purple-500/40 transition-colors text-[9px] font-bold">
                                                     Best {val}s
                                                 </button>
@@ -1150,7 +1348,7 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     <TrailerAudioDynamics settings={settings} update={update} />
                 </div>
 
-                {/* ── 🎙️ Narration Intelligence ─── */}
+                {/* ── Narration Intelligence (folded by default; opens on upload) ─── */}
                 <NarrationIntelligence
                     narrationFile={narrationStore.narrationFile}
                     narrationName={narrationStore.narrationName}
@@ -1233,22 +1431,30 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Presets</span>
                             <div className="flex flex-wrap gap-1.5">
                                 {[
-                                    { label: 'Rapid Fire', shortest: 0.1, longest: 0.3, desc: 'Hype / drops' },
-                                    { label: 'Quick Cut', shortest: 0.2, longest: 0.8, desc: 'Action' },
-                                    { label: 'Standard', shortest: 0.3, longest: 1.5, desc: 'General' },
-                                    { label: 'Cinematic', shortest: 0.8, longest: 3.0, desc: 'Drama' },
-                                    { label: 'Long Take', shortest: 2.0, longest: 6.0, desc: 'Essays' },
-                                    { label: 'Music Video', shortest: 0.15, longest: 1.2, desc: 'Beat-synced' },
+                                    { label: 'Dynamic', shortest: 0.1, longest: 2.0, desc: 'Full spectrum — hype to hold' },
+                                    { label: 'Montage', shortest: 0.2, longest: 0.5, desc: 'Fast travel / recap' },
+                                    { label: 'Beat Sync', shortest: 0.2, longest: 0.8, desc: 'Locked to rhythm' },
+                                    { label: 'Action', shortest: 0.3, longest: 1.0, desc: 'Fight / chase' },
+                                    { label: 'Music Video', shortest: 0.3, longest: 1.2, desc: 'Performance cuts' },
+                                    { label: 'Standard', shortest: 0.5, longest: 2.0, desc: 'General editing' },
+                                    { label: 'Drama', shortest: 1.0, longest: 3.0, desc: 'Dialogue / tension' },
+                                    { label: 'Cinematic', shortest: 1.5, longest: 4.0, desc: 'Slow reveals' },
+                                    { label: 'Wide Mix', shortest: 0.2, longest: 5.0, desc: 'Maximum range — everything goes' },
+                                    { label: 'Showreel', shortest: 0.8, longest: 2.5, desc: 'Portfolio highlights' },
                                 ].map(p => (
-                                    <button key={p.label}
-                                        onClick={() => update({ shortestClip: p.shortest, longestClip: p.longest })}
-                                        className={clsx("px-2 py-1 rounded-full text-[10px] font-bold transition-all border",
-                                            settings.shortestClip === p.shortest && settings.longestClip === p.longest
-                                                ? "bg-purple-600/20 border-purple-500/40 text-purple-200 shadow-[0_0_8px_rgba(168,85,247,0.15)]"
-                                                : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60")}
-                                        title={p.desc}>
-                                        {p.label}
-                                    </button>
+                                    <PreviewBubble key={p.label}
+                                        preview={<DurationPresetPreview shortest={p.shortest} longest={p.longest} />}
+                                        description={p.desc}
+                                        width={180}>
+                                        <button
+                                            onClick={() => update({ shortestClip: p.shortest, longestClip: p.longest })}
+                                            className={clsx("px-2 py-1 rounded-full text-[10px] font-bold transition-all border",
+                                                settings.shortestClip === p.shortest && settings.longestClip === p.longest
+                                                    ? "bg-purple-600/20 border-purple-500/40 text-purple-200 shadow-[0_0_8px_rgba(168,85,247,0.15)]"
+                                                    : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60")}>
+                                            {p.label}
+                                        </button>
+                                    </PreviewBubble>
                                 ))}
                             </div>
                         </div>
@@ -1363,28 +1569,33 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                         <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Speed Curve <span className="text-white/25 normal-case font-normal">(select one or more)</span></span>
                         <div className="flex flex-wrap gap-1.5">
                             {([
-                                { id: 'constant', label: 'Constant' },
-                                { id: 'ramp-up', label: 'Ramp Up' },
-                                { id: 'ramp-down', label: 'Ramp Down' },
-                                { id: 's-curve', label: 'S-Curve' },
-                                { id: 'ramp-freeze', label: 'Ramp-Freeze' },
-                                { id: 'burst-landing', label: 'Burst-Landing' },
-                                { id: 'oscillating', label: 'Oscillating' },
-                            ] as { id: SpeedCurvePreset; label: string }[]).map(opt => {
+                                { id: 'constant', label: 'Constant', desc: 'Uniform speed throughout the clip' },
+                                { id: 'ramp-up', label: 'Ramp Up', desc: 'Starts slow, accelerates to the end' },
+                                { id: 'ramp-down', label: 'Ramp Down', desc: 'Starts fast, decelerates to a stop' },
+                                { id: 's-curve', label: 'S-Curve', desc: 'Speeds up in the middle, slow at edges' },
+                                { id: 'ramp-freeze', label: 'Ramp-Freeze', desc: 'Accelerates then freezes at peak' },
+                                { id: 'burst-landing', label: 'Burst-Landing', desc: 'Quick burst then gentle landing' },
+                                { id: 'oscillating', label: 'Oscillating', desc: 'Rhythmic speed pulses' },
+                            ] as { id: SpeedCurvePreset; label: string; desc: string }[]).map(opt => {
                                 const selected = (settings.speedCurvePresets ?? [settings.speedCurvePreset ?? 'constant']);
                                 const isActive = selected.includes(opt.id);
                                 return (
-                                    <button key={opt.id} onClick={() => {
-                                        const cur = settings.speedCurvePresets ?? [settings.speedCurvePreset ?? 'constant'];
-                                        const next = isActive ? cur.filter(x => x !== opt.id) : [...cur, opt.id];
-                                        update({ speedCurvePresets: next.length > 0 ? next : ['constant'], speedCurvePreset: (next.length > 0 ? next[next.length - 1] : 'constant') });
-                                    }}
-                                        className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
-                                            isActive
-                                                ? "bg-blue-600/20 border-blue-500/40 text-blue-200 shadow-[0_0_8px_rgba(59,130,246,0.15)]"
-                                                : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60")}>
-                                        {opt.label}
-                                    </button>
+                                    <PreviewBubble key={opt.id}
+                                        preview={<SpeedCurvePreview preset={opt.id} />}
+                                        description={opt.desc}
+                                        width={180}>
+                                        <button onClick={() => {
+                                            const cur = settings.speedCurvePresets ?? [settings.speedCurvePreset ?? 'constant'];
+                                            const next = isActive ? cur.filter(x => x !== opt.id) : [...cur, opt.id];
+                                            update({ speedCurvePresets: next.length > 0 ? next : ['constant'], speedCurvePreset: (next.length > 0 ? next[next.length - 1] : 'constant') });
+                                        }}
+                                            className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
+                                                isActive
+                                                    ? "bg-blue-600/20 border-blue-500/40 text-blue-200 shadow-[0_0_8px_rgba(59,130,246,0.15)]"
+                                                    : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60")}>
+                                            {opt.label}
+                                        </button>
+                                    </PreviewBubble>
                                 );
                             })}
                         </div>
@@ -1429,16 +1640,21 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                         <div className="space-y-1 pl-5">
                             <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Presets — pick any (rotated per clip)</span>
                             <div className="flex flex-wrap gap-1.5">
-                                {(([['classic', 'Classic'], ['slowmo', 'Slow-Mo'], ['echo', 'Echo'], ['duo', 'Duo'], ['stutter', 'Stutter'], ['whiplash', 'Whiplash']]) as [BoomerangPresetId, string][]).map(([id, name]) => {
+                                {(([['classic', 'Classic', 'Smooth forward + reverse loop'], ['slowmo', 'Slow-Mo', 'Buttery slow back-and-forth'], ['echo', 'Echo', 'Ghosted trail following motion'], ['duo', 'Duo', 'Double-dip bounce'], ['stutter', 'Stutter', 'Rapid micro-reversals'], ['whiplash', 'Whiplash', 'Fast snap and elastic recoil']]) as [BoomerangPresetId, string, string][]).map(([id, name, desc]) => {
                                     const active = (settings.boomerangPresets ?? []).includes(id);
                                     return (
-                                        <button key={id} onClick={() => { const cur = settings.boomerangPresets ?? []; update({ boomerangPresets: cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id] }); }}
-                                            className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
-                                                active
-                                                    ? "bg-cyan-600/20 border-cyan-500/40 text-cyan-200 shadow-[0_0_8px_rgba(6,182,212,0.2)]"
-                                                    : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
-                                            {name}
-                                        </button>
+                                        <PreviewBubble key={id}
+                                            preview={<BoomerangPreview preset={id} />}
+                                            description={desc}
+                                            width={180}>
+                                            <button onClick={() => { const cur = settings.boomerangPresets ?? []; update({ boomerangPresets: cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id] }); }}
+                                                className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
+                                                    active
+                                                        ? "bg-cyan-600/20 border-cyan-500/40 text-cyan-200 shadow-[0_0_8px_rgba(6,182,212,0.2)]"
+                                                        : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                                {name}
+                                            </button>
+                                        </PreviewBubble>
                                     );
                                 })}
                             </div>
@@ -1470,17 +1686,22 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                         {[100, 125, 150, 175, 200].map(val => {
                                             const isActive = (settings.zoomValues ?? [100, 125, 150, 175, 200]).includes(val);
                                             return (
-                                                <button key={val} onClick={() => {
-                                                    const current = settings.zoomValues ?? [100, 125, 150, 175, 200];
-                                                    const next = isActive ? current.filter(v => v !== val) : [...current, val].sort((a, b) => a - b);
-                                                    if (next.length > 0) update({ zoomValues: next });
-                                                }}
-                                                    className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold transition-all border",
-                                                        isActive
-                                                            ? "bg-purple-600/20 border-purple-500/40 text-purple-200"
-                                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
-                                                    {val}%
-                                                </button>
+                                                <PreviewBubble key={val}
+                                                    preview={<ZoomValuePreview value={val} />}
+                                                    description={val === 100 ? 'No zoom — full frame visible' : `${val}% zoom — ${Math.round(10000/val)}% of frame visible`}
+                                                    width={160}>
+                                                    <button onClick={() => {
+                                                        const current = settings.zoomValues ?? [100, 125, 150, 175, 200];
+                                                        const next = isActive ? current.filter(v => v !== val) : [...current, val].sort((a, b) => a - b);
+                                                        if (next.length > 0) update({ zoomValues: next });
+                                                    }}
+                                                        className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold transition-all border",
+                                                            isActive
+                                                                ? "bg-purple-600/20 border-purple-500/40 text-purple-200"
+                                                                : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                                        {val}%
+                                                    </button>
+                                                </PreviewBubble>
                                             );
                                         })}
                                     </div>
@@ -1508,15 +1729,24 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                 <div className="space-y-1">
                                     <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Zoom Speed</span>
                                     <div className="flex flex-wrap gap-1.5">
-                                        {(['instant', 'fast', 'slow', 'all'] as const).map(id => (
-                                            <button key={id} onClick={() => update({ zoomSpeed: id })}
-                                                className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border capitalize",
-                                                    (settings.zoomSpeed ?? 'all') === id
-                                                        ? "bg-purple-600/20 border-purple-500/40 text-purple-200"
-                                                        : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
-                                                {id}
-                                            </button>
-                                        ))}
+                                        {(['instant', 'fast', 'slow', 'all'] as const).map(id => {
+                                            const descs: Record<string, string> = { instant: 'Snaps to zoom level immediately', fast: 'Quick smooth zoom transition', slow: 'Gradual cinematic zoom', all: 'Randomizes between all speeds' };
+                                            const labels: Record<string, string> = { instant: 'Instant', fast: 'Fast', slow: 'Slow', all: 'All' };
+                                            return (
+                                                <PreviewBubble key={id}
+                                                    preview={<ZoomSpeedPreview speed={id} />}
+                                                    description={descs[id]}
+                                                    width={170}>
+                                                    <button onClick={() => update({ zoomSpeed: id })}
+                                                        className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border capitalize",
+                                                            (settings.zoomSpeed ?? 'all') === id
+                                                                ? "bg-purple-600/20 border-purple-500/40 text-purple-200"
+                                                                : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                                        {labels[id]}
+                                                    </button>
+                                                </PreviewBubble>
+                                            );
+                                        })}
                                     </div>
                                 </div>
 
@@ -1543,14 +1773,25 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             <Zap size={14} /> Beat Drop Impact
                         </span>
                         <div className="flex flex-wrap gap-1.5">
-                            {(['off', 'subtle', 'medium', 'heavy', 'maximum'] as BeatDropIntensity[]).map(id => (
-                                <button key={id} onClick={() => update({ beatDropImpact: id })}
-                                    className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border capitalize",
-                                        (settings.beatDropImpact ?? 'off') === id
-                                            ? "bg-orange-600/20 border-orange-500/40 text-orange-200 shadow-[0_0_8px_rgba(249,115,22,0.15)]"
-                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
-                                    {id}
-                                </button>
+                            {([
+                                { id: 'off' as BeatDropIntensity, label: 'Off', desc: 'No impact effects on drops' },
+                                { id: 'subtle' as BeatDropIntensity, label: 'Subtle', desc: 'Gentle pulse on heavy drops' },
+                                { id: 'medium' as BeatDropIntensity, label: 'Medium', desc: 'Noticeable flash + zoom hit' },
+                                { id: 'heavy' as BeatDropIntensity, label: 'Heavy', desc: 'Strong multi-layer impact' },
+                                { id: 'maximum' as BeatDropIntensity, label: 'Maximum', desc: 'Full aggression — flash, shake, zoom' },
+                            ]).map(opt => (
+                                <PreviewBubble key={opt.id}
+                                    preview={<BeatDropPreview intensity={opt.id} />}
+                                    description={opt.desc}
+                                    width={170}>
+                                    <button onClick={() => update({ beatDropImpact: opt.id })}
+                                        className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border capitalize",
+                                            (settings.beatDropImpact ?? 'off') === opt.id
+                                                ? "bg-orange-600/20 border-orange-500/40 text-orange-200 shadow-[0_0_8px_rgba(249,115,22,0.15)]"
+                                                : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                        {opt.label}
+                                    </button>
+                                </PreviewBubble>
                             ))}
                         </div>
                     </div>
@@ -1566,18 +1807,23 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Shake Policy</span>
                             <div className="flex flex-wrap gap-1.5">
                                 {([
-                                    { id: 'off' as ShakePolicy, label: 'Off' },
-                                    { id: 'sparingly' as ShakePolicy, label: 'Sparingly' },
-                                    { id: 'heavy-beats-only' as ShakePolicy, label: 'Heavy Beats' },
-                                    { id: 'on-every-beat' as ShakePolicy, label: 'Every Beat' },
+                                    { id: 'off' as ShakePolicy, label: 'Off', desc: 'No camera shake applied' },
+                                    { id: 'sparingly' as ShakePolicy, label: 'Sparingly', desc: 'Only on high-impact moments' },
+                                    { id: 'heavy-beats-only' as ShakePolicy, label: 'Heavy Beats', desc: 'Targets the hardest drops' },
+                                    { id: 'on-every-beat' as ShakePolicy, label: 'Every Beat', desc: 'Shake on every detected beat' },
                                 ]).map(opt => (
-                                    <button key={opt.id} onClick={() => update({ shakePolicy: opt.id })}
-                                        className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
-                                            (settings.shakePolicy ?? 'off') === opt.id
-                                                ? "bg-red-600/20 border-red-500/40 text-red-200 shadow-[0_0_8px_rgba(239,68,68,0.15)]"
-                                                : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
-                                        {opt.label}
-                                    </button>
+                                    <PreviewBubble key={opt.id}
+                                        preview={<ShakePolicyPreview policy={opt.id} />}
+                                        description={opt.desc}
+                                        width={180}>
+                                        <button onClick={() => update({ shakePolicy: opt.id })}
+                                            className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
+                                                (settings.shakePolicy ?? 'off') === opt.id
+                                                    ? "bg-red-600/20 border-red-500/40 text-red-200 shadow-[0_0_8px_rgba(239,68,68,0.15)]"
+                                                    : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                            {opt.label}
+                                        </button>
+                                    </PreviewBubble>
                                 ))}
                             </div>
                         </div>
@@ -1588,20 +1834,25 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                     <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Shake Type</span>
                                     <div className="flex flex-wrap gap-1.5">
                                         {([
-                                            { id: 'impact', label: 'Impact' },
-                                            { id: 'handheld', label: 'Handheld' },
-                                            { id: 'earthquake', label: 'Earthquake' },
-                                            { id: 'vibration', label: 'Vibration' },
-                                            { id: 'whip', label: 'Whip' },
-                                            { id: 'all', label: 'All' },
-                                        ] as { id: ShakeType | 'all'; label: string }[]).map(opt => (
-                                            <button key={opt.id} onClick={() => update({ shakeType: opt.id })}
-                                                className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
-                                                    (settings.shakeType ?? 'impact') === opt.id
-                                                        ? "bg-red-600/20 border-red-500/40 text-red-200"
-                                                        : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
-                                                {opt.label}
-                                            </button>
+                                            { id: 'impact', label: 'Impact', desc: 'Single sharp directional jolt' },
+                                            { id: 'handheld', label: 'Handheld', desc: 'Subtle organic camera wobble' },
+                                            { id: 'earthquake', label: 'Earthquake', desc: 'Aggressive multi-axis shaking' },
+                                            { id: 'vibration', label: 'Vibration', desc: 'Rapid small-amplitude oscillation' },
+                                            { id: 'whip', label: 'Whip', desc: 'Fast horizontal snap and recoil' },
+                                            { id: 'all', label: 'All', desc: 'Randomly cycles through all types' },
+                                        ] as { id: ShakeType | 'all'; label: string; desc: string }[]).map(opt => (
+                                            <PreviewBubble key={opt.id}
+                                                preview={<ShakeTypePreview type={opt.id} />}
+                                                description={opt.desc}
+                                                width={180}>
+                                                <button onClick={() => update({ shakeType: opt.id })}
+                                                    className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
+                                                        (settings.shakeType ?? 'impact') === opt.id
+                                                            ? "bg-red-600/20 border-red-500/40 text-red-200"
+                                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                                    {opt.label}
+                                                </button>
+                                            </PreviewBubble>
                                         ))}
                                     </div>
                                 </div>
@@ -1623,47 +1874,46 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                         <span className="text-[11px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-2">
                             <Sparkles size={13} className="text-indigo-400" /> Trending Effects
                         </span>
-                        {recommendedEffects.length > 0 && (
-                            <div className="space-y-1">
-                                <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Recommended for you</span>
-                                <div className="flex flex-wrap gap-1.5">
-                                    {recommendedEffects.map(id => (
-                                        <button key={id} onClick={() => update(QUICK_EFFECT_PATCH[id] || {})}
-                                            className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border bg-indigo-500/10 border-indigo-400/30 text-indigo-200 hover:bg-indigo-500/20 transition-all">
-                                            + {ADV_EFFECT_LABELS[id]}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
+
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             {/* Double Exposure */}
                             <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-indigo-600/10 via-white/5 to-purple-600/10",
                                 (settings.doubleExposurePolicy ?? 'off') !== 'off' ? "border-indigo-400/40 shadow-[0_0_18px_rgba(99,102,241,0.2)]" : "border-white/10")}>
                                 <div className="absolute -top-8 -right-8 w-24 h-24 bg-indigo-500/20 blur-[40px] pointer-events-none rounded-full" />
-                                <div className="flex items-center gap-2 relative">
-                                    <Layers size={14} className="text-indigo-300" />
-                                    <div className="flex flex-col">
-                                        <span className="text-xs font-black text-white leading-none">Double Exposure</span>
-                                        <span className="text-[9px] text-white/40">Dreamy two-layer blend</span>
+                                <PreviewBubble
+                                    preview={<DoubleExposurePreview />}
+                                    description="Dreamy two-layer blend — two overlapping frames create a ghostly composite"
+                                    width={200}>
+                                    <div className="flex items-center gap-2 relative">
+                                        <Layers size={14} className="text-indigo-300" />
+                                        <div className="flex flex-col">
+                                            <span className="text-xs font-black text-white leading-none">Double Exposure</span>
+                                            <span className="text-[9px] text-white/40">Dreamy two-layer blend</span>
+                                        </div>
                                     </div>
-                                </div>
+                                </PreviewBubble>
                                 <EffectPolicyControl label=""
                                     policy={settings.doubleExposurePolicy ?? 'off'}
-                                    onPolicy={(p) => update({ doubleExposurePolicy: p })}>
+                                    onPolicy={(p) => update({ doubleExposurePolicy: p })}
+                                    renderPreview={(p) => <DoubleExposurePolicyPreview policy={p} />}>
                                     <SliderControl label="Opacity" icon={Layers} value={settings.doubleExposureOpacity ?? 45}
                                         min={0} max={100} step={5} unit="%" onChange={(v) => update({ doubleExposureOpacity: v })} />
                                     <div className="space-y-1">
                                         <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Shape</span>
                                         <div className="flex gap-1.5">
-                                            {(([['full', 'Full'], ['shaped', 'Shaped'], ['mix', 'Mix']]) as ['full' | 'shaped' | 'mix', string][]).map(([mode, label]) => (
-                                                <button key={mode} onClick={() => update({ doubleExposureShapeMode: mode })}
-                                                    className={clsx("flex-1 px-2 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
-                                                        (settings.doubleExposureShapeMode ?? 'full') === mode
-                                                            ? "bg-indigo-600/20 border-indigo-500/40 text-indigo-200"
-                                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
-                                                    {label}
-                                                </button>
+                                            {(([['full', 'Full', 'Full-frame overlap — both layers cover the entire frame'], ['shaped', 'Shaped', 'Masked blend — second layer is soft-edged oval or vignette'], ['mix', 'Mix', 'Alternates between full and shaped per clip']]) as ['full' | 'shaped' | 'mix', string, string][]).map(([mode, label, desc]) => (
+                                                <PreviewBubble key={mode}
+                                                    preview={<DoubleExposureShapePreview mode={mode} />}
+                                                    description={desc}
+                                                    width={180}>
+                                                    <button onClick={() => update({ doubleExposureShapeMode: mode })}
+                                                        className={clsx("flex-1 px-2 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
+                                                            (settings.doubleExposureShapeMode ?? 'full') === mode
+                                                                ? "bg-indigo-600/20 border-indigo-500/40 text-indigo-200"
+                                                                : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                                        {label}
+                                                    </button>
+                                                </PreviewBubble>
                                             ))}
                                         </div>
                                     </div>
@@ -1674,16 +1924,22 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-sky-600/10 via-white/5 to-blue-600/10",
                                 (settings.motionBlurPolicy ?? 'off') !== 'off' ? "border-sky-400/40 shadow-[0_0_18px_rgba(56,189,248,0.2)]" : "border-white/10")}>
                                 <div className="absolute -top-8 -right-8 w-24 h-24 bg-sky-500/20 blur-[40px] pointer-events-none rounded-full" />
-                                <div className="flex items-center gap-2 relative">
-                                    <Zap size={14} className="text-sky-300" />
-                                    <div className="flex flex-col">
-                                        <span className="text-xs font-black text-white leading-none">Motion Blur</span>
-                                        <span className="text-[9px] text-white/40">Smear the fast moments</span>
+                                <PreviewBubble
+                                    preview={<MotionBlurPreview />}
+                                    description="Cinematic smear on fast motion — adds velocity feel"
+                                    width={200}>
+                                    <div className="flex items-center gap-2 relative">
+                                        <Zap size={14} className="text-sky-300" />
+                                        <div className="flex flex-col">
+                                            <span className="text-xs font-black text-white leading-none">Motion Blur</span>
+                                            <span className="text-[9px] text-white/40">Smear the fast moments</span>
+                                        </div>
                                     </div>
-                                </div>
+                                </PreviewBubble>
                                 <EffectPolicyControl label=""
                                     policy={settings.motionBlurPolicy ?? 'off'}
-                                    onPolicy={(p) => update({ motionBlurPolicy: p })}>
+                                    onPolicy={(p) => update({ motionBlurPolicy: p })}
+                                    renderPreview={(p) => <MotionBlurPolicyPreview policy={p} />}>
                                     <SliderControl label="Amount" icon={Zap} value={settings.motionBlurAmount ?? 50}
                                         min={0} max={100} step={5} unit="%" onChange={(v) => update({ motionBlurAmount: v })} />
                                 </EffectPolicyControl>
@@ -1693,16 +1949,22 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-amber-600/10 via-white/5 to-pink-600/10",
                                 (settings.glowPolicy ?? 'off') !== 'off' ? "border-amber-400/40 shadow-[0_0_18px_rgba(251,191,36,0.2)]" : "border-white/10")}>
                                 <div className="absolute -top-8 -right-8 w-24 h-24 bg-amber-500/20 blur-[40px] pointer-events-none rounded-full" />
-                                <div className="flex items-center gap-2 relative">
-                                    <Sparkles size={14} className="text-amber-300" />
-                                    <div className="flex flex-col">
-                                        <span className="text-xs font-black text-white leading-none">Glow</span>
-                                        <span className="text-[9px] text-white/40">Soft cinematic bloom</span>
+                                <PreviewBubble
+                                    preview={<GlowPreview />}
+                                    description="Soft bloom around highlights — dreamy cinematic look"
+                                    width={200}>
+                                    <div className="flex items-center gap-2 relative">
+                                        <Sparkles size={14} className="text-amber-300" />
+                                        <div className="flex flex-col">
+                                            <span className="text-xs font-black text-white leading-none">Glow</span>
+                                            <span className="text-[9px] text-white/40">Soft cinematic bloom</span>
+                                        </div>
                                     </div>
-                                </div>
+                                </PreviewBubble>
                                 <EffectPolicyControl label=""
                                     policy={settings.glowPolicy ?? 'off'}
-                                    onPolicy={(p) => update({ glowPolicy: p })}>
+                                    onPolicy={(p) => update({ glowPolicy: p })}
+                                    renderPreview={(p) => <GlowPolicyPreview policy={p} />}>
                                     <SliderControl label="Intensity" icon={Sparkles} value={settings.glowIntensity ?? 55}
                                         min={0} max={100} step={5} unit="%" onChange={(v) => update({ glowIntensity: v })} />
                                     <SliderControl label="Radius" icon={Sparkles} value={settings.glowRadius ?? 50}
@@ -1714,16 +1976,22 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-rose-600/10 via-white/5 to-red-600/10",
                                 (settings.vibrationFlashPolicy ?? 'off') !== 'off' ? "border-rose-400/40 shadow-[0_0_18px_rgba(244,63,94,0.2)]" : "border-white/10")}>
                                 <div className="absolute -top-8 -right-8 w-24 h-24 bg-rose-500/20 blur-[40px] pointer-events-none rounded-full" />
-                                <div className="flex items-center gap-2 relative">
-                                    <Zap size={14} className="text-rose-300" />
-                                    <div className="flex flex-col">
-                                        <span className="text-xs font-black text-white leading-none">Vibration Flash</span>
-                                        <span className="text-[9px] text-white/40">Punchy beat-synced jolt</span>
+                                <PreviewBubble
+                                    preview={<VibrationFlashPreview />}
+                                    description="Brightness flash with camera jolt on beat impacts"
+                                    width={200}>
+                                    <div className="flex items-center gap-2 relative">
+                                        <Zap size={14} className="text-rose-300" />
+                                        <div className="flex flex-col">
+                                            <span className="text-xs font-black text-white leading-none">Vibration Flash</span>
+                                            <span className="text-[9px] text-white/40">Punchy beat-synced jolt</span>
+                                        </div>
                                     </div>
-                                </div>
+                                </PreviewBubble>
                                 <EffectPolicyControl label=""
                                     policy={settings.vibrationFlashPolicy ?? 'off'}
-                                    onPolicy={(p) => update({ vibrationFlashPolicy: p })}>
+                                    onPolicy={(p) => update({ vibrationFlashPolicy: p })}
+                                    renderPreview={(p) => <VibrationFlashPolicyPreview policy={p} />}>
                                     <SliderControl label="Intensity" icon={Zap} value={settings.vibrationFlashIntensity ?? 70}
                                         min={0} max={100} step={5} unit="%" onChange={(v) => update({ vibrationFlashIntensity: v })} />
                                 </EffectPolicyControl>
@@ -1733,32 +2001,44 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-teal-600/10 via-white/5 to-emerald-600/10 sm:col-span-2",
                                 (settings.smoothSlowmoPolicy ?? 'off') !== 'off' ? "border-teal-400/40 shadow-[0_0_18px_rgba(20,184,166,0.2)]" : "border-white/10")}>
                                 <div className="absolute -top-8 -right-8 w-24 h-24 bg-teal-500/20 blur-[40px] pointer-events-none rounded-full" />
-                                <div className="flex items-center gap-2 relative">
-                                    <Clock size={14} className="text-teal-300" />
-                                    <div className="flex flex-col">
-                                        <span className="text-xs font-black text-white leading-none">Optical-Flow Slow-Mo</span>
-                                        <span className="text-[9px] text-white/40">Buttery interpolated slow motion</span>
+                                <PreviewBubble
+                                    preview={<SlowmoPreview />}
+                                    description="AI-interpolated frames for buttery smooth slow motion"
+                                    width={200}>
+                                    <div className="flex items-center gap-2 relative">
+                                        <Clock size={14} className="text-teal-300" />
+                                        <div className="flex flex-col">
+                                            <span className="text-xs font-black text-white leading-none">Optical-Flow Slow-Mo</span>
+                                            <span className="text-[9px] text-white/40">Buttery interpolated slow motion</span>
+                                        </div>
                                     </div>
-                                </div>
+                                </PreviewBubble>
                                 <EffectPolicyControl label=""
                                     policy={settings.smoothSlowmoPolicy ?? 'off'}
-                                    onPolicy={(p) => update({ smoothSlowmoPolicy: p })} />
+                                    onPolicy={(p) => update({ smoothSlowmoPolicy: p })}
+                                    renderPreview={(p) => <SlowmoPolicyPreview policy={p} />} />
                             </div>
 
                             {/* RGB Split */}
                             <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-fuchsia-600/10 via-white/5 to-cyan-600/10",
                                 (settings.rgbSplitPolicy ?? 'off') !== 'off' ? "border-fuchsia-400/40 shadow-[0_0_18px_rgba(217,70,239,0.2)]" : "border-white/10")}>
                                 <div className="absolute -top-8 -right-8 w-24 h-24 bg-fuchsia-500/20 blur-[40px] pointer-events-none rounded-full" />
-                                <div className="flex items-center gap-2 relative">
-                                    <Palette size={14} className="text-fuchsia-300" />
-                                    <div className="flex flex-col">
-                                        <span className="text-xs font-black text-white leading-none">RGB Split</span>
-                                        <span className="text-[9px] text-white/40">Chromatic separation</span>
+                                <PreviewBubble
+                                    preview={<RgbSplitPreview />}
+                                    description="Chromatic channel separation — glitchy RGB offset"
+                                    width={200}>
+                                    <div className="flex items-center gap-2 relative">
+                                        <Palette size={14} className="text-fuchsia-300" />
+                                        <div className="flex flex-col">
+                                            <span className="text-xs font-black text-white leading-none">RGB Split</span>
+                                            <span className="text-[9px] text-white/40">Chromatic separation</span>
+                                        </div>
                                     </div>
-                                </div>
+                                </PreviewBubble>
                                 <EffectPolicyControl label=""
                                     policy={settings.rgbSplitPolicy ?? 'off'}
-                                    onPolicy={(p) => update({ rgbSplitPolicy: p })}>
+                                    onPolicy={(p) => update({ rgbSplitPolicy: p })}
+                                    renderPreview={(p) => <RgbSplitPolicyPreview policy={p} />}>
                                     <SliderControl label="Intensity" icon={Palette} value={settings.rgbSplitAmount ?? 50}
                                         min={0} max={100} step={5} unit="%" onChange={(v) => update({ rgbSplitAmount: v })} />
                                 </EffectPolicyControl>
@@ -1768,16 +2048,22 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-violet-600/10 via-white/5 to-green-600/10",
                                 (settings.hueCyclePolicy ?? 'off') !== 'off' ? "border-violet-400/40 shadow-[0_0_18px_rgba(139,92,246,0.2)]" : "border-white/10")}>
                                 <div className="absolute -top-8 -right-8 w-24 h-24 bg-violet-500/20 blur-[40px] pointer-events-none rounded-full" />
-                                <div className="flex items-center gap-2 relative">
-                                    <Repeat size={14} className="text-violet-300" />
-                                    <div className="flex flex-col">
-                                        <span className="text-xs font-black text-white leading-none">Hue Cycle</span>
-                                        <span className="text-[9px] text-white/40">Psychedelic colour rotation</span>
+                                <PreviewBubble
+                                    preview={<HueCyclePreview />}
+                                    description="Psychedelic colour rotation cycling through the spectrum"
+                                    width={200}>
+                                    <div className="flex items-center gap-2 relative">
+                                        <Repeat size={14} className="text-violet-300" />
+                                        <div className="flex flex-col">
+                                            <span className="text-xs font-black text-white leading-none">Hue Cycle</span>
+                                            <span className="text-[9px] text-white/40">Psychedelic colour rotation</span>
+                                        </div>
                                     </div>
-                                </div>
+                                </PreviewBubble>
                                 <EffectPolicyControl label=""
                                     policy={settings.hueCyclePolicy ?? 'off'}
-                                    onPolicy={(p) => update({ hueCyclePolicy: p })}>
+                                    onPolicy={(p) => update({ hueCyclePolicy: p })}
+                                    renderPreview={(p) => <HueCyclePolicyPreview policy={p} />}>
                                     <SliderControl label="Speed" icon={Repeat} value={settings.hueCycleSpeed ?? 50}
                                         min={0} max={100} step={5} unit="%" onChange={(v) => update({ hueCycleSpeed: v })} />
                                 </EffectPolicyControl>
@@ -1787,16 +2073,22 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-orange-600/10 via-white/5 to-purple-600/10 sm:col-span-2",
                                 (settings.vhsPolicy ?? 'off') !== 'off' ? "border-orange-400/40 shadow-[0_0_18px_rgba(249,115,22,0.2)]" : "border-white/10")}>
                                 <div className="absolute -top-8 -right-8 w-24 h-24 bg-orange-500/20 blur-[40px] pointer-events-none rounded-full" />
-                                <div className="flex items-center gap-2 relative">
-                                    <Video size={14} className="text-orange-300" />
-                                    <div className="flex flex-col">
-                                        <span className="text-xs font-black text-white leading-none">VHS / Retro</span>
-                                        <span className="text-[9px] text-white/40">Retro chroma + grain</span>
+                                <PreviewBubble
+                                    preview={<VhsPreview />}
+                                    description="Retro scan lines + chromatic jitter + tape grain"
+                                    width={200}>
+                                    <div className="flex items-center gap-2 relative">
+                                        <Video size={14} className="text-orange-300" />
+                                        <div className="flex flex-col">
+                                            <span className="text-xs font-black text-white leading-none">VHS / Retro</span>
+                                            <span className="text-[9px] text-white/40">Retro chroma + grain</span>
+                                        </div>
                                     </div>
-                                </div>
+                                </PreviewBubble>
                                 <EffectPolicyControl label=""
                                     policy={settings.vhsPolicy ?? 'off'}
-                                    onPolicy={(p) => update({ vhsPolicy: p })}>
+                                    onPolicy={(p) => update({ vhsPolicy: p })}
+                                    renderPreview={(p) => <VhsPolicyPreview policy={p} />}>
                                     <SliderControl label="Amount" icon={Video} value={settings.vhsAmount ?? 50}
                                         min={0} max={100} step={5} unit="%" onChange={(v) => update({ vhsAmount: v })} />
                                 </EffectPolicyControl>
@@ -1835,6 +2127,30 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             {/* Transition Duration */}
                             <SliderControl label="Transition Duration" icon={Clock} value={settings.transitionDurationMs ?? 200}
                                 min={50} max={1000} step={25} unit="ms" onChange={(v) => update({ transitionDurationMs: v })} />
+
+                            {/* Return Transitions (A → B → A) */}
+                            <div className="space-y-2 rounded-lg border border-white/5 bg-black/30 p-3">
+                                <button
+                                    onClick={() => update({ returnTransitions: !settings.returnTransitions })}
+                                    className="flex w-full items-center justify-between text-left">
+                                    <span className="flex items-center gap-2">
+                                        <Repeat className="h-3.5 w-3.5 text-amber-400" />
+                                        <span className="text-[11px] font-bold uppercase tracking-wider text-white/70">Return Transitions</span>
+                                    </span>
+                                    <span className={clsx("relative h-4 w-7 rounded-full transition-colors",
+                                        settings.returnTransitions ? "bg-amber-500/70" : "bg-white/10")}>
+                                        <span className={clsx("absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all",
+                                            settings.returnTransitions ? "left-3.5" : "left-0.5")} />
+                                    </span>
+                                </button>
+                                <p className="text-[9px] leading-relaxed text-white/30">
+                                    Mirrors a transition with its reverse on the next cut — the edit moves out and comes back (e.g. slide-left then slide-right).
+                                </p>
+                                {settings.returnTransitions && (
+                                    <SliderControl label="Return Frequency" icon={Repeat} value={settings.returnTransitionFrequency ?? 50}
+                                        min={0} max={100} step={5} unit="%" onChange={(v) => update({ returnTransitionFrequency: v })} />
+                                )}
+                            </div>
 
                             {/* Transition Type Grid by Category */}
                             <div className="space-y-4">
@@ -1963,12 +2279,12 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                 <div className="flex justify-end pt-4 border-t border-white/5">
                     <motion.button 
                         onClick={handleGenerate} 
-                        disabled={videoCount === 0 || isExporting}
+                        disabled={videoCount === 0}
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
-                        className="px-6 py-2.5 rounded-lg text-xs font-black uppercase tracking-wider text-white bg-gradient-to-r from-purple-600 to-blue-600 shadow-[0_0_20px_rgba(168,85,247,0.4)] hover:shadow-[0_0_30px_rgba(168,85,247,0.6)] flex items-center gap-2 disabled:opacity-50 disabled:grayscale">
+                        className={`px-6 py-2.5 rounded-lg text-xs font-black uppercase tracking-wider text-white shadow-[0_0_20px_rgba(168,85,247,0.4)] hover:shadow-[0_0_30px_rgba(168,85,247,0.6)] flex items-center gap-2 disabled:opacity-50 disabled:grayscale ${isExporting ? 'bg-gradient-to-r from-amber-600 to-purple-600' : 'bg-gradient-to-r from-purple-600 to-blue-600'}`}>
                         {isExporting ? (
-                            <><Loader2 size={16} className="animate-spin" /> Rendering…</>
+                            <><Layers size={16} /> Add to Queue</>
                         ) : (
                             <><PlayCircle size={16} /> Generate {{ 'trailer': 'Trailer', 'music-video': 'Music Video', 'showreel': 'Showreel', 'video-essay': 'Video Essay', 'short-film': 'Short Film' }[settings.generatorMode ?? 'trailer']}</>
                         )}

@@ -1,6 +1,63 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Film, Music, Star, BookOpen, Clapperboard, ChevronRight } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
+import { NleQuickPresets } from './NleQuickPresets';
+
+// ─── Custom animated SVG icons for each generator mode ──────────────────────
+
+/** Trailer icon — film strip with pulsing cut marks */
+const TrailerIcon: React.FC<{ size?: number; className?: string; strokeWidth?: number }> = ({ size = 22, className }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={`${className ?? ''} gm-trailer`}>
+        <rect x="2" y="4" width="20" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" />
+        <line x1="7" y1="4" x2="7" y2="20" stroke="currentColor" strokeWidth="1" opacity="0.5" />
+        <line x1="12" y1="4" x2="12" y2="20" stroke="currentColor" strokeWidth="1.5" />
+        <line x1="17" y1="4" x2="17" y2="20" stroke="currentColor" strokeWidth="1" opacity="0.5" />
+        <polygon points="10,9 10,15 14,12" fill="currentColor" opacity="0.7" />
+    </svg>
+);
+
+/** Music Video icon — waveform with musical note */
+const MusicVideoIcon: React.FC<{ size?: number; className?: string; strokeWidth?: number }> = ({ size = 22, className }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={`${className ?? ''} gm-mv`}>
+        <path d="M3 12h2l2-4 2 8 2-6 2 4 2-2h2l2-3 2 6h1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="18" cy="16" r="2" stroke="currentColor" strokeWidth="1.5" />
+        <line x1="20" y1="8" x2="20" y2="16" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M20 8c1-0.5 2 0 2 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+);
+
+/** Showreel icon — star spotlight with film border */
+const ShowreelIcon: React.FC<{ size?: number; className?: string; strokeWidth?: number }> = ({ size = 22, className }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={`${className ?? ''} gm-reel`}>
+        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
+        <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.5" />
+        <line x1="12" y1="3" x2="12" y2="9" stroke="currentColor" strokeWidth="1" opacity="0.4" />
+        <line x1="12" y1="15" x2="12" y2="21" stroke="currentColor" strokeWidth="1" opacity="0.4" />
+        <line x1="3" y1="12" x2="9" y2="12" stroke="currentColor" strokeWidth="1" opacity="0.4" />
+        <line x1="15" y1="12" x2="21" y2="12" stroke="currentColor" strokeWidth="1" opacity="0.4" />
+    </svg>
+);
+
+/** Video Essay icon — open book with pen/narration line */
+const VideoEssayIcon: React.FC<{ size?: number; className?: string; strokeWidth?: number }> = ({ size = 22, className }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={`${className ?? ''} gm-essay`}>
+        <path d="M4 19V5a2 2 0 012-2h8l6 6v10a2 2 0 01-2 2H6a2 2 0 01-2-2z" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M14 3v6h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <line x1="8" y1="13" x2="16" y2="13" stroke="currentColor" strokeWidth="1" opacity="0.5" />
+        <line x1="8" y1="16" x2="13" y2="16" stroke="currentColor" strokeWidth="1" opacity="0.5" />
+    </svg>
+);
+
+/** Short Film icon — clapperboard with scene markings */
+const ShortFilmIcon: React.FC<{ size?: number; className?: string; strokeWidth?: number }> = ({ size = 22, className }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={`${className ?? ''} gm-clap`}>
+        <rect x="3" y="8" width="18" height="13" rx="1" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M3 8l3-5h12l3 5" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+        <line x1="7" y1="3" x2="9" y2="8" stroke="currentColor" strokeWidth="1" opacity="0.5" />
+        <line x1="12" y1="3" x2="13" y2="8" stroke="currentColor" strokeWidth="1" opacity="0.5" />
+        <line x1="17" y1="3" x2="17" y2="8" stroke="currentColor" strokeWidth="1" opacity="0.5" />
+    </svg>
+);
 
 // ══════════════════════════════════════════════════════════════════════════════
 // EditGeneratorHome — the entry screen of the Edit Generator Engine.
@@ -28,7 +85,7 @@ export const EDIT_TYPES: EditTypeDef[] = [
         label: 'Trailer',
         tagline: 'Beat-driven hype',
         description: 'High-impact montage that escalates to a climax, cut to the energy of your music.',
-        icon: Film,
+        icon: TrailerIcon,
         accent: 'text-amber-400',
         glow: 'rgba(251,191,36,0.35)',
         complexity: 1,
@@ -39,7 +96,7 @@ export const EDIT_TYPES: EditTypeDef[] = [
         label: 'Music Video',
         tagline: 'Song-structured',
         description: 'Whole-song edit anchored to downbeats, with performance and B-roll paced per section.',
-        icon: Music,
+        icon: MusicVideoIcon,
         accent: 'text-fuchsia-400',
         glow: 'rgba(232,121,249,0.35)',
         complexity: 2,
@@ -50,7 +107,7 @@ export const EDIT_TYPES: EditTypeDef[] = [
         label: 'Actor Showreel',
         tagline: 'Best-moment curation',
         description: 'Curated Hook → Body → Closer reel of an actor’s strongest, most diverse performances.',
-        icon: Star,
+        icon: ShowreelIcon,
         accent: 'text-cyan-400',
         glow: 'rgba(34,211,238,0.35)',
         complexity: 3,
@@ -61,7 +118,7 @@ export const EDIT_TYPES: EditTypeDef[] = [
         label: 'Video Essay',
         tagline: 'Narration-led B-roll',
         description: 'Drop in a voiceover; the engine transcribes it and lays fitting B-roll, captions, and ducked music to match.',
-        icon: BookOpen,
+        icon: VideoEssayIcon,
         accent: 'text-emerald-400',
         glow: 'rgba(52,211,153,0.35)',
         complexity: 4,
@@ -72,7 +129,7 @@ export const EDIT_TYPES: EditTypeDef[] = [
         label: 'Short Film',
         tagline: 'Narrative mastery',
         description: 'Dialogue-driven assembly from coverage — angle selection, J/L cuts, continuity, color and sound.',
-        icon: Clapperboard,
+        icon: ShortFilmIcon,
         accent: 'text-rose-400',
         glow: 'rgba(251,113,133,0.35)',
         complexity: 5,
@@ -99,6 +156,19 @@ const ComplexityDots: React.FC<{ level: number }> = ({ level }) => (
 
 export const EditGeneratorHome: React.FC<EditGeneratorHomeProps> = ({ onSelect, readyTypes }) => {
     return (
+        <>
+        <style>{`
+            @keyframes gm-pulse { 0%,100%{opacity:1} 50%{opacity:0.7;transform:scale(1.05)} }
+            @keyframes gm-bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-2px)} }
+            @keyframes gm-spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+            @keyframes gm-write { 0%,100%{transform:translateX(0)} 50%{transform:translateX(2px)} }
+            @keyframes gm-snap { 0%,100%{transform:scaleY(1)} 20%{transform:scaleY(0.95)} 40%{transform:scaleY(1.02)} }
+            .group:hover .gm-trailer { animation: gm-pulse 1.2s ease-in-out infinite; }
+            .group:hover .gm-mv { animation: gm-bounce 0.8s ease-in-out infinite; }
+            .group:hover .gm-reel { animation: gm-spin 2s linear infinite; }
+            .group:hover .gm-essay { animation: gm-write 1s ease-in-out infinite; }
+            .group:hover .gm-clap { animation: gm-snap 0.5s ease-in-out infinite; }
+        `}</style>
         <div className="h-full w-full overflow-y-auto p-8">
             <div className="max-w-5xl mx-auto">
                 {/* Header */}
@@ -160,7 +230,11 @@ export const EditGeneratorHome: React.FC<EditGeneratorHomeProps> = ({ onSelect, 
                         );
                     })}
                 </div>
+
+                {/* One-click automated NLE presets that operate on the live timeline */}
+                <NleQuickPresets />
             </div>
         </div>
+        </>
     );
 };

@@ -9,6 +9,7 @@ import { Clip, TransitionType, ShakeType, ShakePolicy, BeatDropIntensity, Transi
 import { RHYTHM_PATTERNS, resolveRhythmDuration, RhythmPatternId } from './rhythmPatterns';
 import { SeededRandom, generateSeed } from './random';
 import { selectTransition } from './transitions';
+import { applyReturnTransitions } from './returnTransitions';
 import {
     selectContextAwareTransition,
     classifyEnergy,
@@ -96,6 +97,7 @@ export interface TrailerSettings {
     speedCurvePresets?: SpeedCurvePreset[];   // Multi-select array (replaces single preset in UI)
     speedCurveFrequency?: number;             // 0-100: % of clips that get a speed curve
     audioDynamicsScope?: 'all' | 'drops' | 'builds-drops' | 'custom';
+    sequencePresetId?: string; // NLE preset ID to apply on generation
 
     // Zoom controls
     zoomEnabled?: boolean;
@@ -139,6 +141,8 @@ export interface TrailerSettings {
     transitionStyle?: TransitionStyle;
     transitionTypes?: TransitionType[];   // which transitions to allow
     transitionDurationMs?: number;        // default transition duration
+    returnTransitions?: boolean;          // A→B→A: mirror a transition with its reverse on the next cut
+    returnTransitionFrequency?: number;   // 0-100: chance a forward transition gets a return leg
 
     // Visual FX globals
     filmGrainAmount?: number;             // 0-25
@@ -171,6 +175,10 @@ export interface TrailerSettings {
     sceneAwareCuts?: boolean;
     /** Clip-aware automatic cinematic color grade (per-clip, from luma/saturation). */
     autoColorGrade?: boolean;
+    /** Lockable clip-ordering structure (Media Pool). 'none' = current behaviour. */
+    clipOrderMode?: import('./clipOrdering').ClipOrderMode;
+    /** When sequential / sequential-randomized: order clips by file date or filename. */
+    sequentialBy?: import('./clipOrdering').SequentialBy | import('./clipOrdering').SequentialBy[];
 }
 
 export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
@@ -234,6 +242,8 @@ export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
     autoTrimSilence: false,
     sceneAwareCuts: false,
     autoColorGrade: false,
+    clipOrderMode: 'none',
+    sequentialBy: 'date-modified',
     rgbSplitPolicy: 'off',
     rgbSplitAmount: 45,
     hueCyclePolicy: 'off',
@@ -243,6 +253,8 @@ export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
     beatDropImpact: 'off',
     transitionStyle: 'cuts-only',
     transitionDurationMs: 200,
+    returnTransitions: false,
+    returnTransitionFrequency: 50,
     filmGrainAmount: 0,
     vignetteAmount: 0,
     letterboxEnabled: false,
@@ -372,7 +384,11 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
     }
 
     const targetFrames = Math.floor(targetDuration * DEFAULT_FPS);
-    const minFrames = Math.max(1, Math.floor(shortestClip * DEFAULT_FPS));
+    // Hard floor: 6 frames (0.2s) is the minimum for FFmpeg to produce a valid
+    // intermediate segment with at least one keyframe. Clips shorter than this
+    // produce zero-frame MKVs that crash the stitch phase.
+    const MIN_RENDERABLE_FRAMES = 6;
+    const minFrames = Math.max(MIN_RENDERABLE_FRAMES, Math.floor(shortestClip * DEFAULT_FPS));
     const maxFrames = Math.max(minFrames + 1, Math.floor(longestClip * DEFAULT_FPS));
 
     console.log('[TrailerGen] â•â•â• GENERATION START â•â•â•');
@@ -582,10 +598,10 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             const srcDur = c.sourceDurationFrames || 9000;
             let ts = Math.max(0, c.trimStartFrame || 0);
             let te = Math.min(srcDur, c.trimEndFrame || srcDur);
-            // Ensure trim range has at least 2 frames
-            if (te - ts < 2) {
-                ts = Math.max(0, te - 2);
-                if (te - ts < 2) te = ts + 2;
+            // Ensure trim range has at least MIN_RENDERABLE_FRAMES
+            if (te - ts < MIN_RENDERABLE_FRAMES) {
+                ts = Math.max(0, te - MIN_RENDERABLE_FRAMES);
+                if (te - ts < MIN_RENDERABLE_FRAMES) te = ts + MIN_RENDERABLE_FRAMES;
             }
             const clipDur = c.endFrame - c.startFrame;
             // If the clip's output duration exceeds what the source can provide, shrink it
@@ -600,14 +616,14 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 ...c,
                 trimStartFrame: ts,
                 trimEndFrame: te,
-                endFrame: c.startFrame + Math.max(2, safeDur),
+                endFrame: c.startFrame + Math.max(MIN_RENDERABLE_FRAMES, safeDur),
             };
         });
 
         // 0b. Remove zero-duration, negative-duration, or path-less clips
         const validSeq = clamped.filter(c => {
             const dur = c.endFrame - c.startFrame;
-            return dur >= 2 && c.path && c.path.length > 0;
+            return dur >= MIN_RENDERABLE_FRAMES && c.path && c.path.length > 0;
         });
 
         // 0c. Close gaps by re-snapping timelines
@@ -618,7 +634,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             // Hard clamp: never exceed targetFrames
             if (cursor >= targetFrames) break;
             const clampedDur = Math.min(dur, targetFrames - cursor);
-            if (clampedDur < 2) break;
+            if (clampedDur < MIN_RENDERABLE_FRAMES) break;
             gapFilled.push({ ...c, startFrame: cursor, endFrame: cursor + clampedDur });
             cursor += clampedDur;
         }
@@ -671,7 +687,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 if (targetFrames > 0 && head >= targetFrames) break;
                 const dur = clip.endFrame - clip.startFrame;
                 const allowed = targetFrames > 0 ? Math.min(dur, targetFrames - head) : dur;
-                if (allowed < 2) { if (targetFrames > 0) break; else continue; }
+                if (allowed < MIN_RENDERABLE_FRAMES) { if (targetFrames > 0) break; else continue; }
                 laid.push({ ...clip, startFrame: head, endFrame: head + allowed });
                 head += allowed;
             }
@@ -739,6 +755,16 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                         durationFrames,
                     };
                 }
+            }
+
+            // ── RETURN TRANSITIONS (A → B → A) ──
+            // Mirror selected forward transitions with their reverse on the next
+            // boundary, so the edit moves out and comes back. Frequency-controlled.
+            if (s.returnTransitions) {
+                applyReturnTransitions(expandedClips, {
+                    frequency: s.returnTransitionFrequency ?? 50,
+                    seed: s.seed ? s.seed + '_return' : undefined,
+                });
             }
         }
 
@@ -1151,7 +1177,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 case 'drop':
                 case 'chorus':
                     // Fast, punchy cuts on drops
-                    clipMin = Math.max(3, Math.floor(minFrames * 0.5));
+                    clipMin = Math.max(MIN_RENDERABLE_FRAMES, Math.floor(minFrames * 0.5));
                     clipMax = Math.max(clipMin + 3, Math.floor(maxFrames * 0.6));
                     if (syncStrategy === 'effect-on-drop' || syncStrategy === 'riser-buildup') applyEffect = true;
                     break;
@@ -1189,7 +1215,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             // Groove-ride: let clip duration match the beat gap naturally
             if (syncStrategy === 'groove-ride') {
                 const gapFrames = Math.floor(beatGapS * DEFAULT_FPS);
-                clipMin = Math.max(3, gapFrames - 3);
+                clipMin = Math.max(MIN_RENDERABLE_FRAMES, gapFrames - 3);
                 clipMax = gapFrames;
             }
 
@@ -1206,7 +1232,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             // Clamp this beat gap so we don't overshoot targetDuration
             const remainingFrames = targetFrames - accumulatedFrames;
             if (beatGapFrames > remainingFrames) beatGapFrames = remainingFrames;
-            if (beatGapFrames < 2) break;
+            if (beatGapFrames < MIN_RENDERABLE_FRAMES) continue; // skip beats too close to render
 
             const segType = getSegTypeAt(activeBeats[b]);
 
@@ -1247,7 +1273,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                     activePattern = RHYTHM_PATTERNS[sectionBehavior.rhythmPattern as RhythmPatternId] || undefined;
                     // Adjust min/max clip duration based on cut density multiplier
                     const dMult = sectionBehavior.cutDensityMultiplier;
-                    effectiveMin = Math.max(2, Math.round(effectiveMin / dMult));
+                    effectiveMin = Math.max(MIN_RENDERABLE_FRAMES, Math.round(effectiveMin / dMult));
                     effectiveMax = Math.max(effectiveMin + 1, Math.round(effectiveMax / dMult));
                 }
             }
@@ -1421,7 +1447,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 prevRhythmMult = rhythmMult;
                 let clipDuration = Math.min(rhythmDur, remaining);
                 if (clipDuration > remaining) clipDuration = remaining;
-                if (clipDuration < 2) { gapFilled = beatGapFrames; break; }
+                if (clipDuration < MIN_RENDERABLE_FRAMES) { gapFilled = beatGapFrames; break; }
 
                 const file = shuffledPool[poolIndex % shuffledPool.length];
                 poolIndex++;
@@ -1509,7 +1535,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 const file = shuffledFill[fillIdx % shuffledFill.length];
                 fillIdx++;
                 const remainingFrames = targetFrames - accumulatedFrames;
-                if (remainingFrames < 3) break;
+                if (remainingFrames < MIN_RENDERABLE_FRAMES) break;
                 let clipDur = Math.min(
                     Math.floor(rng.random() * (maxFrames - minFrames + 1)) + minFrames,
                     remainingFrames

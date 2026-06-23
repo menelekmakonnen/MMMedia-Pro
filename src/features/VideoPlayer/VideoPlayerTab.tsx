@@ -166,23 +166,23 @@ export const VideoPlayerTab: React.FC = () => {
         if (!clipNeedsProxy(activeClip)) return;
         if (!window.ipcRenderer?.generatePreviewProxy) return;
 
-        const hash = computeClipHash(activeClip);
+        const sig = computeClipHash(activeClip); // renderer settings signature
         const existing = getProxy(activeClip.id);
 
-        // If proxy exists with same hash, we're good
-        if (existing && existing.hash === hash && (existing.status === 'ready' || existing.status === 'rendering')) {
+        // If a proxy for the same settings signature exists, we're good
+        if (existing && existing.settingsSig === sig && (existing.status === 'ready' || existing.status === 'rendering')) {
             return;
         }
 
-        // If hash changed, invalidate old proxy
-        if (existing && existing.hash !== hash) {
+        // If settings changed, invalidate the old proxy (deletes by Electron hash)
+        if (existing && existing.settingsSig !== sig) {
             invalidateProxy(activeClip.id);
         }
 
         // Request new proxy
-        requestProxy(activeClip.id, hash);
+        requestProxy(activeClip.id, sig);
         setProxyRendering(activeClip.id);
-        proxyHashRef.current = hash;
+        proxyHashRef.current = sig;
 
         const proxySettings = {
             fps: settings.fps || DEFAULT_FPS,
@@ -195,7 +195,7 @@ export const VideoPlayerTab: React.FC = () => {
             settings: proxySettings,
         }).then((result) => {
             if (result.success && result.proxyPath) {
-                setProxyReady(activeClip.id, result.proxyPath);
+                setProxyReady(activeClip.id, result.proxyPath, result.hash || '');
                 console.log('[ProxyEngine] Proxy ready for', activeClip.filename);
             } else {
                 setProxyFailed(activeClip.id);

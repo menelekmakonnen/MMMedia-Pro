@@ -4,6 +4,14 @@ import type { ExportQuality, ExportOrientation } from '../lib/exportPresets';
 
 export type RenderEngine = 'segment' | 'per-clip' | 'monolithic' | 'both';
 
+/** A queued edit generated while a render is in progress. */
+export interface QueuedEdit {
+    id: string;
+    clips: any[];
+    label: string;
+    queuedAt: number;
+}
+
 interface ExportSettingsState {
     // Persisted user selections
     selectedPresetId: string;
@@ -15,6 +23,8 @@ interface ExportSettingsState {
     renderEngine: RenderEngine;
     useGpu: boolean;
     isExporting: boolean;
+    /** Edits generated while a render is in progress, waiting to be rendered. */
+    queuedEdits: QueuedEdit[];
 
     // Actions
     setSelectedPresetId: (id: string) => void;
@@ -26,6 +36,9 @@ interface ExportSettingsState {
     setRenderEngine: (engine: RenderEngine) => void;
     setUseGpu: (v: boolean) => void;
     setIsExporting: (v: boolean) => void;
+    addQueuedEdit: (edit: QueuedEdit) => void;
+    removeQueuedEdit: (id: string) => void;
+    clearQueuedEdits: () => void;
 }
 
 export const useExportSettingsStore = create<ExportSettingsState>()(
@@ -40,6 +53,7 @@ export const useExportSettingsStore = create<ExportSettingsState>()(
             renderEngine: 'segment',
             useGpu: false,
             isExporting: false,
+            queuedEdits: [],
 
             setSelectedPresetId: (selectedPresetId) => set({ selectedPresetId }),
             setExportQuality: (exportQuality) => set({ exportQuality }),
@@ -50,6 +64,9 @@ export const useExportSettingsStore = create<ExportSettingsState>()(
             setRenderEngine: (renderEngine) => set({ renderEngine }),
             setUseGpu: (useGpu) => set({ useGpu }),
             setIsExporting: (isExporting) => set({ isExporting }),
+            addQueuedEdit: (edit) => set((state) => ({ queuedEdits: [...state.queuedEdits, edit] })),
+            removeQueuedEdit: (id) => set((state) => ({ queuedEdits: state.queuedEdits.filter((e) => e.id !== id) })),
+            clearQueuedEdits: () => set({ queuedEdits: [] }),
         }),
         {
             name: 'mmmedia-export-settings',
@@ -65,8 +82,8 @@ export const useExportSettingsStore = create<ExportSettingsState>()(
                 return persisted;
             },
             partialize: (state) => {
-                // Never persist isExporting — it must always start as false
-                const { isExporting, ...rest } = state;
+                // Never persist isExporting or queuedEdits — they must always start empty
+                const { isExporting, queuedEdits, ...rest } = state;
                 return rest;
             },
         }

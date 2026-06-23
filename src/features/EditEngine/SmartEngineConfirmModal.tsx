@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Loader2, CheckCircle2, Clock, Zap } from 'lucide-react';
+import { Loader2, CheckCircle2, Clock, Zap, Layers, PowerOff } from 'lucide-react';
 
 interface SmartEngineConfirmModalProps {
     isOpen: boolean;
@@ -8,6 +8,8 @@ interface SmartEngineConfirmModalProps {
     totalCount: number;
     onUseNow: () => void;
     onWaitAll: () => void;
+    onProceedAll: () => void;
+    onDisableSmart: () => void;
     onCancel: () => void;
 }
 
@@ -17,6 +19,8 @@ export const SmartEngineConfirmModal: React.FC<SmartEngineConfirmModalProps> = (
     totalCount,
     onUseNow,
     onWaitAll,
+    onProceedAll,
+    onDisableSmart,
     onCancel,
 }) => {
     const progress = totalCount > 0 ? analyzedCount / totalCount : 0;
@@ -145,6 +149,43 @@ export const SmartEngineConfirmModal: React.FC<SmartEngineConfirmModalProps> = (
                                     {!isComplete && (
                                         <Loader2 size={14} className="text-blue-400/50 animate-spin" />
                                     )}
+                                </button>
+
+                                {/* Proceed With All Clips (analyzed + not-yet-analyzed) */}
+                                <button
+                                    onClick={onProceedAll}
+                                    className="group w-full flex items-center gap-3 p-3.5 rounded-xl border border-emerald-500/20 bg-gradient-to-r from-emerald-600/15 to-emerald-500/10 hover:from-emerald-600/25 hover:to-emerald-500/20 hover:border-emerald-500/40 transition-all duration-200"
+                                >
+                                    <div className="p-1.5 rounded-lg bg-emerald-500/20 group-hover:bg-emerald-500/30 transition-colors">
+                                        <Layers size={16} className="text-emerald-300" />
+                                    </div>
+                                    <div className="text-left flex-1">
+                                        <div className="text-sm font-bold text-white group-hover:text-emerald-100 transition-colors">
+                                            Proceed With All Clips
+                                        </div>
+                                        <div className="text-[10px] text-white/40 mt-0.5">
+                                            Use all {totalCount} clips now — analyzed and not-yet-analyzed combined
+                                        </div>
+                                    </div>
+                                    <CheckCircle2 size={16} className="text-emerald-400/50 group-hover:text-emerald-400 transition-colors" />
+                                </button>
+
+                                {/* Disable Smart Engine for this edit */}
+                                <button
+                                    onClick={onDisableSmart}
+                                    className="group w-full flex items-center gap-3 p-3.5 rounded-xl border border-white/10 bg-white/[0.03] hover:bg-white/[0.06] hover:border-white/20 transition-all duration-200"
+                                >
+                                    <div className="p-1.5 rounded-lg bg-white/10 group-hover:bg-white/15 transition-colors">
+                                        <PowerOff size={16} className="text-white/60" />
+                                    </div>
+                                    <div className="text-left flex-1">
+                                        <div className="text-sm font-bold text-white/90 group-hover:text-white transition-colors">
+                                            Disable Smart Engine
+                                        </div>
+                                        <div className="text-[10px] text-white/40 mt-0.5">
+                                            Build the edit without Smart input (it keeps analyzing in the background)
+                                        </div>
+                                    </div>
                                 </button>
                             </div>
 

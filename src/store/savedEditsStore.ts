@@ -20,6 +20,14 @@ export interface SavedEdit {
     godModePresetId?: string;
     /** Duration in seconds */
     duration: number;
+    /** Source folder path(s) — for full project restore */
+    sourceFolders?: string[];
+    /** Audio file path — for Beat Intelligence restore */
+    audioFilePath?: string;
+    /** Audio file display name */
+    audioFileName?: string;
+    /** Snapshot of TrailerSettings at generation time (excluding transient data) */
+    settingsSnapshot?: Record<string, any>;
 }
 
 interface SavedEditsStore {

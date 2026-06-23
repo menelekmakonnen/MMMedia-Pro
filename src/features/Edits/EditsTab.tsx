@@ -3,7 +3,9 @@ import { useSavedEditsStore, SavedEdit } from '../../store/savedEditsStore';
 import { useClipStore } from '../../store/clipStore';
 import { useProjectStore } from '../../store/projectStore';
 import { useViewStore } from '../../store/viewStore';
+import { useMediaStore } from '../../store/mediaStore';
 import { generateManifest } from '../../lib/manifestBridge';
+import { buildMediaFile } from '../../lib/mediaProbe';
 import {
     Trash2, Film, PlayCircle, HardDriveDownload, Calendar, AlertCircle,
     Save, FolderUp, Clock, Layers, AlertTriangle, Sparkles, Search, SortDesc, Play
@@ -105,6 +107,76 @@ export const EditsTab: React.FC = () => {
         return true;
     }, []);
 
+    /** Extract unique folder paths from clip file paths (fallback for legacy edits) */
+    const extractFoldersFromClips = (clips: SavedEdit['clips']): string[] => {
+        const folders = new Set<string>();
+        for (const clip of clips) {
+            if (clip.path) {
+                const folder = clip.path.replace(/[\\/][^\\/]+$/, '');
+                if (folder && folder !== clip.path) folders.add(folder);
+            }
+        }
+        return [...folders];
+    };
+
+    const doLoadEdit = useCallback(async (edit: SavedEdit) => {
+        const mediaStore = useMediaStore.getState();
+
+        // ── 1. Restore source files into Media Manager ──────────────
+        const foldersToLoad = edit.sourceFolders?.length
+            ? edit.sourceFolders
+            : extractFoldersFromClips(edit.clips);
+
+        if (foldersToLoad.length > 0) {
+            mediaStore.clearLibrary();
+            let totalLoaded = 0;
+            for (const folder of foldersToLoad) {
+                try {
+                    const result = await (window.ipcRenderer as any).loadFolder(folder);
+                    if (result?.success && result.files) {
+                        const newFiles = await Promise.all(
+                            result.files.map((file: any) => buildMediaFile(file))
+                        );
+                        mediaStore.addFiles(newFiles as any);
+                        mediaStore.addRecentFolder(folder, newFiles.length);
+                        totalLoaded += newFiles.length;
+                    }
+                } catch (err) {
+                    console.warn('[EditsTab] Failed to load folder:', folder, err);
+                }
+            }
+            if (totalLoaded > 0) {
+                console.log(`[EditsTab] Restored ${totalLoaded} source files from ${foldersToLoad.length} folder(s)`);
+            }
+        }
+
+        // ── 2. Preload audio for Beat Intelligence ──────────────────
+        if (edit.audioFilePath) {
+            mediaStore.setPreloadedAudio(edit.audioFilePath, edit.audioFileName || 'Audio');
+        }
+
+        // ── 3. Restore generator settings snapshot ──────────────────
+        if (edit.settingsSnapshot) {
+            try {
+                const persistable = { ...edit.settingsSnapshot };
+                delete persistable.audioAnalysis;
+                delete persistable.narrationAnalysis;
+                localStorage.setItem('mmm_trailer_settings', JSON.stringify(persistable));
+            } catch (err) {
+                console.warn('[EditsTab] Failed to restore settings:', err);
+            }
+        }
+
+        // ── 4. Load clips into timeline ─────────────────────────────
+        setClips(edit.clips);
+        updateEditLastOpened(edit.id);
+
+        // ── 5. Navigate to Producer tab for re-editing ─────────────
+        setActiveTab('trailer');
+        setRelinkState(null);
+        toast.success(`Restored project "${edit.name}" — ${edit.clipCount} clips`);
+    }, [setClips, setActiveTab, updateEditLastOpened]);
+
     const handleLoadToTimeline = useCallback(async (edit: SavedEdit) => {
         if (edit.clips && edit.clips.length > 0) {
             const uniquePaths = [...new Set(edit.clips.map(c => c.path).filter(Boolean))];
@@ -117,16 +189,8 @@ export const EditsTab: React.FC = () => {
                 return;
             }
         }
-        doLoadEdit(edit);
-    }, [checkFileExists]);
-
-    const doLoadEdit = useCallback((edit: SavedEdit) => {
-        setClips(edit.clips);
-        updateEditLastOpened(edit.id);
-        setActiveTab('timeline');
-        setRelinkState(null);
-        toast.success(`Loaded "${edit.name}" — ${edit.clipCount} clips`);
-    }, [setClips, setActiveTab, updateEditLastOpened]);
+        await doLoadEdit(edit);
+    }, [checkFileExists, doLoadEdit]);
 
     const handleExportManifest = async (edit: SavedEdit) => {
         try {

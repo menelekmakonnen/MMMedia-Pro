@@ -210,17 +210,27 @@ export function computeClipTiming(
             seekSec = Math.max(0, probeData.duration - srcDurSec - 0.5);
         }
         if (seekSec + srcDurSec > probeData.duration) {
-            srcDurSec = Math.max(0.04, probeData.duration - seekSec - 0.01);
+            srcDurSec = Math.max(0.2, probeData.duration - seekSec - 0.01);
         }
     }
-    if (srcDurSec < 0.01) srcDurSec = 0.04;
+    // Hard floor: 0.2s (6 frames at 30fps) is the minimum for FFmpeg to
+    // produce a valid intermediate with at least one keyframe.
+    if (srcDurSec < 0.2) srcDurSec = 0.2;
 
-    const outDurSec = srcDurSec / speed;
+    // OUTPUT duration is ALWAYS the clip's timeline slot — the slot is the source
+    // of truth for how long the clip occupies the edit. We DECODE srcDurSec of real
+    // footage (clamped above to what the source actually has), and the pad-to-slot
+    // filter clones the last frame to fill any shortfall. This keeps reordered or
+    // short-source clips filling their full slot instead of collapsing below it,
+    // so the rendered total matches the defined duration. In the common case where
+    // the source covers the slot, timelineDurSec == srcDurSec/speed, so this is a
+    // no-op vs. the old formula.
+    const outDurSec = timelineDurSec;
     return {
         seekSec,
         srcDurSec,
         outDurSec,
-        outFrames: Math.max(1, Math.round(outDurSec * settings.fps)),
+        outFrames: Math.max(6, Math.round(outDurSec * settings.fps)),
     };
 }
 
@@ -429,7 +439,7 @@ export function buildVideoFilter(
     clip: ClipExportData,
     settings: ExportSettings,
     probeData: ProbeData,
-    opts: { preSeeked?: boolean } = {}
+    opts: { preSeeked?: boolean; padToSlot?: boolean } = {}
 ): string {
     const speed = clip.speed || 1.0;
     const fps = settings.fps;
@@ -733,6 +743,17 @@ export function buildVideoFilter(
     //      so nothing can breach the top, bottom, or side edges; the edges stay put.
     filters.push(`crop=${outW}:${outH}:(iw-${outW})/2:(ih-${outH})/2`);
     filters.push('setsar=1');
+
+    // 12d. PAD-TO-SLOT (export only). When a clip's source runs short, its video
+    //      stream ends a few frames before its timeline slot while the audio fills
+    //      the slot. That video<audio mismatch drifts the stitch (xfade offsets and
+    //      plain concat) and freezes the picture while the music plays on. Cloning
+    //      the last frame fills the slot; the caller's `-t` cap trims the surplus so
+    //      the rendered video length matches the audio exactly. Opt-in so single-clip
+    //      preview proxies (which have no `-t` cap) never grow a frozen tail.
+    if (opts.padToSlot) {
+        filters.push(`tpad=stop_mode=clone:stop_duration=${(timing.outDurSec + 0.5).toFixed(3)}`);
+    }
 
     // 13. Fork/merge effects (double exposure + glow bloom). Appended as a valid
     //     single-in/single-out sub-graph so the whole -vf remains one filtergraph.

@@ -7,7 +7,7 @@ import { TabId } from '../types';
 import clsx from 'clsx';
 
 // Heavy pages that shouldn't be accessed during export
-const HEAVY_TABS: TabId[] = ['trailer', 'timeline', 'grideditor', 'sequence', 'dashboard'];
+const HEAVY_TABS: TabId[] = ['timeline', 'grideditor', 'sequence', 'dashboard'];
 
 export const Sidebar: React.FC = () => {
     const { activeTab, setActiveTab } = useViewStore();
@@ -68,7 +68,7 @@ export const Sidebar: React.FC = () => {
             <div className="space-y-0.5 w-full">
                 <NavItem id="dashboard" icon={Sliders} label="Config" />
                 <NavItem id="media" icon={FolderOpen} label="Import" />
-                <NavItem id="trailer" icon={Wand2} label="Trailer" />
+                <NavItem id="trailer" icon={Wand2} label="Producer" />
             </div>
 
             {/* Separator */}
@@ -76,7 +76,7 @@ export const Sidebar: React.FC = () => {
 
             {/* Edit nav group */}
             <div className="space-y-0.5 w-full">
-                <NavItem id="timeline" icon={Film} label="Timeline" />
+                <NavItem id="timeline" icon={Film} label="Clip Lab" />
                 <NavItem id="grideditor" icon={Grid} label="Grid" />
                 <NavItem id="sequence" icon={MonitorPlay} label="Sequence" />
                 <NavItem id="videoplayer" icon={PlayCircle} label="Player" />

@@ -11,11 +11,20 @@ import { ProgramMonitor } from './ProgramMonitor';
 import { SequenceInspector } from './SequenceInspector';
 
 import clsx from 'clsx';
+import { TimelineCanvas } from './timeline/TimelineCanvas';
+import { KeyboardShortcutsOverlay } from './KeyboardShortcutsOverlay';
+import { useTimelineStore } from './timeline/useTimelineStore';
+import {
+    splitAtPlayhead,
+    deleteSelectedClips,
+    rippleDeleteSelectedClips,
+    duplicateSelectedClips,
+} from './actions';
 
 const DEFAULT_SCALE = 0.5; // Pixels per frame
 
 export const SequenceViewTab: React.FC = () => {
-    const { clips, magnetizeClips, transitionStrategy, trackMutes, trackVolumes, setTrackMuted, setTrackVolume, updateClip } = useClipStore();
+    const { clips, magnetizeClips, transitionStrategy, trackMutes, trackVolumes, setTrackMuted, setTrackVolume, updateClip, selectedClipIds } = useClipStore();
     const { settings } = useProjectStore();
     const { masterVolume, isMasterMuted, setMasterVolume, setIsMasterMuted } = useUserStore();
 
@@ -37,6 +46,40 @@ export const SequenceViewTab: React.FC = () => {
     const dragOrigEndFrameRef = useRef(0);
     const [currentGlobalFrame, setCurrentGlobalFrame] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
+    const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
+    // Latest play/pause handler, callable from the (memoised) keyboard effect.
+    const handlePlayPauseRef = useRef<() => void>(() => {});
+
+    // Sync local playhead and play/pause state with NLE Timeline Store
+    const storePlayhead = useTimelineStore((s) => s.playheadFrame);
+    const storeIsPlaying = useTimelineStore((s) => s.isPlaying);
+    const storeSetPlayhead = useTimelineStore((s) => s.setPlayheadFrame);
+    const storeSetIsPlaying = useTimelineStore((s) => s.setIsPlaying);
+
+    useEffect(() => {
+        setCurrentGlobalFrame(storePlayhead);
+    }, [storePlayhead]);
+
+    useEffect(() => {
+        if (currentGlobalFrame !== storePlayhead) {
+            storeSetPlayhead(currentGlobalFrame);
+        }
+    }, [currentGlobalFrame, storePlayhead, storeSetPlayhead]);
+
+    useEffect(() => {
+        setIsPlaying(storeIsPlaying);
+    }, [storeIsPlaying]);
+
+    useEffect(() => {
+        if (isPlaying !== storeIsPlaying) {
+            storeSetIsPlaying(isPlaying);
+        }
+    }, [isPlaying, storeIsPlaying, storeSetIsPlaying]);
+
+    // Mirror the unified clip selection into the Inspector.
+    useEffect(() => {
+        setSelectedClipId(selectedClipIds.length ? selectedClipIds[0] : null);
+    }, [selectedClipIds]);
 
     // ── Active tool (Premiere-style: select / razor / hand) ──
     const [activeTool, setActiveTool] = useState<SequenceTool>('select');
@@ -108,6 +151,12 @@ export const SequenceViewTab: React.FC = () => {
             // Ignore if user is typing in an input
             if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'TEXTAREA') return;
 
+            // ? key = show keyboard shortcuts overlay helper
+            if (e.key === '?' || (e.key === '/' && e.shiftKey)) {
+                setIsShortcutsOpen(prev => !prev);
+                return;
+            }
+
             // V key = selection tool
             if (e.key === 'v' && !e.ctrlKey && !e.metaKey) {
                 setActiveTool('select');
@@ -130,14 +179,78 @@ export const SequenceViewTab: React.FC = () => {
                 setMultiSelectedIds(new Set());
                 setSelectedClipId(null);
             }
-            // Delete/Backspace = delete selected clips
+            // Delete = lift (leave gap); Shift+Delete = ripple delete (close gap)
             if (e.key === 'Delete' || e.key === 'Backspace') {
-                if (multiSelectedIds.size > 0) {
-                    multiSelectedIds.forEach(id => useClipStore.getState().removeClip(id));
-                    setMultiSelectedIds(new Set());
-                } else if (selectedClipId) {
-                    useClipStore.getState().removeClip(selectedClipId);
-                    setSelectedClipId(null);
+                e.preventDefault();
+                if (e.shiftKey) rippleDeleteSelectedClips(); else deleteSelectedClips();
+                setMultiSelectedIds(new Set());
+                setSelectedClipId(null);
+            }
+            // B = split clip(s) at the playhead
+            if (e.key === 'b' && !e.ctrlKey && !e.metaKey) {
+                e.preventDefault();
+                splitAtPlayhead(useTimelineStore.getState().playheadFrame);
+            }
+            // Ctrl/Cmd+D = duplicate selected
+            if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+                e.preventDefault();
+                duplicateSelectedClips();
+            }
+            // M = drop a marker at the playhead
+            if (e.key === 'm' && !e.ctrlKey && !e.metaKey) {
+                e.preventDefault();
+                useTimelineStore.getState().addMarker({
+                    id: crypto.randomUUID(),
+                    frame: useTimelineStore.getState().playheadFrame,
+                    label: `Marker ${useTimelineStore.getState().markers.length + 1}`,
+                    color: '#facc15',
+                });
+            }
+            // I / O = set in / out points
+            if (e.key === 'i' && !e.ctrlKey && !e.metaKey) {
+                const st = useTimelineStore.getState();
+                st.setInOutRange({ ...st.inOutRange, inFrame: st.playheadFrame });
+            }
+            if (e.key === 'o' && !e.ctrlKey && !e.metaKey) {
+                const st = useTimelineStore.getState();
+                st.setInOutRange({ ...st.inOutRange, outFrame: st.playheadFrame });
+            }
+            // Space = play / pause
+            if (e.key === ' ') {
+                e.preventDefault();
+                handlePlayPauseRef.current();
+            }
+            // Arrows = nudge playhead (Shift = 10 frames)
+            if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                setCurrentGlobalFrame((f) => Math.max(0, f - (e.shiftKey ? 10 : 1)));
+            }
+            if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                setCurrentGlobalFrame((f) => f + (e.shiftKey ? 10 : 1));
+            }
+            if (e.key === 'Home') { e.preventDefault(); setCurrentGlobalFrame(0); }
+            // J / K / L transport (engine plays forward only; J steps back)
+            if (e.key === 'l' && !e.ctrlKey && !e.metaKey) { setIsPlaying(true); }
+            if (e.key === 'k' && !e.ctrlKey && !e.metaKey) { setIsPlaying(false); }
+            if (e.key === 'j' && !e.ctrlKey && !e.metaKey) {
+                setIsPlaying(false);
+                setCurrentGlobalFrame((f) => Math.max(0, f - 1));
+            }
+            // + / − = zoom timeline scale
+            if ((e.key === '+' || e.key === '=') && !e.ctrlKey && !e.metaKey) {
+                const s = useTimelineStore.getState();
+                s.setPixelsPerFrame(s.pixelsPerFrame * 1.25);
+            }
+            if ((e.key === '-' || e.key === '_') && !e.ctrlKey && !e.metaKey) {
+                const s = useTimelineStore.getState();
+                s.setPixelsPerFrame(s.pixelsPerFrame / 1.25);
+            }
+            // Shift+Z = fit entire sequence to window
+            if (e.key === 'Z' && e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                const max = useClipStore.getState().clips.reduce((m, c) => Math.max(m, c.endFrame), 0);
+                if (max > 0) {
+                    useTimelineStore.getState().setPixelsPerFrame(Math.max(0.02, (window.innerWidth - 220) / max));
                 }
             }
             // Ctrl+C = copy
@@ -467,6 +580,7 @@ export const SequenceViewTab: React.FC = () => {
         if (!isPlaying && currentGlobalFrame >= maxFrameId && maxFrameId > 0) setCurrentGlobalFrame(0);
         setIsPlaying(!isPlaying);
     };
+    handlePlayPauseRef.current = handlePlayPause;
     const handleStop = () => { setIsPlaying(false); setCurrentGlobalFrame(0); };
     const handleSkipNext = () => {
         const allClips = tracks.flatMap(t => t.clips).filter(c => !c.disabled);
@@ -610,6 +724,7 @@ export const SequenceViewTab: React.FC = () => {
                     volumeBarTimeoutRef={volumeBarTimeoutRef}
                     bgAudioClips={bgAudioClips}
                     bgAudioRefs={bgAudioRefs}
+                    exactProxyAvailable={!!(activeVisualClip && useTimelineStore.getState().prerenderCache[activeVisualClip.id])}
                 />
 
                 {/* ── Right Sidebar: Inspector (always visible) ── */}
@@ -681,227 +796,13 @@ export const SequenceViewTab: React.FC = () => {
                 />
 
                 {/* Timeline Area */}
-                <div className="flex-1 overflow-hidden flex flex-col relative" ref={containerRef}>
-                    {/* Time Ruler */}
-                    <div
-                        className="h-7 border-b border-white/[0.04] bg-[#080810]/80 flex items-center overflow-hidden shrink-0 ml-[200px]"
-                        onClick={handleTimelineClick}
-                    >
-                        <div className="relative h-full w-full">
-                            {Array.from({ length: 100 }).map((_, i) => (
-                                <div
-                                    key={i}
-                                    className="absolute bottom-0 border-l border-white/[0.06] h-3 text-[8px] text-white/20 pl-1 select-none font-mono"
-                                    style={{ left: (i * settings.fps * 10) * scale }}
-                                >
-                                    {i * 10}s
-                                </div>
-                            ))}
-                            {/* Playhead Indicator in Ruler */}
-                            <div
-                                className="absolute top-0 bottom-0 w-4 -ml-2 flex justify-center cursor-pointer z-30"
-                                style={{ left: currentGlobalFrame * scale }}
-                            >
-                                <div className="w-0.5 h-full bg-red-500" />
-                                <div className="absolute top-0 w-2.5 h-2.5 bg-red-500 transform rotate-45 -mt-1 rounded-sm shadow-[0_0_6px_rgba(239,68,68,0.4)]" />
-                            </div>
-                        </div>
-                    </div>
+                <TimelineCanvas fps={settings.fps} />
 
-                    {/* Tracks Container */}
-                    <div className="flex-1 flex flex-col min-h-0 overflow-x-auto relative bg-transparent">
-                        <div className="min-w-full relative flex-1 flex flex-col">
-                            {tracks.map(track => {
-                                const isLocked = trackLocked[track.id] ?? false;
-                                const isHiddenTrack = trackHidden[track.id] ?? false;
-                                const isSolo = trackSolo[track.id] ?? false;
-                                const isMuted = trackMutes[track.id] ?? false;
-                                return (
-                                <div key={track.id} className={clsx("flex flex-1 min-h-[48px] border-b border-white/[0.04] relative group transition-all", isHiddenTrack ? 'bg-[#0a0a15]/80 opacity-50' : 'bg-[#0c0c18]/60')}>
-                                    {/* Track Header — Premiere Pro style */}
-                                    <div className="w-[200px] bg-[#0f0f20]/80 backdrop-blur-md border-r border-white/[0.04] flex flex-col p-2 gap-1 flex-shrink-0 sticky left-0 z-10 shadow-lg top-0">
-                                        <div className="flex items-center justify-between">
-                                            <span className={clsx("text-[10px] font-bold flex items-center gap-1.5 tracking-wide", isMuted ? 'text-white/25 line-through' : 'text-white/55')}>
-                                                {track.isAudio ? <Mic size={10} className={isMuted ? 'text-white/15' : track.id === 2 ? 'text-cyan-400/70' : 'text-pink-400/70'} /> : <Video size={10} className="text-accent/70" />}
-                                                {track.label}
-                                                {track.id === 2 && <Link2 size={8} className="text-cyan-400/30" />}
-                                            </span>
-                                        </div>
-                                        {/* Control row */}
-                                        <div className="flex items-center gap-0.5">
-                                            <button onClick={() => toggleTrackHidden(track.id)} className={clsx('p-0.5 rounded transition-colors', isHiddenTrack ? 'text-yellow-400' : 'text-white/20 hover:text-white/50')} title="Toggle Visibility">
-                                                {isHiddenTrack ? <EyeOff size={11} /> : <Eye size={11} />}
-                                            </button>
-                                            <button onClick={() => toggleTrackLock(track.id)} className={clsx('p-0.5 rounded transition-colors', isLocked ? 'text-red-400' : 'text-white/20 hover:text-white/50')} title="Toggle Lock">
-                                                {isLocked ? <Lock size={11} /> : <Unlock size={11} />}
-                                            </button>
-                                            {track.isAudio && (
-                                                <>
-                                                    <button onClick={(e) => { e.stopPropagation(); setTrackMuted(track.id, !isMuted); }}
-                                                        className={clsx('px-1 py-0.5 rounded text-[8px] font-black transition-colors', isMuted ? 'bg-red-500/30 text-red-300' : 'text-white/25 hover:text-white/50 hover:bg-white/5')}
-                                                        title={isMuted ? 'Unmute' : 'Mute'}>M</button>
-                                                    <button onClick={() => toggleTrackSolo(track.id)}
-                                                        className={clsx('px-1 py-0.5 rounded text-[8px] font-black transition-colors', isSolo ? 'bg-yellow-500/30 text-yellow-300' : 'text-white/25 hover:text-white/50 hover:bg-white/5')}
-                                                        title={isSolo ? 'Unsolo' : 'Solo'}>S</button>
-                                                    <button onClick={(e) => { e.stopPropagation(); setTrackMuted(track.id, !isMuted); }}
-                                                        className={clsx('p-0.5 rounded transition-colors', isMuted ? 'text-red-400' : 'text-white/20 hover:text-white/50')}
-                                                        title={isMuted ? 'Unmute' : 'Mute'}>
-                                                        {isMuted ? <VolumeX size={11} /> : <Volume2 size={11} />}
-                                                    </button>
-                                                </>
-                                            )}
-                                        </div>
-                                        {/* Per-Track Volume Slider */}
-                                        {track.isAudio && (
-                                            <div className="flex items-center gap-1 mt-0.5">
-                                                <span className="text-[7px] text-white/20 w-4 text-right font-mono">{trackVolumes[track.id] ?? 100}</span>
-                                                <input
-                                                    type="range"
-                                                    min={0}
-                                                    max={100}
-                                                    step={1}
-                                                    value={trackVolumes[track.id] ?? 100}
-                                                    onChange={(e) => setTrackVolume(track.id, parseInt(e.target.value))}
-                                                    className="flex-1 h-0.5 bg-white/10 rounded-full appearance-none cursor-pointer accent-purple-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2 [&::-webkit-slider-thumb]:h-2 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-purple-400"
-                                                    title={`Track Volume: ${trackVolumes[track.id] ?? 100}%`}
-                                                />
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Track Lane */}
-                                    <div
-                                        className={clsx('flex-1 relative min-w-0', razorMode ? 'cursor-crosshair' : '')}
-                                        style={{
-                                            backgroundSize: '20px 20px',
-                                            backgroundImage: 'radial-gradient(circle, #ffffff03 1px, transparent 1px)'
-                                        }}
-                                        onClick={handleTimelineClick}
-                                    >
-                                        {track.clips.map(clip => {
-                                            const duration = clip.endFrame - clip.startFrame;
-                                            const width = duration * scale;
-                                            const left = clip.startFrame * scale;
-                                            const isShadow = (clip as any)._shadowOf;
-                                            const isLinkedAudio = track.id === 2 && isShadow;
-
-                                            return (
-                                                <div
-                                                    key={clip.id}
-                                                    className={clsx(
-                                                        "absolute top-1 bottom-1 rounded border text-xs flex flex-col justify-center px-2 truncate overflow-hidden hover:brightness-110 shadow-lg transition-colors border-l-[3px]",
-                                                        activeVisualClip?.id === clip.id || activeVisualClip?.id === isShadow ? "ring-1 ring-white/30" : "",
-                                                        multiSelectedIds.has(clip.id) ? 'ring-1 ring-blue-400/50' : '',
-                                                        razorMode ? 'cursor-crosshair' : '',
-                                                        isLocked ? "cursor-not-allowed" : (track.isAudio && track.id > 100 ? (dragClipId === clip.id ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-pointer'),
-                                                        clip.disabled ? "opacity-30 grayscale border-dashed" : (
-                                                            isLinkedAudio ? 'bg-cyan-900/30 border-l-cyan-500/70 border-y-cyan-500/15 border-r-cyan-500/15 text-cyan-200/80' :
-                                                            clip.type === 'grid' ? 'bg-primary/30 border-l-primary/70 border-y-primary/20 border-r-primary/20 text-primary-light' :
-                                                                clip.type === 'video' ? 'bg-accent/30 border-l-accent/70 border-y-accent/20 border-r-accent/20 text-accent-light' :
-                                                                    clip.type === 'audio' ? 'bg-pink-900/30 border-l-pink-500/70 border-y-pink-500/20 border-r-pink-500/20 text-pink-200/80' :
-                                                                        'bg-gray-800/30 border-gray-600/50'
-                                                        )
-                                                    )}
-                                                    style={{ left, width }}
-                                                    title={`${clip.filename} (${duration}f)${isLinkedAudio ? ' — linked audio' : ''}`}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        if (razorMode && !isLocked) {
-                                                            // Split this clip at the clicked position
-                                                            const rect = e.currentTarget.parentElement!.getBoundingClientRect();
-                                                            const clickX = e.clientX - rect.left;
-                                                            const clickFrame = Math.max(0, Math.floor(clickX / scale));
-                                                            handleSplitClip(clip.id, clickFrame);
-                                                            return;
-                                                        }
-                                                        setCurrentGlobalFrame(clip.startFrame);
-                                                        // Multi-select support
-                                                        if (e.shiftKey || e.ctrlKey || e.metaKey) {
-                                                            setMultiSelectedIds(prev => {
-                                                                const next = new Set(prev);
-                                                                const realId = (isShadow as string) || clip.id;
-                                                                if (next.has(realId)) next.delete(realId); else next.add(realId);
-                                                                return next;
-                                                            });
-                                                        } else {
-                                                            setMultiSelectedIds(new Set());
-                                                            setSelectedClipId((isShadow as string) || clip.id);
-                                                        }
-                                                    }}
-                                                    onMouseDown={(e) => {
-                                                        if (isLocked) return;
-                                                        if (track.isAudio && track.id > 100 && !isShadow) {
-                                                            // Existing audio drag behavior
-                                                            e.stopPropagation();
-                                                            e.preventDefault();
-                                                            setDragClipId(clip.id);
-                                                            dragStartXRef.current = e.clientX;
-                                                            dragOrigStartFrameRef.current = clip.startFrame;
-                                                            dragOrigEndFrameRef.current = clip.endFrame;
-                                                        } else if (track.id === 1 && !isShadow) {
-                                                            // V1 drag-to-reorder
-                                                            e.stopPropagation();
-                                                            e.preventDefault();
-                                                            setV1DragClipId(clip.id);
-                                                        }
-                                                    }}
-                                                >
-                                                    {/* Left trim handle */}
-                                                    {!isLocked && !isShadow && (
-                                                        <div
-                                                            className="absolute left-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-yellow-400/20 z-10 group/trim"
-                                                            onMouseDown={(e) => {
-                                                                e.stopPropagation();
-                                                                e.preventDefault();
-                                                                setTrimState({
-                                                                    clipId: clip.id, edge: 'left', startX: e.clientX,
-                                                                    origStart: clip.startFrame, origEnd: clip.endFrame,
-                                                                    origTrimStart: clip.trimStartFrame || 0, origTrimEnd: clip.trimEndFrame || clip.sourceDurationFrames || 0
-                                                                });
-                                                            }}
-                                                        >
-                                                            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-yellow-400/0 group-hover/trim:bg-yellow-400 rounded-r transition-colors" />
-                                                        </div>
-                                                    )}
-                                                    {/* Right trim handle */}
-                                                    {!isLocked && !isShadow && (
-                                                        <div
-                                                            className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-yellow-400/20 z-10 group/trim"
-                                                            onMouseDown={(e) => {
-                                                                e.stopPropagation();
-                                                                e.preventDefault();
-                                                                setTrimState({
-                                                                    clipId: clip.id, edge: 'right', startX: e.clientX,
-                                                                    origStart: clip.startFrame, origEnd: clip.endFrame,
-                                                                    origTrimStart: clip.trimStartFrame || 0, origTrimEnd: clip.trimEndFrame || clip.sourceDurationFrames || 0
-                                                                });
-                                                            }}
-                                                        >
-                                                            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-yellow-400/0 group-hover/trim:bg-yellow-400 rounded-l transition-colors" />
-                                                        </div>
-                                                    )}
-                                                    <span className="font-semibold truncate flex items-center gap-1 text-[10px]">
-                                                        {track.id === 1 && !isShadow && <GripVertical size={9} className="text-white/15 flex-shrink-0 cursor-grab" />}
-                                                        {isLinkedAudio && <Link2 size={8} className="text-cyan-300/40 flex-shrink-0" />}
-                                                        {clip.filename}
-                                                    </span>
-                                                    <span className="text-[8px] opacity-40">{isLinkedAudio ? 'Linked' : `${duration}f`}</span>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            );
-                            })}
-
-                            {/* Full Height Playhead Line */}
-                            <div
-                                className="absolute top-0 bottom-0 w-px bg-red-500 pointer-events-none z-20 shadow-[0_0_4px_rgba(239,68,68,0.3)]"
-                                style={{ left: 200 + (currentGlobalFrame * scale) }}
-                            />
-                        </div>
-                    </div>
-                </div>
+                {/* Keyboard Shortcuts Helper Overlay */}
+                <KeyboardShortcutsOverlay
+                    isOpen={isShortcutsOpen}
+                    onClose={() => setIsShortcutsOpen(false)}
+                />
             </div>
         </div>
     );

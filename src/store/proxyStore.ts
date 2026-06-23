@@ -4,15 +4,20 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 export interface ProxyEntry {
     proxyPath: string;
     status: 'pending' | 'rendering' | 'ready' | 'failed';
-    hash: string;        // hash of clip visual settings
+    /** Authoritative Electron MD5 hash = the proxy filename id. Empty until ready.
+     *  This is the ONLY value used to invalidate/delete the real proxy file. */
+    hash: string;
+    /** Renderer-side settings signature, used purely for change detection
+     *  (do NOT use to delete files — it does not match the Electron filename). */
+    settingsSig: string;
     clipId: string;
 }
 
 interface ProxyStore {
     proxies: Record<string, ProxyEntry>;   // keyed by clipId
-    requestProxy: (clipId: string, hash: string) => void;
+    requestProxy: (clipId: string, settingsSig: string) => void;
     setProxyRendering: (clipId: string) => void;
-    setProxyReady: (clipId: string, proxyPath: string) => void;
+    setProxyReady: (clipId: string, proxyPath: string, hash: string) => void;
     setProxyFailed: (clipId: string) => void;
     invalidateProxy: (clipId: string) => void;
     getProxy: (clipId: string) => ProxyEntry | undefined;
@@ -24,13 +29,14 @@ export const useProxyStore = create<ProxyStore>()(
         (set, get) => ({
             proxies: {},
 
-            requestProxy: (clipId: string, hash: string) => {
+            requestProxy: (clipId: string, settingsSig: string) => {
                 set((state) => ({
                     proxies: {
                         ...state.proxies,
                         [clipId]: {
                             clipId,
-                            hash,
+                            hash: '',          // unknown until Electron returns it
+                            settingsSig,
                             proxyPath: '',
                             status: 'pending',
                         },
@@ -51,14 +57,16 @@ export const useProxyStore = create<ProxyStore>()(
                 });
             },
 
-            setProxyReady: (clipId: string, proxyPath: string) => {
+            setProxyReady: (clipId: string, proxyPath: string, hash: string) => {
                 set((state) => {
                     const existing = state.proxies[clipId];
                     if (!existing) return state;
                     return {
                         proxies: {
                             ...state.proxies,
-                            [clipId]: { ...existing, proxyPath, status: 'ready' },
+                            // Store Electron's authoritative hash so invalidation
+                            // deletes the correct <hash>.mp4 file.
+                            [clipId]: { ...existing, proxyPath, hash, status: 'ready' },
                         },
                     };
                 });

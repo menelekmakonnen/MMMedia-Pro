@@ -14,6 +14,11 @@ export interface ClipAnalysisResult {
     sceneCutsFrames?: number[];
     autoGrade?: any;
     analyzed: boolean;
+    completedPasses?: SmartKey[];
+    /** Analysis schema version + source fingerprint for cache invalidation. */
+    analysisVersion?: number;
+    sourceSize?: number;
+    sourceMtimeMs?: number;
 }
 
 interface TrailerSmartStore {
@@ -32,14 +37,18 @@ interface TrailerSmartStore {
     // ── Per-clip analysis results ──
     analysisResults: Record<string, ClipAnalysisResult>;
     queuedFileIds: string[];
+    scannedFiles: Record<string, { id: string; path: string; filename: string }>;
     analyzedCount: number;
     totalCount: number;
     isFullyAnalyzed: boolean;
+    isPaused: boolean;
 
     storeResult: (fileId: string, result: ClipAnalysisResult) => void;
     getResult: (fileId: string) => ClipAnalysisResult | undefined;
     queueFiles: (fileIds: string[]) => void;
+    registerScannedFiles: (files: Array<{ id: string; path: string; filename: string }>) => void;
     clearResults: () => void;
+    setPaused: (paused: boolean) => void;
 }
 
 const idle = (): FeatureProgress => ({ status: 'idle', done: 0, total: 0 });
@@ -66,9 +75,11 @@ export const useTrailerSmartStore = create<TrailerSmartStore>()(
             // ── Per-clip results ──
             analysisResults: {},
             queuedFileIds: [],
+            scannedFiles: {},
             analyzedCount: 0,
             totalCount: 0,
             isFullyAnalyzed: false,
+            isPaused: false,
 
             storeResult: (fileId, result) => set((s) => {
                 const next = { ...s.analysisResults, [fileId]: result };
@@ -97,13 +108,24 @@ export const useTrailerSmartStore = create<TrailerSmartStore>()(
                 });
             },
 
+            registerScannedFiles: (files) => set((s) => {
+                const next = { ...s.scannedFiles };
+                files.forEach(f => {
+                    next[f.id] = { id: f.id, path: f.path, filename: f.filename };
+                });
+                return { scannedFiles: next };
+            }),
+
             clearResults: () => set({
                 analysisResults: {},
                 queuedFileIds: [],
+                scannedFiles: {},
                 analyzedCount: 0,
                 totalCount: 0,
                 isFullyAnalyzed: false,
             }),
+
+            setPaused: (isPaused) => set({ isPaused }),
         }),
         {
             name: 'mmmedia-trailer-smart-store',

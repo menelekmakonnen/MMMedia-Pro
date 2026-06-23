@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { EditWizard } from './EditWizard';
 import { EditPlayer } from './EditPlayer';
+import { SEQUENCE_PRESETS } from './sequencePresets';
 import { EditGeneratorHome } from './EditGeneratorHome';
 import type { EditType } from './EditGeneratorHome';
 import { TrailerSettings, generateTrailerSequence, extractBeatTimestamps } from '../../lib/trailerGenerator';
@@ -12,6 +13,9 @@ import { useProjectStore } from '../../store/projectStore';
 import { useEditSettingsStore } from '../../store/editSettingsStore';
 import { generateMusicVideoSequence } from '../../lib/musicVideoBuild';
 import { useTrailerSmartStore } from '../../store/trailerSmartStore';
+import { reorderClips } from '../../lib/clipOrdering';
+import { useExportSettingsStore } from '../../store/exportSettingsStore';
+import type { QueuedEdit } from '../../store/exportSettingsStore';
 import { SmartEngineConfirmModal } from './SmartEngineConfirmModal';
 import { ShowreelWizard } from './ShowreelWizard';
 import { VideoEssayWizard } from './VideoEssayWizard';
@@ -24,7 +28,7 @@ import { generateAssemblyCut } from '../../lib/shortFilmAssistant';
 import type { SceneDefinition, ActStructure } from '../../lib/shortFilmAssistant';
 import { mergeIntelligence } from '../../lib/intelligenceMerger';
 import { useNarrationStore } from '../../store/narrationStore';
-import { useAutoSmartEngine } from '../../lib/smartEngine';
+import { toast } from '../../components/Toast';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // EditRouter — 3-state router: home → wizard → player
@@ -41,14 +45,15 @@ import { useAutoSmartEngine } from '../../lib/smartEngine';
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export const EditRouter: React.FC = () => {
-    // ── Core background processing ───────────────────────────────────────────
-    useAutoSmartEngine();
-
     // ── Core state machine ───────────────────────────────────────────────────
-    const [activeView, setActiveView] = useState<'home' | 'wizard' | 'player'>('wizard');
+    const [activeView, setActiveView] = useState<'home' | 'wizard' | 'player'>('home');
     const [activeMode, setActiveMode] = useState<EditType>('trailer');
     const [settings, setSettings] = useState<TrailerSettings | null>(null);
     const [preGeneratedClips, setPreGeneratedClips] = useState<any[]>([]);
+    // Snapshot of the timeline taken right before a generated edit is committed,
+    // so "Discard" can restore the user's prior clips instead of leaving the
+    // generated edit behind.
+    const preCommitClipsRef = useRef<any[] | null>(null);
 
     // ── Stores ───────────────────────────────────────────────────────────────
     const { setClips } = useClipStore();
@@ -58,7 +63,7 @@ export const EditRouter: React.FC = () => {
     const autoGenerateConsumed = useRef(false);
 
     // ── Smart Engine confirmation modal state ────────────────────────────────
-    const [showConfirm, setShowConfirm] = useState<{ resolve: (v: 'now' | 'wait' | 'cancel') => void } | null>(null);
+    const [showConfirm, setShowConfirm] = useState<{ resolve: (v: 'now' | 'wait' | 'all' | 'disable' | 'cancel') => void } | null>(null);
     const smartState = useTrailerSmartStore();
 
     // ── GodMode auto-generate: skip home, jump straight to wizard ────────────
@@ -102,15 +107,24 @@ export const EditRouter: React.FC = () => {
         const needScenes = !!newSettings.sceneAwareCuts;
         const needColor = !!newSettings.autoColorGrade;
 
+        // 'all' = use every clip now (analyzed + not-yet-analyzed, combined).
+        // 'disable' = build without Smart input (background analysis keeps running).
+        let proceedAll = false;
+        let smartDisabled = false;
+
         if ((needScore || needSilence || needScenes || needColor) && !smart.isFullyAnalyzed && smart.totalCount > 0) {
-            const decision = await new Promise<'now' | 'wait' | 'cancel'>((resolve) => {
+            const decision = await new Promise<'now' | 'wait' | 'all' | 'disable' | 'cancel'>((resolve) => {
                 setShowConfirm({ resolve });
             });
             setShowConfirm(null);
 
             if (decision === 'cancel') return null;
 
-            if (decision === 'wait') {
+            if (decision === 'disable') {
+                smartDisabled = true;
+            } else if (decision === 'all') {
+                proceedAll = true;
+            } else if (decision === 'wait') {
                 await new Promise<void>((resolve) => {
                     const unsub = useTrailerSmartStore.subscribe((state) => {
                         if (state.isFullyAnalyzed) { unsub(); resolve(); }
@@ -118,6 +132,14 @@ export const EditRouter: React.FC = () => {
                     if (useTrailerSmartStore.getState().isFullyAnalyzed) { unsub(); resolve(); }
                 });
             }
+            // 'now' → keep default behaviour (enrich with whatever is analyzed)
+        }
+
+        // ── Smart disabled: run the edit on the RAW pool, no enrichment/sorting.
+        // Every clip participates equally so nothing gets put on repeat. ──
+        if (smartDisabled) {
+            console.log('[EditRouter] Smart Engine disabled for this edit — using raw pool of', pool.length, 'clips');
+            return pool;
         }
 
         // ── Enrich pool with Smart Engine pre-computed analysis ──────────
@@ -136,6 +158,16 @@ export const EditRouter: React.FC = () => {
         });
 
         if (needScore) {
+            if (proceedAll) {
+                // Give not-yet-analyzed clips a NEUTRAL score (mean of the analyzed
+                // ones, or a mid value) so they sit in the middle of the ranking and
+                // get used — instead of sinking to 0 and the same few clips repeating.
+                const known = workingPool.map(f => (f as any).score).filter((s): s is number => typeof s === 'number');
+                const neutral = known.length ? known.reduce((a, b) => a + b, 0) / known.length : 50;
+                workingPool = workingPool.map(f => (typeof (f as any).score === 'number' ? f : { ...f, score: neutral }));
+            }
+            // Stable-ish sort with a tiny deterministic jitter to avoid identical
+            // scores always resolving to the same order (another repeat source).
             workingPool = [...workingPool].sort((a, b) => ((b as any).score || 0) - ((a as any).score || 0));
         }
 
@@ -164,8 +196,28 @@ export const EditRouter: React.FC = () => {
 
     /** Commit clips: preserve manually-imported audio, replace auto audio. */
     const commitClips = (clips: any[]) => {
+        const isExporting = useExportSettingsStore.getState().isExporting;
+
+        if (isExporting) {
+            // ── QUEUE MODE: Don't touch the active timeline during render ──
+            const modeLabel = { 'trailer': 'Trailer', 'music-video': 'Music Video', 'showreel': 'Showreel', 'video-essay': 'Video Essay', 'short-film': 'Short Film' }[activeMode] || 'Edit';
+            const edit: QueuedEdit = {
+                id: crypto.randomUUID?.() || `q-${Date.now()}`,
+                clips,
+                label: `${modeLabel} (${clips.length} clips)`,
+                queuedAt: Date.now(),
+            };
+            useExportSettingsStore.getState().addQueuedEdit(edit);
+            toast.success(`${modeLabel} queued for rendering`);
+            // Stay on wizard — don't switch to player
+            return;
+        }
+
         setPreGeneratedClips(clips);
         if (clips.length > 0) {
+            // Snapshot the current timeline BEFORE we overwrite it, so Discard
+            // can restore it (draft semantics).
+            preCommitClipsRef.current = useClipStore.getState().clips.map((c) => ({ ...c }));
             // ⚠ Preserve existing MANUALLY-IMPORTED audio clips.
             // Do NOT preserve wizard-generated audio (track 101, origin='auto')
             // to avoid the "double audio" bug.
@@ -242,6 +294,71 @@ export const EditRouter: React.FC = () => {
             console.log('[EditRouter] Music-video mode:', mv.report);
         } else {
             clips = generateTrailerSequence(workingPool, { ...newSettings, beatTimestamps });
+        }
+
+        // ── Apply NLE Sequence Preset ─────────
+        if ((newSettings as any).sequencePresetId) {
+            const preset = SEQUENCE_PRESETS.find(p => p.id === (newSettings as any).sequencePresetId);
+            if (preset) {
+                const projFps = useProjectStore.getState().settings.fps || 30;
+                const result = preset.apply(clips, projFps);
+                clips = result.clips;
+                console.log(`[EditRouter] Applied NLE sequence preset: ${preset.name}`);
+            }
+        }
+
+        // ── Loop/Fill and Clamp to Target Duration ─────────
+        {
+            const projFps = useProjectStore.getState().settings.fps || 30;
+            const targetFrames = Math.floor((newSettings.targetDuration || 30) * projFps);
+            let currentEnd = clips.length > 0 ? Math.max(...clips.map(c => c.endFrame)) : 0;
+
+            if (currentEnd > 0 && currentEnd < targetFrames) {
+                const originalPattern = clips.map(c => ({ ...c }));
+                let loopCount = 0;
+                while (currentEnd < targetFrames && loopCount < 100) {
+                    loopCount++;
+                    const clonedPattern = originalPattern.map(c => ({
+                        ...c,
+                        id: (typeof crypto !== 'undefined' && crypto.randomUUID)
+                            ? crypto.randomUUID()
+                            : `c-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+                        startFrame: c.startFrame + currentEnd,
+                        endFrame: c.endFrame + currentEnd,
+                    }));
+                    clips.push(...clonedPattern);
+                    currentEnd = Math.max(...clips.map(c => c.endFrame));
+                }
+            }
+
+            // Always clamp the sequence to targetFrames if we have clips
+            if (clips.length > 0 && targetFrames > 0) {
+                clips = clips.filter(c => c.startFrame < targetFrames);
+                clips.forEach(c => {
+                    if (c.endFrame > targetFrames) {
+                        c.endFrame = targetFrames;
+                        // Adjust trimEndFrame to avoid playing past source media bounds
+                        const dur = c.endFrame - c.startFrame;
+                        const ratio = c.speed || 1.0;
+                        c.trimEndFrame = c.trimStartFrame + Math.max(1, Math.round(dur * ratio));
+                    }
+                });
+            }
+        }
+
+        // ── Lockable clip-ordering structure (Media Pool toggle) ─────────
+        // 'none' keeps the generator's existing structure. The other modes group a
+        // clip's segments contiguously and order them sequentially / randomly.
+        if (newSettings.clipOrderMode && newSettings.clipOrderMode !== 'none') {
+            const fileMeta = new Map(
+                files.map((f): [string, { createdAt?: number; filename?: string }] => [f.id, { createdAt: f.createdAt, filename: f.filename }])
+            );
+            clips = reorderClips(clips, newSettings.clipOrderMode, {
+                sequentialBy: newSettings.sequentialBy,
+                fileMeta,
+                seed: newSettings.seed,
+            });
+            console.log('[EditRouter] Clip-order mode:', newSettings.clipOrderMode, newSettings.sequentialBy);
         }
 
         commitClips(clips);
@@ -347,6 +464,12 @@ export const EditRouter: React.FC = () => {
     // ═════════════════════════════════════════════════════════════════════════
 
     const handleDiscard = () => {
+        // Restore the timeline to its pre-generation state (draft discarded).
+        if (preCommitClipsRef.current) {
+            setClips(preCommitClipsRef.current as any);
+            preCommitClipsRef.current = null;
+        }
+        setPreGeneratedClips([]);
         setSettings(null);
         setActiveView('wizard');
     };
@@ -395,6 +518,8 @@ export const EditRouter: React.FC = () => {
                 totalCount={smartState.totalCount}
                 onUseNow={() => showConfirm?.resolve('now')}
                 onWaitAll={() => showConfirm?.resolve('wait')}
+                onProceedAll={() => showConfirm?.resolve('all')}
+                onDisableSmart={() => showConfirm?.resolve('disable')}
                 onCancel={() => showConfirm?.resolve('cancel')}
             />
         </div>
