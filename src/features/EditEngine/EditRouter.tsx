@@ -323,11 +323,35 @@ export const EditRouter: React.FC = () => {
             let currentEnd = clips.length > 0 ? Math.max(...clips.map(c => c.endFrame)) : 0;
 
             if (currentEnd > 0 && currentEnd < targetFrames) {
-                const originalPattern = clips.map(c => ({ ...c }));
-                let loopCount = 0;
-                while (currentEnd < targetFrames && loopCount < 100) {
-                    loopCount++;
-                    const clonedPattern = originalPattern.map(c => ({
+                // Fill the remaining duration with FRESHLY-GENERATED, varied content
+                // (different sub-seeds → different clips/trims/order) instead of
+                // cloning the same pattern over and over — which produced the
+                // "one clip / segment looped infinitely" feel.
+                let guard = 0;
+                while (currentEnd < targetFrames && guard < 60) {
+                    guard++;
+                    const remainingSec = (targetFrames - currentEnd) / projFps;
+                    if (remainingSec < 0.25) break;
+
+                    let more: any[] = [];
+                    try {
+                        more = generateTrailerSequence(workingPool, {
+                            ...newSettings,
+                            seed: `${newSettings.seed || 'fill'}_fill${guard}`,
+                            targetDuration: remainingSec,
+                            beatTimestamps: null, // beat budget already spent; fill freely
+                        });
+                    } catch (e) {
+                        console.warn('[EditRouter] fill regeneration failed:', e);
+                    }
+
+                    // Fallback: if regeneration yields nothing, clone once so we still
+                    // reach the target duration rather than ending short.
+                    if (!more || more.length === 0) {
+                        more = clips.map(c => ({ ...c }));
+                    }
+
+                    const shifted = more.map(c => ({
                         ...c,
                         id: (typeof crypto !== 'undefined' && crypto.randomUUID)
                             ? crypto.randomUUID()
@@ -335,8 +359,11 @@ export const EditRouter: React.FC = () => {
                         startFrame: c.startFrame + currentEnd,
                         endFrame: c.endFrame + currentEnd,
                     }));
-                    clips.push(...clonedPattern);
-                    currentEnd = Math.max(...clips.map(c => c.endFrame));
+                    clips.push(...shifted);
+
+                    const newEnd = Math.max(...clips.map(c => c.endFrame));
+                    if (newEnd <= currentEnd) break; // no forward progress — stop
+                    currentEnd = newEnd;
                 }
             }
 
