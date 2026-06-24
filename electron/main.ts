@@ -928,6 +928,11 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                 if ((activeExportProc as any)?.__cancelled) { cancelled = true; break; }
                 const clip = videoClips[i];
 
+                // Resilience: a single malformed clip (e.g. an effect with a missing
+                // numeric param) must never abort the whole export. On any throw, log
+                // the cause + location and skip just that clip.
+                try {
+
                 // Skip ONLY overlays that are composited onto a base in the group pass.
                 // Orphan overlays (no base) fall through and render as normal clips.
                 if (hasComposites && consumedOverlaySet.has(clip)) {
@@ -1157,6 +1162,12 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                 outDurs.push(timing.outDurSec);
                 log(`Clip ${i + 1}/${videoClips.length}: "${clip.filename}" seek=${timing.seekSec.toFixed(2)}s out=${timing.outDurSec.toFixed(3)}s audio=${hasAudio}`);
                 event.sender.send('export-progress', Math.round(((i + 1) / videoClips.length) * 70));
+                } catch (clipErr: any) {
+                    const where = clipErr?.stack ? String(clipErr.stack).split('\n').slice(0, 3).join(' | ') : (clipErr?.message || String(clipErr));
+                    log(`⚠ Clip ${i + 1}/${videoClips.length} "${clip?.filename || '?'}" errored — skipping. ${where}`);
+                    event.sender.send('export-progress', Math.round(((i + 1) / videoClips.length) * 70));
+                    continue;
+                }
             }
 
             if (cancelled || (activeExportProc as any)?.__cancelled) { cleanup(); resolve({ success: false, error: 'Export cancelled by user' }); return; }
