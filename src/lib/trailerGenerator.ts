@@ -99,6 +99,7 @@ export interface TrailerSettings {
     speedCurveFrequency?: number;             // 0-100: % of clips that get a speed curve
     audioDynamicsScope?: 'all' | 'drops' | 'builds-drops' | 'custom';
     sequencePresetId?: string; // NLE preset ID to apply on generation
+    sequencePresetIds?: string[]; // Composable NLE patterns (legacy ID still supported)
 
     // Zoom controls
     zoomEnabled?: boolean;
@@ -185,6 +186,12 @@ export interface TrailerSettings {
     clipOrderMode?: import('./clipOrdering').ClipOrderMode;
     /** When sequential / sequential-randomized: order clips by file date or filename. */
     sequentialBy?: import('./clipOrdering').SequentialBy | import('./clipOrdering').SequentialBy[];
+    /** Internal continuation state used when a caller must extend a short draft. */
+    initialSegmentHistory?: Record<string, string[]>;
+    /** Internal source-use counts paired with initialSegmentHistory. */
+    initialSourceUseCounts?: Record<string, number>;
+    /** Last source in a preceding generation pass, to prevent a boundary repeat. */
+    initialLastSourcePath?: string;
 }
 
 export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
@@ -406,8 +413,47 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
 
     let accumulatedFrames = 0;
     const sequence: Clip[] = [];
-    const usedFiles = new Set<string>();
-    const usedSegments = new Map<string, string[]>();
+    const usedSegments = new Map<string, string[]>(
+        Object.entries(s.initialSegmentHistory || {}).map(([path, ranges]) => [path, [...ranges]]),
+    );
+    const usedFiles = new Set<string>(usedSegments.keys());
+    const sourceUseCounts = new Map<string, number>(validPool.map(file => [
+        file.path,
+        s.initialSourceUseCounts?.[file.path] || 0,
+    ]));
+    let lastSourcePath: string | null = s.initialLastSourcePath || null;
+
+    const recordSegmentUse = (file: PoolFile, trimStart: number, trimEnd: number) => {
+        if (!usedSegments.has(file.path)) usedSegments.set(file.path, []);
+        usedSegments.get(file.path)!.push(`${trimStart}-${trimEnd}`);
+        usedFiles.add(file.path);
+        sourceUseCounts.set(file.path, (sourceUseCounts.get(file.path) || 0) + 1);
+        lastSourcePath = file.path;
+    };
+
+    // Select for coverage before reuse. `allowDuplicates` means a source may be
+    // revisited after a pass through the eligible pool, not random sampling with
+    // replacement. This prevents a few lucky files from monopolising an edit.
+    const pickCoverageFile = (): PoolFile => {
+        const minimumUse = Math.min(...validPool.map(file => sourceUseCounts.get(file.path) || 0));
+        let candidates = validPool.filter(file => (sourceUseCounts.get(file.path) || 0) === minimumUse);
+
+        if (candidates.length > 1 && lastSourcePath) {
+            const withoutImmediateRepeat = candidates.filter(file => file.path !== lastSourcePath);
+            if (withoutImmediateRepeat.length > 0) candidates = withoutImmediateRepeat;
+        }
+
+        if (s.preferHighEnergy) {
+            const bestScore = Math.max(...candidates.map(file => typeof (file as any).score === 'number' ? (file as any).score : 50));
+            const highQuality = candidates.filter(file => {
+                const score = typeof (file as any).score === 'number' ? (file as any).score : 50;
+                return score >= bestScore - 5;
+            });
+            if (highQuality.length > 0) candidates = highQuality;
+        }
+
+        return candidates[Math.floor(rng.random() * candidates.length)] || validPool[0];
+    };
 
     let consecutiveFailures = 0;
     let lastDurationFrames = -1;
@@ -503,8 +549,9 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         return { speed, volume, isMuted };
     };
 
-    // Helper to find best trim start avoiding collisions
-    // Respects the file's effective trim region (trimIn offset)
+    // Find a novel source window. Candidate coverage is deliberately spread over
+    // the full usable range; scene cuts are preferred only when they do not force
+    // the same handful of trim points to repeat.
     const getBestTrimStart = (file: PoolFile, sourceReq: number, history: string[], rng: SeededRandom): number => {
         const f = file as any;
         let trimInOffset = file.effectiveTrimInFrames;
@@ -515,14 +562,6 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             const uo = typeof f._usableOutFrames === 'number' ? f._usableOutFrames : trimOutLimit;
             if (uo - ui >= sourceReq) { trimInOffset = Math.max(trimInOffset, ui); trimOutLimit = Math.min(trimOutLimit, uo); }
         }
-        // Smart prep: snap a chosen trim-in to the nearest in-bounds scene cut.
-        const snap = (v: number): number => {
-            const cuts: number[] | undefined = f._sceneCutsFrames;
-            if (!cuts || !cuts.length) return v;
-            let best = v, bd = Infinity;
-            for (const c of cuts) { if (c < trimInOffset || c + sourceReq > trimOutLimit) continue; const d = Math.abs(c - v); if (d < bd) { bd = d; best = c; } }
-            return best;
-        };
         const availableRange = trimOutLimit - trimInOffset - sourceReq;
 
         if (availableRange <= 0) {
@@ -533,35 +572,51 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         const effectiveStart = trimInOffset + Math.min(START_OFFSET_FRAMES, availableRange);
         const effectiveRange = trimOutLimit - sourceReq - effectiveStart;
 
-        if (!history || history.length === 0 || effectiveRange <= 0) {
-            return snap(effectiveStart + Math.floor(rng.random() * Math.max(0, effectiveRange)));
+        if (effectiveRange <= 0) return effectiveStart;
+
+        const previousRanges = (history || []).map(range => range.split('-').map(Number) as [number, number]);
+        const sceneCuts: number[] = Array.isArray(f._sceneCutsFrames)
+            ? f._sceneCutsFrames.filter((cut: number) => cut >= effectiveStart && cut + sourceReq <= trimOutLimit)
+            : [];
+        const candidates = new Set<number>(sceneCuts);
+        const sampleCount = 24;
+        for (let i = 0; i <= sampleCount; i++) {
+            candidates.add(effectiveStart + Math.floor((effectiveRange * i) / sampleCount));
+        }
+        for (let i = 0; i < sampleCount; i++) {
+            candidates.add(effectiveStart + Math.floor(rng.random() * effectiveRange));
         }
 
-        let bestTrimStart = effectiveStart + Math.floor(rng.random() * effectiveRange);
-        let maxDistance = -1;
-        const numCandidates = 15;
-
-        for (let i = 0; i < numCandidates; i++) {
-            const candidate = effectiveStart + Math.floor(rng.random() * effectiveRange);
+        let bestTrimStart = effectiveStart;
+        let bestScore = -Infinity;
+        for (const candidate of candidates) {
             const candEnd = candidate + sourceReq;
-            let minDist = Infinity;
+            let minSeparation = effectiveRange;
+            let exactReuse = false;
 
-            for (const range of history) {
-                const [s, e] = range.split('-').map(Number);
-                let dist = 0;
-                if (candEnd < s) dist = s - candEnd;
-                else if (candidate > e) dist = candidate - e;
-                else dist = 0;
-
-                if (dist < minDist) minDist = dist;
+            for (const [start, end] of previousRanges) {
+                if (candidate === start && candEnd === end) {
+                    exactReuse = true;
+                    break;
+                }
+                const separation = candEnd <= start
+                    ? start - candEnd
+                    : candidate >= end
+                        ? candidate - end
+                        : -Math.min(candEnd, end) + Math.max(candidate, start);
+                minSeparation = Math.min(minSeparation, separation);
             }
 
-            if (minDist > maxDistance) {
-                maxDistance = minDist;
+            if (exactReuse && candidates.size > 1) continue;
+            const sceneCutBonus = sceneCuts.includes(candidate) ? 0.25 : 0;
+            const score = minSeparation + sceneCutBonus + rng.random() * 0.01;
+            if (score > bestScore) {
+                bestScore = score;
                 bestTrimStart = candidate;
             }
         }
-        return snap(bestTrimStart);
+
+        return bestTrimStart;
     };
 
     const createClip = (file: PoolFile, startFrame: number, endFrame: number, trimStart: number, trimEnd: number, speed: number, volume: number, isMuted: boolean): Clip => ({
@@ -1323,8 +1378,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 const history = usedSegments.get(file.path) || [];
                 const trimStart = getBestTrimStart(file, sourceReq, history, rng);
                 const trimEnd = trimStart + sourceReq;
-                if (!usedSegments.has(file.path)) usedSegments.set(file.path, []);
-                usedSegments.get(file.path)!.push(`${trimStart}-${trimEnd}`);
+                recordSegmentUse(file, trimStart, trimEnd);
                 const clip = createClip(file, accumulatedFrames, accumulatedFrames + clipDuration, trimStart, trimEnd, speed, volume, isMuted);
                 if (applyEffect) (clip as any)._beatEffect = true;
                 (clip as any)._segType = segType; // Tag for segment-aware editing intelligence
@@ -1488,8 +1542,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 const history = usedSegments.get(file.path) || [];
                 const trimStart = getBestTrimStart(file, sourceReq, history, rng);
                 const trimEnd = trimStart + sourceReq;
-                if (!usedSegments.has(file.path)) usedSegments.set(file.path, []);
-                usedSegments.get(file.path)!.push(`${trimStart}-${trimEnd}`);
+                recordSegmentUse(file, trimStart, trimEnd);
                 const clip = createClip(file, accumulatedFrames + gapFilled, accumulatedFrames + gapFilled + clipDuration, trimStart, trimEnd, speed, volume, isMuted);
                 if (applyEffect) (clip as any)._beatEffect = true;
                 (clip as any)._segType = segType;
@@ -1577,8 +1630,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 const trimStart = getBestTrimStart(file, sourceReq, history, rng);
                 const trimEnd = trimStart + sourceReq;
 
-                if (!usedSegments.has(file.path)) usedSegments.set(file.path, []);
-                usedSegments.get(file.path)!.push(`${trimStart}-${trimEnd}`);
+                recordSegmentUse(file, trimStart, trimEnd);
 
                 sequence.push(createClip(file, accumulatedFrames, accumulatedFrames + clipDur, trimStart, trimEnd, speed, volume, isMuted));
                 accumulatedFrames += clipDur;
@@ -1615,21 +1667,23 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             const trimStart = getBestTrimStart(file, sourceReq, history, rng);
             const trimEnd = trimStart + sourceReq;
 
-            if (!usedSegments.has(file.path)) usedSegments.set(file.path, []);
-            usedSegments.get(file.path)!.push(`${trimStart}-${trimEnd}`);
+            recordSegmentUse(file, trimStart, trimEnd);
 
             sequence.push(createClip(file, accumulatedFrames, accumulatedFrames + cutDurationFrames, trimStart, trimEnd, speed, volume, isMuted));
             clipIndex++;
             accumulatedFrames += cutDurationFrames;
-            usedFiles.add(file.path);
         }
         allowDuplicates = true;
     }
 
     // Continue filling remaining target duration
     while (accumulatedFrames < targetFrames && consecutiveFailures < 100) {
-        const fileIndex = Math.floor(rng.random() * validPool.length);
-        const file = validPool[fileIndex];
+        if (!allowDuplicates && usedFiles.size >= validPool.length) {
+            // The requested duration is longer than one pass through the pool.
+            // Start another coverage pass while retaining segment history.
+            allowDuplicates = true;
+        }
+        const file = pickCoverageFile();
 
         if (!allowDuplicates && usedFiles.has(file.path)) {
             consecutiveFailures++;
@@ -1646,7 +1700,10 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             cutDurationFrames = (cutDurationFrames === maxFrames) ? minFrames : cutDurationFrames + 1;
         }
 
-        const sourceAvailable = file.sourceDurationFrames;
+        const sourceAvailable = Math.max(
+            0,
+            (file.effectiveTrimOutFrames ?? file.sourceDurationFrames) - (file.effectiveTrimInFrames ?? 0),
+        );
         let safeDuration = cutDurationFrames;
         if (safeDuration > sourceAvailable) {
             if (mediaType === 'video' && sourceAvailable < minFrames) {
@@ -1657,45 +1714,41 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         }
 
         const { speed, volume, isMuted } = getSpeedAndVolume(rng);
+        if (safeDuration * speed > sourceAvailable) {
+            safeDuration = Math.floor(sourceAvailable / Math.max(0.01, speed));
+        }
+        if (safeDuration < MIN_RENDERABLE_FRAMES) {
+            consecutiveFailures++;
+            sourceUseCounts.set(file.path, (sourceUseCounts.get(file.path) || 0) + 1);
+            continue;
+        }
         const sourceReq = Math.max(1, Math.ceil(safeDuration * speed));
         const history = usedSegments.get(file.path) || [];
         let trimStart = getBestTrimStart(file, sourceReq, history, rng);
         let trimEnd = trimStart + sourceReq;
 
         if (!allowSameSegment && usedSegments.has(file.path)) {
-            let collision = history.some(range => {
-                const [s, e] = range.split('-').map(Number);
-                return (trimStart < e && trimEnd > s);
-            });
-
-            if (collision) {
-                for (let i = 0; i < 3; i++) {
+            let exactReuse = history.includes(`${trimStart}-${trimEnd}`);
+            if (exactReuse) {
+                for (let i = 0; i < 8; i++) {
                     trimStart = getBestTrimStart(file, sourceReq, history, rng);
                     trimEnd = trimStart + sourceReq;
-                    collision = history.some(range => {
-                        const [s, e] = range.split('-').map(Number);
-                        return (trimStart < e && trimEnd > s);
-                    });
-                    if (!collision) break;
+                    exactReuse = history.includes(`${trimStart}-${trimEnd}`);
+                    if (!exactReuse) break;
                 }
 
-                if (collision) {
+                if (exactReuse) {
+                    // This source has no novel window of the requested size.
+                    // Deprioritise it and let another source satisfy the slot.
+                    sourceUseCounts.set(file.path, (sourceUseCounts.get(file.path) || 0) + 1);
                     consecutiveFailures++;
-                    if (consecutiveFailures > 50 && allowDuplicates) {
-                        usedSegments.clear();
-                        allowSameSegment = true;
-                        consecutiveFailures = 0;
-                    }
                     continue;
                 }
             }
         }
 
         consecutiveFailures = 0;
-        usedFiles.add(file.path);
-
-        if (!usedSegments.has(file.path)) usedSegments.set(file.path, []);
-        usedSegments.get(file.path)!.push(`${trimStart}-${trimEnd}`);
+        recordSegmentUse(file, trimStart, trimEnd);
 
         sequence.push(createClip(file, accumulatedFrames, accumulatedFrames + safeDuration, trimStart, trimEnd, speed, volume, isMuted));
         clipIndex++;
@@ -1706,7 +1759,8 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             // All unique files used â€” auto-enable duplicates to reach target duration
             console.log(`[TrailerGen] Pool exhausted (${usedFiles.size}/${validPool.length} files used) at ${(accumulatedFrames/DEFAULT_FPS).toFixed(1)}s / ${targetDuration}s â€” enabling duplicates to fill remaining duration`);
             allowDuplicates = true;
-            usedSegments.clear(); // Reset segment tracking so new segments can be picked
+            // Keep source-window history across coverage passes. Reusing a file is
+            // allowed; replaying the same trim range is not.
         }
     }
 

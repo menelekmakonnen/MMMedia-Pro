@@ -22,12 +22,11 @@ import { analyzeNarration } from '../../lib/narrationAnalysis';
 import type { MergeStrategy } from '../../lib/intelligenceMerger';
 
 import clsx from 'clsx';
-import { SEQUENCE_PRESETS, PRESET_CATEGORIES, getPresetsByCategory } from './sequencePresets';
+import { getPresetById, getPresetsByCategory, resolveSequencePresetIds } from './sequencePresets';
 import type { PresetCategory } from './sequencePresets';
 import { PreviewBubble } from '../../components/PreviewBubble';
 import { DurationPresetPreview, SpeedCurvePreview, BoomerangPreview, ZoomValuePreview, ZoomSpeedPreview, BeatDropPreview, ShakePolicyPreview, ShakeTypePreview, DoubleExposurePreview, MotionBlurPreview, GlowPreview, VibrationFlashPreview, SlowmoPreview, RgbSplitPreview, HueCyclePreview, VhsPreview, DoubleExposurePolicyPreview, MotionBlurPolicyPreview, GlowPolicyPreview, VibrationFlashPolicyPreview, SlowmoPolicyPreview, RgbSplitPolicyPreview, HueCyclePolicyPreview, VhsPolicyPreview, DoubleExposureShapePreview } from '../../components/EffectPreviews';
 import { DOUBLE_EXPOSURE_GRADIENTS, gradientToCss } from '../../lib/doubleExposureGradients';
-import { useAutoSmartEngine } from '../../lib/smartEngine';
 
 interface SliderProps {
     label: string; icon: React.ElementType; value: number;
@@ -180,6 +179,85 @@ const CollapsibleSection: React.FC<{
     </div>
 );
 
+const PRESET_CATEGORY_UI: Record<PresetCategory, { label: string; icon: React.ElementType; active: string; idle: string }> = {
+    structure: { label: 'Sequence Structure', icon: Layers, active: 'border-cyan-400/50 bg-cyan-500/15 text-cyan-100', idle: 'hover:border-cyan-500/25 hover:bg-cyan-500/[0.06]' },
+    pacing: { label: 'Pacing Pattern', icon: Clock, active: 'border-blue-400/50 bg-blue-500/15 text-blue-100', idle: 'hover:border-blue-500/25 hover:bg-blue-500/[0.06]' },
+    audio: { label: 'Audio Edit Pattern', icon: Music, active: 'border-purple-400/50 bg-purple-500/15 text-purple-100', idle: 'hover:border-purple-500/25 hover:bg-purple-500/[0.06]' },
+    effects: { label: 'Effects Pattern', icon: Sparkles, active: 'border-amber-400/50 bg-amber-500/15 text-amber-100', idle: 'hover:border-amber-500/25 hover:bg-amber-500/[0.06]' },
+    advanced: { label: 'Advanced Edit Pattern', icon: Activity, active: 'border-rose-400/50 bg-rose-500/15 text-rose-100', idle: 'hover:border-rose-500/25 hover:bg-rose-500/[0.06]' },
+};
+
+const SequencePresetPicker: React.FC<{
+    category: PresetCategory;
+    settings: TrailerSettings;
+    update: (patch: Partial<TrailerSettings>) => void;
+    stackable?: boolean;
+    embedded?: boolean;
+}> = ({ category, settings, update, stackable = false, embedded = false }) => {
+    const meta = PRESET_CATEGORY_UI[category];
+    const Icon = meta.icon;
+    const presets = getPresetsByCategory(category);
+    const selectedIds = resolveSequencePresetIds(settings);
+    const selected = presets.filter(preset => selectedIds.includes(preset.id));
+
+    const togglePreset = (presetId: string) => {
+        const active = selectedIds.includes(presetId);
+        let next: string[];
+        if (active) {
+            next = selectedIds.filter(id => id !== presetId);
+        } else if (stackable) {
+            next = [...selectedIds, presetId];
+        } else {
+            next = [
+                ...selectedIds.filter(id => getPresetById(id)?.category !== category),
+                presetId,
+            ];
+        }
+        update({ sequencePresetIds: next, sequencePresetId: undefined });
+    };
+
+    return (
+        <div className={clsx('space-y-2', !embedded && 'pt-3 border-t border-white/5')}>
+            {!embedded && <div className="flex items-center gap-2">
+                <Icon size={12} className="text-white/50" />
+                <span className="text-[10px] font-black uppercase tracking-widest text-white/45">{meta.label}</span>
+                <span className="ml-auto text-[9px] text-white/25">{stackable ? 'Combine any patterns' : 'One pattern at a time'}</span>
+            </div>}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5" role="group" aria-label={meta.label}>
+                {presets.map(preset => {
+                    const active = selectedIds.includes(preset.id);
+                    return (
+                        <button
+                            key={preset.id}
+                            type="button"
+                            aria-pressed={active}
+                            title={preset.description}
+                            onClick={() => togglePreset(preset.id)}
+                            className={clsx(
+                                'min-h-[52px] flex items-start gap-2 p-2 rounded-md border text-left transition-colors',
+                                active ? meta.active : `border-white/5 bg-white/[0.025] text-white/60 ${meta.idle}`,
+                            )}
+                        >
+                            <span className={clsx('mt-0.5 h-3.5 w-3.5 shrink-0 rounded-full border flex items-center justify-center', active ? 'border-current' : 'border-white/20')}>
+                                {active && <span className="h-1.5 w-1.5 rounded-full bg-current" />}
+                            </span>
+                            <span className="min-w-0">
+                                <span className="block text-[10px] font-bold leading-tight">{preset.name}</span>
+                                <span className="block mt-0.5 text-[9px] leading-tight text-white/35 line-clamp-2">{preset.description}</span>
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+            {!embedded && selected.length > 0 && (
+                <div className="text-[9px] text-white/35">
+                    Active: <span className="font-bold text-white/65">{selected.map(preset => preset.name).join(' + ')}</span>. Click any active pattern to remove it.
+                </div>
+            )}
+        </div>
+    );
+};
+
 interface WizardProps {
     onGenerate: (settings: TrailerSettings) => void;
 }
@@ -187,7 +265,7 @@ interface WizardProps {
 export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
     const { files, orientationFilter, setOrientationFilter, selectedFileIds, preloadedAudioPath, preloadedAudioName, setPreloadedAudio } = useMediaStore();
     const isExporting = useExportSettingsStore(s => s.isExporting);
-    useAutoSmartEngine();
+
     const audioCache = useAudioAnalysisCache();
 
     const narrationStore = useNarrationStore();
@@ -202,7 +280,13 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                 const parsed = JSON.parse(saved);
                 delete parsed.audioAnalysis;
                 delete parsed.seed; // never restore a pinned seed (forces fresh variations)
-                return { ...DEFAULT_TRAILER_SETTINGS, ...parsed };
+                const restored = { ...DEFAULT_TRAILER_SETTINGS, ...parsed } as TrailerSettings;
+                // Pacing is now expressed directly through duration/rhythm controls,
+                // so remove legacy hidden pacing post-processors from saved settings.
+                restored.sequencePresetIds = resolveSequencePresetIds(restored)
+                    .filter(id => getPresetById(id)?.category !== 'pacing');
+                restored.sequencePresetId = undefined;
+                return restored;
             }
         } catch {}
         return { ...DEFAULT_TRAILER_SETTINGS };
@@ -936,54 +1020,6 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     )}
                 </div>
 
-                {/* ── NLE Sequence Presets ── */}
-                <div className="bg-black/40 rounded-xl border border-white/5 p-4 relative overflow-hidden">
-                    <div className="absolute -bottom-8 -left-8 w-32 h-32 bg-cyan-500/10 blur-[50px] pointer-events-none rounded-full" />
-                    <div className="flex items-center justify-between mb-3">
-                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Sequence Presets</span>
-                        <span className="text-[9px] font-bold text-cyan-400/60 uppercase">NLE Patterns</span>
-                    </div>
-                    <div className="space-y-3">
-                        {PRESET_CATEGORIES.map(cat => {
-                            const presets = getPresetsByCategory(cat.id);
-                            return (
-                                <div key={cat.id}>
-                                    <span className="text-[9px] font-bold uppercase tracking-wider text-white/30 mb-1 block">{cat.label}</span>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {presets.map(preset => (
-                                            <PreviewBubble key={preset.id}
-                                                preview={
-                                                    <div style={{ padding: 8, fontSize: 11, color: 'rgba(255,255,255,0.7)', lineHeight: 1.4 }}>
-                                                        {preset.description}
-                                                    </div>
-                                                }
-                                                description={preset.category}
-                                                width={220}>
-                                                <button
-                                                    onClick={() => {
-                                                        const isSelected = settings.sequencePresetId === preset.id;
-                                                        const nextId = isSelected ? undefined : preset.id;
-                                                        update({
-                                                            sequencePresetId: nextId,
-                                                            ...(preset.apply([], 30).videoTrackCount > 1 ? { includeGrids: 'off' as const } : {}),
-                                                        } as any);
-                                                    }}
-                                                    className={clsx(
-                                                        "px-2.5 py-1.5 rounded-lg text-[10px] font-bold border transition-all flex items-center gap-1.5",
-                                                        settings.sequencePresetId === preset.id
-                                                            ? "bg-cyan-500/20 border-cyan-500/40 text-cyan-300 shadow-[0_0_8px_rgba(6,182,212,0.2)] font-black"
-                                                            : "bg-white/5 border-white/5 text-white/50 hover:bg-cyan-500/10 hover:border-cyan-500/20 hover:text-cyan-300"
-                                                    )}>
-                                                    <span className="text-[10px]">{preset.name}</span>
-                                                </button>
-                                            </PreviewBubble>
-                                        ))}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
 
                 <div className="bg-black/40 rounded-xl border border-white/5 p-4 relative overflow-hidden space-y-4">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 blur-[50px] pointer-events-none rounded-full" />
@@ -1087,6 +1123,9 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             )}
                         </div>
                     )}
+
+                    {videoCount > 0 && <SequencePresetPicker category="structure" settings={settings} update={update} stackable />}
+
                 </div>
 
                 <div className="border border-white/5 rounded-xl bg-black/20 p-5 space-y-4">
@@ -1350,6 +1389,7 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                     )}
 
                     <TrailerAudioDynamics settings={settings} update={update} />
+                    <SequencePresetPicker category="audio" settings={settings} update={update} stackable />
                 </div>
 
                 {/* ── Narration Intelligence (folded by default; opens on upload) ─── */}
@@ -1435,25 +1475,29 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Presets</span>
                             <div className="flex flex-wrap gap-1.5">
                                 {[
-                                    { label: 'Dynamic', shortest: 0.1, longest: 2.0, desc: 'Full spectrum — hype to hold' },
-                                    { label: 'Montage', shortest: 0.2, longest: 0.5, desc: 'Fast travel / recap' },
-                                    { label: 'Beat Sync', shortest: 0.2, longest: 0.8, desc: 'Locked to rhythm' },
-                                    { label: 'Action', shortest: 0.3, longest: 1.0, desc: 'Fight / chase' },
-                                    { label: 'Music Video', shortest: 0.3, longest: 1.2, desc: 'Performance cuts' },
-                                    { label: 'Standard', shortest: 0.5, longest: 2.0, desc: 'General editing' },
-                                    { label: 'Drama', shortest: 1.0, longest: 3.0, desc: 'Dialogue / tension' },
-                                    { label: 'Cinematic', shortest: 1.5, longest: 4.0, desc: 'Slow reveals' },
-                                    { label: 'Wide Mix', shortest: 0.2, longest: 5.0, desc: 'Maximum range — everything goes' },
-                                    { label: 'Showreel', shortest: 0.8, longest: 2.5, desc: 'Portfolio highlights' },
+                                    { label: 'Dynamic', shortest: 0.1, longest: 2.0, rhythm: 'random-walk', desc: 'Full spectrum — hype to hold' },
+                                    { label: 'Montage', shortest: 0.2, longest: 0.5, rhythm: 'staccato-legato', desc: 'Fast travel / recap' },
+                                    { label: 'Beat Sync', shortest: 0.2, longest: 0.8, rhythm: 'pulse-2-1-2', desc: 'Locked to rhythm' },
+                                    { label: 'Action', shortest: 0.3, longest: 1.0, rhythm: 'heartbeat', desc: 'Fight / chase' },
+                                    { label: 'Music Video', shortest: 0.3, longest: 1.2, rhythm: 'wave', desc: 'Performance cuts' },
+                                    { label: 'Standard', shortest: 0.5, longest: 2.0, rhythm: 'breathing', desc: 'General editing' },
+                                    { label: 'Drama', shortest: 1.0, longest: 3.0, rhythm: 'call-response', desc: 'Dialogue / tension' },
+                                    { label: 'Cinematic', shortest: 1.5, longest: 4.0, rhythm: 'fibonacci', desc: 'Slow reveals' },
+                                    { label: 'Wide Mix', shortest: 0.2, longest: 5.0, rhythm: 'random', desc: 'Maximum range — everything goes' },
+                                    { label: 'Showreel', shortest: 0.8, longest: 2.5, rhythm: 'climax-arc', desc: 'Portfolio highlights' },
+                                    { label: 'Rapid Montage', shortest: 0.3, longest: 0.8, rhythm: 'staccato-legato', desc: 'Rapid cuts with alternating punch and release' },
+                                    { label: 'Slow Build', shortest: 0.5, longest: 5.0, rhythm: 'accelerando', desc: 'Long opening shots that tighten toward the finish' },
+                                    { label: 'Crescendo Cut', shortest: 0.3, longest: 4.0, rhythm: 'climax-arc', desc: 'Builds toward rapid cuts and a final hero hold' },
+                                    { label: 'Breathing Rhythm', shortest: 0.5, longest: 3.0, rhythm: 'breathing', desc: 'Alternates expansive and compact shots' },
                                 ].map(p => (
                                     <PreviewBubble key={p.label}
                                         preview={<DurationPresetPreview shortest={p.shortest} longest={p.longest} />}
                                         description={p.desc}
                                         width={180}>
                                         <button
-                                            onClick={() => update({ shortestClip: p.shortest, longestClip: p.longest })}
+                                            onClick={() => update({ shortestClip: p.shortest, longestClip: p.longest, rhythmPattern: p.rhythm as any })}
                                             className={clsx("px-2 py-1 rounded-full text-[10px] font-bold transition-all border",
-                                                settings.shortestClip === p.shortest && settings.longestClip === p.longest
+                                                settings.shortestClip === p.shortest && settings.longestClip === p.longest && settings.rhythmPattern === p.rhythm
                                                     ? "bg-purple-600/20 border-purple-500/40 text-purple-200 shadow-[0_0_8px_rgba(168,85,247,0.15)]"
                                                     : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60")}>
                                             {p.label}
@@ -1618,6 +1662,8 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                 <CollapsibleSection title="Effects" icon={Sparkles} iconColor="text-cyan-400" isOpen={effectsOpen} onToggle={() => setEffectsOpen(!effectsOpen)}
                     badge={[settings.boomerangAll && 'Boom', settings.zoomEnabled && 'Zoom', settings.shakePolicy !== 'off' && 'Shake', settings.beatDropImpact !== 'off' && 'Drop'].filter(Boolean).join(' · ') || undefined}
                     badgeColor="bg-cyan-500/20 text-cyan-300">
+
+                    <SequencePresetPicker category="effects" settings={settings} update={update} stackable embedded />
 
                     {/* ── Boomerang ── */}
                     <div className="space-y-2.5">
@@ -2140,6 +2186,8 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             </div>
                         </div>
                     </div>
+
+                    <SequencePresetPicker category="advanced" settings={settings} update={update} />
                 </CollapsibleSection>
 
                 {/* ═══════════════════════════ TRANSITIONS ═══════════════════════════ */}
@@ -2331,7 +2379,7 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                         {isExporting ? (
                             <><Layers size={16} /> Add to Queue</>
                         ) : (
-                            <><PlayCircle size={16} /> Generate {{ 'trailer': 'Trailer', 'music-video': 'Music Video', 'showreel': 'Showreel', 'video-essay': 'Video Essay', 'short-film': 'Short Film' }[settings.generatorMode ?? 'trailer']}</>
+                            <><PlayCircle size={16} /> Generate Edit</>
                         )}
                     </motion.button>
                 </div>

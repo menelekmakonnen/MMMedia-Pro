@@ -1125,10 +1125,27 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                     const idx = bgStart + k;
                     const ts = (c.trimStartFrame ?? 0) / projectFps;
                     const te = (c.trimEndFrame ?? c.endFrame ?? 0) / projectFps;
+                    const selectedDur = Math.max(0, te - ts);
+                    const slotStart = Math.max(0, (c.startFrame ?? 0) / projectFps);
+                    const slotDur = Math.max(0, ((c.endFrame ?? 0) - (c.startFrame ?? 0)) / projectFps);
+                    const wantedDur = slotDur > 0 ? slotDur : selectedDur;
                     const vol = (c.volume ?? 100) / 100;
-                    let f = `[${idx}:a]`;
+                    let f = `[${idx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,`;
                     if (te > ts) f += `atrim=start=${ts.toFixed(4)}:end=${te.toFixed(4)},`;
-                    f += `asetpts=PTS-STARTPTS,volume=${vol.toFixed(4)},aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[bg${k}]`;
+                    f += 'asetpts=PTS-STARTPTS,';
+                    const shouldLoop = c.loopToTimeline || (c.origin === 'auto' && c.track === 101);
+                    if (shouldLoop && selectedDur > 0.01 && wantedDur > selectedDur + 0.01) {
+                        const loopSamples = Math.max(1, Math.round(selectedDur * 48000));
+                        f += `aloop=loop=-1:size=${loopSamples},atrim=duration=${wantedDur.toFixed(4)},asetpts=PTS-STARTPTS,`;
+                        log(`Looping background audio "${c.filename}" ${selectedDur.toFixed(2)}s → ${wantedDur.toFixed(2)}s`);
+                    } else if (wantedDur > 0) {
+                        f += `atrim=duration=${wantedDur.toFixed(4)},asetpts=PTS-STARTPTS,`;
+                    }
+                    if (slotStart > 0) {
+                        const delayMs = Math.round(slotStart * 1000);
+                        f += `adelay=${delayMs}|${delayMs},`;
+                    }
+                    f += `volume=${vol.toFixed(4)}[bg${k}]`;
                     chains.push(f); bgLabels.push(`[bg${k}]`);
                 });
                 chains.push(`[${stitchA}]${bgLabels.join('')}amix=inputs=${bgLabels.length + 1}:duration=first:dropout_transition=0[mixa]`);
@@ -1779,9 +1796,23 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
                             log(`  ⚠ Audio "${clip.filename}": trim data yielded 0s, using probed duration ${audioDur.toFixed(1)}s`);
                         }
                     }
-                    filterChains.push(
-                        `[${index}:a]atrim=start=0:duration=${audioDur.toFixed(4)},asetpts=PTS-STARTPTS,volume=${finalVolume.toFixed(4)}[a_bg_${index}]`
-                    );
+                    const wantedDur = timelineDur > 0 ? timelineDur : audioDur;
+                    let audioFilter = `[${index}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,atrim=start=0:duration=${audioDur.toFixed(4)},asetpts=PTS-STARTPTS,`;
+                    const shouldLoop = clip.loopToTimeline || (clip.origin === 'auto' && clip.track === 101);
+                    if (shouldLoop && audioDur > 0.01 && wantedDur > audioDur + 0.01) {
+                        const loopSamples = Math.max(1, Math.round(audioDur * 48000));
+                        audioFilter += `aloop=loop=-1:size=${loopSamples},atrim=duration=${wantedDur.toFixed(4)},asetpts=PTS-STARTPTS,`;
+                        log(`Looping background audio "${clip.filename}" ${audioDur.toFixed(2)}s → ${wantedDur.toFixed(2)}s`);
+                    } else if (wantedDur > 0) {
+                        audioFilter += `atrim=duration=${wantedDur.toFixed(4)},asetpts=PTS-STARTPTS,`;
+                    }
+                    const audioStart = Math.max(0, (clip.startFrame ?? 0) / projectFps);
+                    if (audioStart > 0) {
+                        const delayMs = Math.round(audioStart * 1000);
+                        audioFilter += `adelay=${delayMs}|${delayMs},`;
+                    }
+                    audioFilter += `volume=${finalVolume.toFixed(4)}[a_bg_${index}]`;
+                    filterChains.push(audioFilter);
                 } else {
                     const vOut = `v${index}`;
                     const aOut = `a${index}`;

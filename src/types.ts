@@ -150,6 +150,8 @@ export interface Clip {
     locked: boolean;
     isPinned?: boolean;   // NEW: Prevents clip from being moved
     isMuted?: boolean;    // NEW: Per-clip mute
+    /** Repeat the selected source range to cover this audio clip's timeline slot. */
+    loopToTimeline?: boolean;
     disabled?: boolean;   // NEW: Non-destructive deletion (hides from playback/export)
     zoomLevel?: number;   // 100 to 200 percentage (Static fallback)
     zoomStart?: number;   // Dynamic zoom start percentage

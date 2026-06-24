@@ -151,7 +151,7 @@ export const TrailerSmartPanel: React.FC<Props> = ({ settings, update }) => {
             <div className="space-y-2">
                 {rows.map((r) => (
                     <div key={r.id} className={`rounded-lg border p-2.5 transition-colors ${r.on ? 'border-emerald-500/25 bg-emerald-500/[0.04]' : 'border-white/5 bg-black/20'}`}>
-                        <label className="flex items-center justify-between cursor-pointer">
+                        <div className="flex items-center justify-between">
                             <span className="flex items-center gap-2">
                                 <span className="text-[11px] font-bold uppercase tracking-wide text-white/70">{r.label}</span>
                                 {r.storeKey && <StatusChip k={r.storeKey} on={r.on} />}
@@ -174,13 +174,19 @@ export const TrailerSmartPanel: React.FC<Props> = ({ settings, update }) => {
                                     </button>
                                 )}
                             </span>
-                            <div className="relative">
-                                <input type="checkbox" className="sr-only" checked={r.on} onChange={(e) => r.set(e.target.checked)} />
+                            <button
+                                type="button"
+                                role="switch"
+                                aria-checked={r.on}
+                                aria-label={`${r.on ? 'Disable' : 'Enable'} ${r.label}`}
+                                onClick={() => r.set(!r.on)}
+                                className="relative shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/70"
+                            >
                                 <div className={`w-10 h-5 rounded-full transition-colors ${r.on ? 'bg-emerald-500' : 'bg-black border border-white/20'}`}>
                                     <div className={`w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform ${r.on ? 'translate-x-5' : 'translate-x-0.5'}`} />
                                 </div>
-                            </div>
-                        </label>
+                            </button>
+                        </div>
                         {r.on && <p className="text-[10px] text-white/40 mt-1.5 leading-snug">{r.desc}</p>}
                     </div>
                 ))}

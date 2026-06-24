@@ -7,7 +7,8 @@ import { useSavedEditsStore } from '../../store/savedEditsStore';
 import { useGodModeStore } from '../../store/godModeStore';
 import { generateTrailerSequence, TrailerSettings, TrailerClip, extractBeatTimestamps } from '../../lib/trailerGenerator';
 import { generateSeed } from '../../lib/random';
-import { SEQUENCE_PRESETS } from './sequencePresets';
+import { finalizeGeneratedSequence } from '../../lib/editSequencePipeline';
+import { reorderClips } from '../../lib/clipOrdering';
 
 import { DEFAULT_FPS } from '../../lib/time';
 import { Wand2, RefreshCw, Settings2, Film, Play, Pause, ArrowLeft, Volume2, VolumeX, Shuffle, Dice3, Sparkles } from 'lucide-react';
@@ -72,63 +73,28 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
     useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
 
     const processClips = (rawClips: Clip[], settingsObj: TrailerSettings): Clip[] => {
-        let clips = rawClips.map(c => ({ ...c }));
-        
-        // 1. Apply Preset
-        if (settingsObj.sequencePresetId) {
-            const preset = SEQUENCE_PRESETS.find(p => p.id === settingsObj.sequencePresetId);
-            if (preset) {
-                const result = preset.apply(clips, DEFAULT_FPS);
-                clips = result.clips;
-            }
-        }
-
-        // 2. Loop/Fill and Clamp to Target Duration
-        const targetFrames = Math.floor((settingsObj.targetDuration || 30) * DEFAULT_FPS);
-        let currentEnd = clips.length > 0 ? Math.max(...clips.map(c => c.endFrame)) : 0;
-
-        if (currentEnd > 0 && currentEnd < targetFrames) {
-            const originalPattern = clips.map(c => ({ ...c }));
-            let loopCount = 0;
-            while (currentEnd < targetFrames && loopCount < 100) {
-                loopCount++;
-                const clonedPattern = originalPattern.map(c => ({
-                    ...c,
-                    id: (typeof crypto !== 'undefined' && crypto.randomUUID)
-                        ? crypto.randomUUID()
-                        : `c-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-                    startFrame: c.startFrame + currentEnd,
-                    endFrame: c.endFrame + currentEnd,
-                }));
-                clips.push(...clonedPattern);
-                currentEnd = Math.max(...clips.map(c => c.endFrame));
-            }
-        }
-
-        // Always clamp the sequence to targetFrames if we have clips
-        if (clips.length > 0 && targetFrames > 0) {
-            clips = clips.filter(c => c.startFrame < targetFrames);
-            clips.forEach(c => {
-                if (c.endFrame > targetFrames) {
-                    c.endFrame = targetFrames;
-                    // Adjust trimEndFrame to avoid playing past source media bounds
-                    const dur = c.endFrame - c.startFrame;
-                    const ratio = c.speed || 1.0;
-                    c.trimEndFrame = c.trimStartFrame + Math.max(1, Math.round(dur * ratio));
-                }
+        let clips = finalizeGeneratedSequence(rawClips, pool, settingsObj, DEFAULT_FPS);
+        if (settingsObj.clipOrderMode && settingsObj.clipOrderMode !== 'none') {
+            const fileMeta = new Map(
+                pool.map(file => [file.id, { createdAt: file.createdAt, filename: file.filename }]),
+            );
+            clips = reorderClips(clips, settingsObj.clipOrderMode, {
+                sequentialBy: settingsObj.sequentialBy,
+                fileMeta,
+                seed: settingsObj.seed,
             });
         }
-
         return clips;
     };
 
-    const buildSequence = async () => {
+    const buildSequence = async (forceRegenerate = false) => {
         setIsGenerating(true); setIsPlaying(false);
 
-        // If we received pre-generated clips from the router, use those directly
-        // so the preview matches exactly what gets exported.
-        if (preGeneratedClips && preGeneratedClips.length > 0 && !hasBuiltOnce.current) {
-            hasBuiltOnce.current = true;
+        // The router's draft is the source of truth. This branch must remain
+        // idempotent because React Strict Mode intentionally replays effects in
+        // development. A ref gate here previously caused the second pass to
+        // regenerate and overwrite the real draft with a repeated mini-pattern.
+        if (!forceRegenerate && preGeneratedClips && preGeneratedClips.length > 0) {
             const videoClips = preGeneratedClips.filter((c: any) => c.type !== 'audio');
             let accumulated = 0;
             const embellished = videoClips.map((c: any) => {
@@ -170,8 +136,6 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
             if (embellished.length > 0) setIsPlaying(true);
         }, 100);
     };
-    const hasBuiltOnce = useRef(false);
-
     // ── SHUFFLE ONLY: keep same clips & durations, just reorder ──
     const shuffleOnly = () => {
         if (draftSequence.length <= 1) return;
@@ -211,14 +175,12 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
 
     // ── RANDOMIZE SEGMENTS + DURATIONS: fresh seed → new trim points, durations, speeds ──
     const randomizeSegments = () => {
-        hasBuiltOnce.current = true; // force fresh generation (skip preGenerated)
-        buildSequence();
+        buildSequence(true);
     };
 
     // ── SHUFFLE + FLUX: full regenerate then shuffle the result ──
     const shuffleFlux = async () => {
         setIsGenerating(true); setIsPlaying(false);
-        hasBuiltOnce.current = true;
 
         let beats = null;
         if (settings.useAudioGuide && settings.audioUrl) {
@@ -262,7 +224,7 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
         }, 100);
     };
 
-    useEffect(() => { buildSequence(); }, [settings]);
+    useEffect(() => { buildSequence(false); }, [settings, preGeneratedClips]);
 
     const [urlCache, setUrlCache] = useState<Record<string, string>>({});
     
@@ -575,6 +537,7 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
                 speed: 1,
                 volume: 100,
                 reversed: false,
+                loopToTimeline: true,
                 locked: false,
                 origin: 'auto',
             };
@@ -674,7 +637,7 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
                     <button onClick={shuffleFlux} title="Full regenerate + shuffle order" className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-500/15 text-emerald-300 font-bold text-[10px] uppercase tracking-wider hover:bg-emerald-500/30 border border-emerald-500/20 hover:border-emerald-500/40 transition-all">
                         <Sparkles size={13} className={isGenerating ? "animate-pulse" : ""} /> Shuffle + Flux
                     </button>
-                    <button onClick={buildSequence} title="Completely regenerate the edit" className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-purple-500/15 text-purple-300 font-bold text-[10px] uppercase tracking-wider hover:bg-purple-500/30 border border-purple-500/20 hover:border-purple-500/40 transition-all">
+                    <button onClick={() => buildSequence(true)} title="Completely regenerate the edit" className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-purple-500/15 text-purple-300 font-bold text-[10px] uppercase tracking-wider hover:bg-purple-500/30 border border-purple-500/20 hover:border-purple-500/40 transition-all">
                         <RefreshCw size={13} className={isGenerating ? "animate-spin" : ""} /> Flux All
                     </button>
                     <button onClick={handleSave} className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-white font-black uppercase text-[10px] tracking-wider hover:bg-primary/80 shadow-[0_0_15px_rgba(var(--color-primary),0.3)]">

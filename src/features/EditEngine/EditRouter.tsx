@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { EditWizard } from './EditWizard';
 import { EditPlayer } from './EditPlayer';
-import { SEQUENCE_PRESETS } from './sequencePresets';
+import { finalizeGeneratedSequence } from '../../lib/editSequencePipeline';
 import { EDIT_TYPES } from './EditGeneratorHome';
 import type { EditType } from './EditGeneratorHome';
 import { TrailerSettings, generateTrailerSequence, extractBeatTimestamps } from '../../lib/trailerGenerator';
@@ -114,7 +114,11 @@ export const EditRouter: React.FC = () => {
         let proceedAll = false;
         let smartDisabled = false;
 
-        if ((needScore || needSilence || needScenes || needColor) && !smart.isFullyAnalyzed && smart.totalCount > 0) {
+        // Always confirm how Smart Engine should participate when any Smart
+        // option is enabled. Previously this prompt disappeared once background
+        // analysis completed, making Generate feel unresponsive and removing the
+        // user's last chance to disable or limit Smart input for this edit.
+        if ((needScore || needSilence || needScenes || needColor) && pool.length > 0) {
             const decision = await new Promise<'now' | 'wait' | 'all' | 'disable' | 'cancel'>((resolve) => {
                 setShowConfirm({ resolve });
             });
@@ -247,6 +251,11 @@ export const EditRouter: React.FC = () => {
         }
         setSettings(newSettings);
 
+        // Ask how Smart Engine should participate before beat extraction or any
+        // other expensive work, so Generate provides immediate feedback.
+        const workingPool = await resolvePoolAndConfirm(newSettings);
+        if (!workingPool) return; // User cancelled
+
         // ── Beat extraction ──────────────────────────────────────────────
         let beatTimestamps = newSettings.beatTimestamps;
         if (newSettings.useAudioGuide && newSettings.audioUrl && !beatTimestamps) {
@@ -271,9 +280,6 @@ export const EditRouter: React.FC = () => {
             }
         }
 
-        // ── Pool + Smart Engine confirmation ─────────────────────────────
-        const workingPool = await resolvePoolAndConfirm(newSettings);
-        if (!workingPool) return; // User cancelled
         console.log('[EditRouter] Using pre-computed Smart Engine results');
 
         // ── Intelligence merge (if narration available) ──────────────────
@@ -305,82 +311,8 @@ export const EditRouter: React.FC = () => {
             clips = generateTrailerSequence(workingPool, { ...newSettings, beatTimestamps });
         }
 
-        // ── Apply NLE Sequence Preset ─────────
-        if ((newSettings as any).sequencePresetId) {
-            const preset = SEQUENCE_PRESETS.find(p => p.id === (newSettings as any).sequencePresetId);
-            if (preset) {
-                const projFps = useProjectStore.getState().settings.fps || 30;
-                const result = preset.apply(clips, projFps);
-                clips = result.clips;
-                console.log(`[EditRouter] Applied NLE sequence preset: ${preset.name}`);
-            }
-        }
-
-        // ── Loop/Fill and Clamp to Target Duration ─────────
-        {
-            const projFps = useProjectStore.getState().settings.fps || 30;
-            const targetFrames = Math.floor((newSettings.targetDuration || 30) * projFps);
-            let currentEnd = clips.length > 0 ? Math.max(...clips.map(c => c.endFrame)) : 0;
-
-            if (currentEnd > 0 && currentEnd < targetFrames) {
-                // Fill the remaining duration with FRESHLY-GENERATED, varied content
-                // (different sub-seeds → different clips/trims/order) instead of
-                // cloning the same pattern over and over — which produced the
-                // "one clip / segment looped infinitely" feel.
-                let guard = 0;
-                while (currentEnd < targetFrames && guard < 60) {
-                    guard++;
-                    const remainingSec = (targetFrames - currentEnd) / projFps;
-                    if (remainingSec < 0.25) break;
-
-                    let more: any[] = [];
-                    try {
-                        more = generateTrailerSequence(workingPool, {
-                            ...newSettings,
-                            seed: `${newSettings.seed || 'fill'}_fill${guard}`,
-                            targetDuration: remainingSec,
-                            beatTimestamps: null, // beat budget already spent; fill freely
-                        });
-                    } catch (e) {
-                        console.warn('[EditRouter] fill regeneration failed:', e);
-                    }
-
-                    // Fallback: if regeneration yields nothing, clone once so we still
-                    // reach the target duration rather than ending short.
-                    if (!more || more.length === 0) {
-                        more = clips.map(c => ({ ...c }));
-                    }
-
-                    const shifted = more.map(c => ({
-                        ...c,
-                        id: (typeof crypto !== 'undefined' && crypto.randomUUID)
-                            ? crypto.randomUUID()
-                            : `c-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-                        startFrame: c.startFrame + currentEnd,
-                        endFrame: c.endFrame + currentEnd,
-                    }));
-                    clips.push(...shifted);
-
-                    const newEnd = Math.max(...clips.map(c => c.endFrame));
-                    if (newEnd <= currentEnd) break; // no forward progress — stop
-                    currentEnd = newEnd;
-                }
-            }
-
-            // Always clamp the sequence to targetFrames if we have clips
-            if (clips.length > 0 && targetFrames > 0) {
-                clips = clips.filter(c => c.startFrame < targetFrames);
-                clips.forEach(c => {
-                    if (c.endFrame > targetFrames) {
-                        c.endFrame = targetFrames;
-                        // Adjust trimEndFrame to avoid playing past source media bounds
-                        const dur = c.endFrame - c.startFrame;
-                        const ratio = c.speed || 1.0;
-                        c.trimEndFrame = c.trimStartFrame + Math.max(1, Math.round(dur * ratio));
-                    }
-                });
-            }
-        }
+        const projFps = useProjectStore.getState().settings.fps || 30;
+        clips = finalizeGeneratedSequence(clips, workingPool, newSettings, projFps);
 
         // ── Lockable clip-ordering structure (Media Pool toggle) ─────────
         // 'none' keeps the generator's existing structure. The other modes group a

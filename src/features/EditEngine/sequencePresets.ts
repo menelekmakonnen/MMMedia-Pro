@@ -284,7 +284,6 @@ const jCut: SequencePreset = {
         const out = cloneClips(clips);
         const audioOffset = Math.round(fps * 0.5); // 0.5s audio lead
         out.forEach((c, i) => {
-            c.track = TRACK.V1;
             // Create audio pre-lap: the audio track version starts earlier
             if (i > 0) {
                 // This sets metadata for the renderer to handle audio offset
@@ -305,7 +304,6 @@ const lCut: SequencePreset = {
         const out = cloneClips(clips);
         const audioTrail = Math.round(fps * 0.5);
         out.forEach((c, i) => {
-            c.track = TRACK.V1;
             if (i < out.length - 1) {
                 (c as any)._audioTrailFrames = audioTrail;
             }
@@ -323,7 +321,6 @@ const audioDucking: SequencePreset = {
     apply: (clips, fps) => {
         const out = cloneClips(clips);
         out.forEach(c => {
-            c.track = TRACK.V1;
             c.volume = 100; // Full clip audio
             // Mark for ducking processor
             (c as any)._duckBgMusic = true;
@@ -345,7 +342,6 @@ const flashCut: SequencePreset = {
     apply: (clips, fps) => {
         const out = cloneClips(clips);
         out.forEach(c => {
-            c.track = TRACK.V1;
             c.transition = { type: 'flash' as TransitionType, durationFrames: 3, params: {} };
         });
         return { clips: out, videoTrackCount: 1, audioTrackCount: 2 };
@@ -361,7 +357,6 @@ const cinematicBars: SequencePreset = {
     apply: (clips, fps) => {
         const out = cloneClips(clips);
         out.forEach(c => {
-            c.track = TRACK.V1;
             c.letterbox = true;
             c.filmGrain = 15;
             c.transition = { type: 'dissolve' as TransitionType, durationFrames: Math.round(fps * 0.5), params: {} };
@@ -379,7 +374,6 @@ const glitchPulse: SequencePreset = {
     apply: (clips, fps) => {
         const out = cloneClips(clips);
         out.forEach((c, i) => {
-            c.track = TRACK.V1;
             c.transition = { type: 'glitch' as TransitionType, durationFrames: Math.round(fps * 0.25), params: {} };
             if (i % 2 === 0) {
                 c.rgbSplit = { amount: 30 };
@@ -527,4 +521,19 @@ export function getPresetsByCategory(category: PresetCategory): SequencePreset[]
 /** Get a preset by ID */
 export function getPresetById(id: string): SequencePreset | undefined {
     return SEQUENCE_PRESETS.find(p => p.id === id);
+}
+
+/** Resolve modern stacked presets while retaining saved legacy selections. */
+export function resolveSequencePresetIds(settings: { sequencePresetIds?: string[]; sequencePresetId?: string }): string[] {
+    const ids = settings.sequencePresetIds?.filter(Boolean) ?? [];
+    if (ids.length > 0) return Array.from(new Set(ids));
+    return settings.sequencePresetId ? [settings.sequencePresetId] : [];
+}
+
+/** Apply multiple sequence patterns in user-selected order. */
+export function applySequencePresetStack(clips: Clip[], presetIds: string[], fps: number): Clip[] {
+    return presetIds.reduce((current, id) => {
+        const preset = getPresetById(id);
+        return preset && preset.category !== 'pacing' ? preset.apply(current, fps).clips : current;
+    }, clips);
 }

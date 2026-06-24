@@ -141,6 +141,19 @@ ff(['-y', '-i', clips[0],
 d = probeDuration(zpFile);
 within(d, 2.0, 0.25) ? ok(`zoomed clip duration ${d.toFixed(2)}s ≈ 2s (no inflation)`) : bad(`zoomed clip duration ${d.toFixed(2)}s — zoompan is inflating duration (d must be 1)`);
 
+console.log('\nTest 4 — generated background audio loops to its timeline slot:');
+const loopFile = path.join(TMP, 'audio-loop.m4a');
+const selectedAudioDur = 0.5;
+const wantedAudioDur = 3.0;
+const loopSamples = Math.round(selectedAudioDur * 48000);
+ff(['-y', '-i', clips[0], '-filter_complex',
+    `[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,atrim=start=0:end=${selectedAudioDur},asetpts=PTS-STARTPTS,aloop=loop=-1:size=${loopSamples},atrim=duration=${wantedAudioDur},asetpts=PTS-STARTPTS[a]`,
+    '-map', '[a]', '-c:a', 'aac', loopFile]);
+d = probeDuration(loopFile);
+within(d, wantedAudioDur, 0.15)
+    ? ok(`looped audio duration ${d.toFixed(2)}s ≈ ${wantedAudioDur}s`)
+    : bad(`looped audio duration ${d.toFixed(2)}s, expected ${wantedAudioDur}s`);
+
 // ── cleanup ──
 try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
 

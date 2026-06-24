@@ -25,7 +25,8 @@ export const SmartEngineConfirmModal: React.FC<SmartEngineConfirmModalProps> = (
 }) => {
     const progress = totalCount > 0 ? analyzedCount / totalCount : 0;
     const pct = Math.round(progress * 100);
-    const isComplete = analyzedCount >= totalCount;
+    const isComplete = totalCount > 0 && analyzedCount >= totalCount;
+    const hasAnyAnalysis = analyzedCount > 0;
 
     // Pulsing dot animation for the "Wait for All" button
     const [waitDots, setWaitDots] = useState(0);
@@ -69,20 +70,22 @@ export const SmartEngineConfirmModal: React.FC<SmartEngineConfirmModalProps> = (
                             {/* Title */}
                             <div className="flex items-center gap-3">
                                 <div className="p-2 rounded-lg bg-purple-500/15 border border-purple-500/20">
-                                    <Loader2 size={18} className="text-purple-400 animate-spin" />
+                                    {isComplete
+                                        ? <CheckCircle2 size={18} className="text-emerald-400" />
+                                        : <Loader2 size={18} className="text-purple-400 animate-spin" />}
                                 </div>
                                 <div>
                                     <h3 className="text-base font-black tracking-tight text-white">
-                                        Analysis In Progress
+                                        {isComplete ? 'Smart Engine Ready' : totalCount > 0 ? 'Analysis In Progress' : 'Smart Engine Options'}
                                     </h3>
                                     <p className="text-[11px] text-white/40 mt-0.5">
-                                        Smart Engine is analyzing your clips
+                                        {isComplete ? 'Choose how Smart Engine should shape this edit' : totalCount > 0 ? 'Smart Engine is analyzing your clips' : 'No cached analysis is available yet'}
                                     </p>
                                 </div>
                             </div>
 
                             {/* Progress bar */}
-                            <div className="space-y-2">
+                            {totalCount > 0 && <div className="space-y-2">
                                 <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-widest">
                                     <span className="text-white/40">Progress</span>
                                     <span className="text-purple-300 font-mono">
@@ -107,7 +110,7 @@ export const SmartEngineConfirmModal: React.FC<SmartEngineConfirmModalProps> = (
                                     )}
                                 </div>
                                 <div className="text-right text-[10px] text-white/20 font-mono">{pct}%</div>
-                            </div>
+                            </div>}
 
                             {/* Option buttons */}
                             <div className="space-y-2.5">
@@ -121,17 +124,21 @@ export const SmartEngineConfirmModal: React.FC<SmartEngineConfirmModalProps> = (
                                     </div>
                                     <div className="text-left flex-1">
                                         <div className="text-sm font-bold text-white group-hover:text-purple-100 transition-colors">
-                                            Use Analyzed Clips
+                                            {isComplete ? 'Use Smart Analysis' : hasAnyAnalysis ? 'Use Analyzed Clips' : 'Generate Now'}
                                         </div>
                                         <div className="text-[10px] text-white/40 mt-0.5">
-                                            Proceed with {analyzedCount} of {totalCount} clips analyzed
+                                            {isComplete
+                                                ? `Apply analysis from all ${totalCount} clips`
+                                                : hasAnyAnalysis
+                                                    ? `Proceed with ${analyzedCount} of ${totalCount} clips analyzed`
+                                                    : 'Use the current media pool without waiting'}
                                         </div>
                                     </div>
                                     <CheckCircle2 size={16} className="text-purple-400/50 group-hover:text-purple-400 transition-colors" />
                                 </button>
 
                                 {/* Wait for All */}
-                                <button
+                                {!isComplete && totalCount > 0 && <button
                                     onClick={onWaitAll}
                                     className="group w-full flex items-center gap-3 p-3.5 rounded-xl border border-blue-500/20 bg-gradient-to-r from-blue-600/15 to-blue-500/10 hover:from-blue-600/25 hover:to-blue-500/20 hover:border-blue-500/40 transition-all duration-200"
                                 >
@@ -149,10 +156,10 @@ export const SmartEngineConfirmModal: React.FC<SmartEngineConfirmModalProps> = (
                                     {!isComplete && (
                                         <Loader2 size={14} className="text-blue-400/50 animate-spin" />
                                     )}
-                                </button>
+                                </button>}
 
                                 {/* Proceed With All Clips (analyzed + not-yet-analyzed) */}
-                                <button
+                                {!isComplete && hasAnyAnalysis && <button
                                     onClick={onProceedAll}
                                     className="group w-full flex items-center gap-3 p-3.5 rounded-xl border border-emerald-500/20 bg-gradient-to-r from-emerald-600/15 to-emerald-500/10 hover:from-emerald-600/25 hover:to-emerald-500/20 hover:border-emerald-500/40 transition-all duration-200"
                                 >
@@ -168,7 +175,7 @@ export const SmartEngineConfirmModal: React.FC<SmartEngineConfirmModalProps> = (
                                         </div>
                                     </div>
                                     <CheckCircle2 size={16} className="text-emerald-400/50 group-hover:text-emerald-400 transition-colors" />
-                                </button>
+                                </button>}
 
                                 {/* Disable Smart Engine for this edit */}
                                 <button
