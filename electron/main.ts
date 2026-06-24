@@ -18,6 +18,13 @@ import type { GridCellLayout } from '../src/lib/gridTemplates';
 process.env.DIST = join(__dirname, '../dist')
 process.env.VITE_PUBLIC = app.isPackaged ? process.env.DIST : join(process.env.DIST, '../public')
 
+// ── Suppress EPIPE crashes on Windows ──────────────────────────────────
+// When Electron's parent console pipe closes (e.g. during shutdown or when
+// the renderer crashes), writing to stdout/stderr throws EPIPE. Ignoring
+// these prevents the "broken pipe" uncaught exception dialog.
+process.stdout?.on?.('error', (err: any) => { if (err?.code !== 'EPIPE') throw err; });
+process.stderr?.on?.('error', (err: any) => { if (err?.code !== 'EPIPE') throw err; });
+
 // Set AppUserModelId for correct taskbar icon when pinned on Windows
 // Version suffix forces Windows to invalidate its cached taskbar icon
 app.setAppUserModelId('com.icunilabs.mmmediapro.v2');
@@ -118,7 +125,7 @@ function createWindow() {
     });
 
     win.webContents.on('console-message', (_event, _level, message, line, sourceId) => {
-        console.log(`[Renderer] ${message} (${sourceId}:${line})`);
+        try { console.log(`[Renderer] ${message} (${sourceId}:${line})`); } catch {}
     });
 
     if (process.argv.includes('--dev') || !app.isPackaged) {
@@ -130,7 +137,7 @@ function createWindow() {
     })
 
     win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-        console.error(`[Main] Failed to load URL: ${validatedURL} with error: ${errorDescription} (${errorCode})`);
+        try { console.error(`[Main] Failed to load URL: ${validatedURL} with error: ${errorDescription} (${errorCode})`); } catch {}
     });
 
     if (VITE_DEV_SERVER_URL) {
