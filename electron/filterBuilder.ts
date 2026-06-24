@@ -695,39 +695,53 @@ export function buildVideoFilter(
         filters.push(`eq=brightness='0.3*gt(sin(t*${freq}*2*PI),0)'`);
     }
 
+    // Beat-reactive effects below index into clip.beatTimestamps. A stray
+    // undefined/NaN entry (a beat-sync edit can produce one) used to throw
+    // `undefined.toFixed` and abort the whole export — sanitize to finite numbers.
+    const beatTs: number[] = Array.isArray(clip.beatTimestamps)
+        ? clip.beatTimestamps.filter((bt: any) => typeof bt === 'number' && Number.isFinite(bt))
+        : [];
+
     // 10h. Beat-reactive flash (brightness spike at beat timestamps)
-    if (clip.beatEffect?.flash && clip.beatTimestamps && clip.beatTimestamps.length > 0) {
+    if (clip.beatEffect?.flash && beatTs.length > 0) {
         const flash = clip.beatEffect.flash;
-        const flashDurSec = flash.durationFrames / fps;
-        const enableExpr = clip.beatTimestamps
-            .map(bt => `between(t,${bt.toFixed(4)},${(bt + flashDurSec).toFixed(4)})`)
-            .join('+');
-        filters.push(`eq=brightness='${flash.intensity.toFixed(2)}*gt(${enableExpr},0)'`);
+        const flashDurSec = (Number.isFinite(flash.durationFrames) ? flash.durationFrames : 0) / fps;
+        const intensity = Number.isFinite(flash.intensity) ? flash.intensity : 0;
+        if (flashDurSec > 0 && intensity !== 0) {
+            const enableExpr = beatTs
+                .map(bt => `between(t,${bt.toFixed(4)},${(bt + flashDurSec).toFixed(4)})`)
+                .join('+');
+            filters.push(`eq=brightness='${intensity.toFixed(2)}*gt(${enableExpr},0)'`);
+        }
     }
 
     // 10h-b. Beat-reactive chromatic aberration (rgbashift at beat timestamps)
-    if (clip.beatEffect?.chromatic && clip.beatTimestamps && clip.beatTimestamps.length > 0) {
+    if (clip.beatEffect?.chromatic && beatTs.length > 0) {
         const chroma = clip.beatEffect.chromatic;
-        const chromaDurSec = chroma.durationFrames / fps;
-        const chromaEnableExpr = clip.beatTimestamps
-            .map(bt => `between(t,${bt.toFixed(4)},${(bt + chromaDurSec).toFixed(4)})`)
-            .join('+');
-        const offset = chroma.offset;
-        filters.push(`rgbashift=rh='${offset}*gt(${chromaEnableExpr},0)':bh='${-offset}*gt(${chromaEnableExpr},0)'`);
+        const chromaDurSec = (Number.isFinite(chroma.durationFrames) ? chroma.durationFrames : 0) / fps;
+        const offset = Number.isFinite(chroma.offset) ? chroma.offset : 0;
+        if (chromaDurSec > 0 && offset !== 0) {
+            const chromaEnableExpr = beatTs
+                .map(bt => `between(t,${bt.toFixed(4)},${(bt + chromaDurSec).toFixed(4)})`)
+                .join('+');
+            filters.push(`rgbashift=rh='${offset}*gt(${chromaEnableExpr},0)':bh='${-offset}*gt(${chromaEnableExpr},0)'`);
+        }
     }
 
     // 10i. Beat-reactive shake boost: merged into clip.shake during generation (trailerGenerator.ts)
 
     // 10j. Beat-reactive zoom punch (scale + crop at beat timestamps)
-    if (clip.beatEffect?.zoom && clip.beatTimestamps && clip.beatTimestamps.length > 0) {
+    if (clip.beatEffect?.zoom && beatTs.length > 0) {
         const zoomPunch = clip.beatEffect.zoom;
-        const punchDurSec = zoomPunch.durationFrames / fps;
-        const punch = zoomPunch.punchScale - 1; // e.g. 1.05 → 0.05
-        const zoomEnableExpr = clip.beatTimestamps
-            .map(bt => `between(t,${bt.toFixed(4)},${(bt + punchDurSec).toFixed(4)})`)
-            .join('+');
-        filters.push(`scale='iw*(1+${punch.toFixed(4)}*gt(${zoomEnableExpr},0))':'ih*(1+${punch.toFixed(4)}*gt(${zoomEnableExpr},0))'`);
-        filters.push(`crop=${outW}:${outH}:'(iw-${outW})/2':'(ih-${outH})/2'`);
+        const punchDurSec = (Number.isFinite(zoomPunch.durationFrames) ? zoomPunch.durationFrames : 0) / fps;
+        const punch = (Number.isFinite(zoomPunch.punchScale) ? zoomPunch.punchScale : 1) - 1; // e.g. 1.05 → 0.05
+        if (punchDurSec > 0 && punch !== 0) {
+            const zoomEnableExpr = beatTs
+                .map(bt => `between(t,${bt.toFixed(4)},${(bt + punchDurSec).toFixed(4)})`)
+                .join('+');
+            filters.push(`scale='iw*(1+${punch.toFixed(4)}*gt(${zoomEnableExpr},0))':'ih*(1+${punch.toFixed(4)}*gt(${zoomEnableExpr},0))'`);
+            filters.push(`crop=${outW}:${outH}:'(iw-${outW})/2':'(ih-${outH})/2'`);
+        }
     }
 
     // 10z. Advanced linear edit-effects: shutter motion blur + vibration flash.

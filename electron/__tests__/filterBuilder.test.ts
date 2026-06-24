@@ -35,6 +35,29 @@ const baseProbe: ProbeData = {
     duration: 60.0,
 };
 
+describe('buildVideoFilter — beat-effect resilience (regression)', () => {
+    it('does not throw when beatTimestamps contain undefined/NaN entries', () => {
+        const clip: ClipExportData = {
+            ...baseClip,
+            beatTimestamps: [0.1, undefined as any, NaN, 0.8],
+            beatEffect: {
+                flash: { intensity: 0.4, color: '#fff', durationFrames: 3 },
+                chromatic: { offset: 6, durationFrames: 3 },
+                zoom: { punchScale: 1.05, durationFrames: 3 },
+            },
+        };
+        expect(() => buildVideoFilter(clip, baseSettings, baseProbe, { preSeeked: true, padToSlot: true })).not.toThrow();
+    });
+    it('does not throw when a beat-effect scalar is missing', () => {
+        const clip: ClipExportData = {
+            ...baseClip,
+            beatTimestamps: [0.2, 0.5],
+            beatEffect: { zoom: { punchScale: undefined as any, durationFrames: undefined as any } },
+        };
+        expect(() => buildVideoFilter(clip, baseSettings, baseProbe, { preSeeked: true })).not.toThrow();
+    });
+});
+
 describe('buildAtempoChain', () => {
     it('returns empty string for speed 1.0', () => {
         expect(buildAtempoChain(1.0)).toBe('');
