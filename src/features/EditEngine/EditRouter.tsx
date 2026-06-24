@@ -361,7 +361,8 @@ export const EditRouter: React.FC = () => {
             clips = mv.clips;
             console.log('[EditRouter] Music-video mode:', mv.report);
         } else {
-            clips = generateTrailerSequence(workingPool, { ...newSettings, beatTimestamps });
+            const projFps = useProjectStore.getState().settings.fps || 30;
+            clips = generateTrailerSequence(workingPool, { ...newSettings, beatTimestamps, fps: projFps });
         }
 
         const projFps = useProjectStore.getState().settings.fps || 30;
@@ -528,13 +529,24 @@ export const EditRouter: React.FC = () => {
 
             <div className="flex-1 min-h-0">
                 {inWizard ? (
-                    /* All modes now use the unified EditWizard — mode-specific
-                       options are shown/hidden based on generatorMode inside it. */
-                    <EditWizard
-                        onGenerate={handleGenerate}
-                        onModeChange={(mode) => handleModeSelect(mode as EditType)}
-                        activeMode={activeMode}
-                    />
+                    /* Mode-aware wizard rendering: specialized wizards for modes that
+                       need additional data entry (actor assignments, narration, scenes);
+                       the unified EditWizard for beat-sync modes that differ via subcategory. */
+                    activeMode === 'showreel' ? (
+                        <ShowreelWizard onGenerate={handleShowreelGenerate} />
+                    ) : activeMode === 'video-essay' ? (
+                        <VideoEssayWizard onGenerate={handleVideoEssayGenerate} />
+                    ) : activeMode === 'short-film' ? (
+                        <ShortFilmDashboard onAssemblyCut={handleShortFilmGenerate} />
+                    ) : (
+                        /* Trailer, Music Video, Social Media, BTS — unified engine
+                           with subcategory-driven behaviour differences. */
+                        <EditWizard
+                            onGenerate={handleGenerate}
+                            onModeChange={(mode) => handleModeSelect(mode as EditType)}
+                            activeMode={activeMode}
+                        />
+                    )
                 ) : (
                     /* ── PLAYER: Generated timeline ─────────────────────── */
                     <EditPlayer

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useMediaStore } from '../../store/mediaStore';
 import { useClipStore } from '../../store/clipStore';
+import { useProjectStore } from '../../store/projectStore';
 import { useViewStore } from '../../store/viewStore';
 import { useUserStore } from '../../store/userStore';
 import { useSavedEditsStore } from '../../store/savedEditsStore';
@@ -29,6 +30,7 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
     const { setActiveTab } = useViewStore();
     const { masterVolume, isMasterMuted, setMasterVolume, setIsMasterMuted } = useUserStore();
     const { orientationFilter } = useMediaStore();
+    const fps = useProjectStore.getState().settings?.fps || DEFAULT_FPS;
 
     // Use only selected clips if user made a selection, otherwise use all
     const pool = selectedFileIds.length > 0
@@ -73,7 +75,7 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
     useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
 
     const processClips = (rawClips: Clip[], settingsObj: TrailerSettings): Clip[] => {
-        let clips = finalizeGeneratedSequence(rawClips, pool, settingsObj, DEFAULT_FPS);
+        let clips = finalizeGeneratedSequence(rawClips, pool, settingsObj, fps);
         if (settingsObj.clipOrderMode && settingsObj.clipOrderMode !== 'none') {
             const fileMeta = new Map(
                 pool.map(file => [file.id, { createdAt: file.createdAt, filename: file.filename }]),
@@ -98,7 +100,7 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
             const videoClips = preGeneratedClips.filter((c: any) => c.type !== 'audio');
             let accumulated = 0;
             const embellished = videoClips.map((c: any) => {
-                const dur = (c.endFrame - c.startFrame) / DEFAULT_FPS;
+                const dur = (c.endFrame - c.startFrame) / fps;
                 const ret = { ...c, globalStart: accumulated, globalEnd: accumulated + dur, localDuration: dur };
                 accumulated += dur;
                 return ret;
@@ -123,7 +125,7 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
             const processed = processClips(seq, settings);
             let accumulated = 0;
             const embellished = processed.map(c => {
-                const dur = (c.endFrame - c.startFrame) / DEFAULT_FPS;
+                const dur = (c.endFrame - c.startFrame) / fps;
                 const ret = { ...c, globalStart: accumulated, globalEnd: accumulated + dur, localDuration: dur };
                 accumulated += dur;
                 return ret;
@@ -153,7 +155,7 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
         let accumulatedFrames = 0;
         const reordered = shuffled.map(c => {
             const durFrames = c.endFrame - c.startFrame;
-            const dur = durFrames / DEFAULT_FPS;
+            const dur = durFrames / fps;
             const ret = { 
                 ...c, 
                 startFrame: accumulatedFrames,
@@ -202,7 +204,7 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
             let accumulatedFrames = 0;
             const embellished = videoClips.map(c => {
                 const durFrames = c.endFrame - c.startFrame;
-                const dur = durFrames / DEFAULT_FPS;
+                const dur = durFrames / fps;
                 const ret = { 
                     ...c, 
                     startFrame: accumulatedFrames,
@@ -276,7 +278,7 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
     // Compute transition style for the current active clip
     const currentClip = draftSequence[currentClipIndex];
     const localFrame = currentClip
-        ? Math.floor(((globalProgress * ((draftSequence as any).totalDuration || 1)) - (currentClip.globalStart || 0)) * DEFAULT_FPS)
+        ? Math.floor(((globalProgress * ((draftSequence as any).totalDuration || 1)) - (currentClip.globalStart || 0)) * fps)
         : 0;
     const transitionStyle = { transform: '', opacity: 1, zIndex: 20, clipPath: undefined as string | undefined };
 
@@ -297,8 +299,8 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
             const activeVid = activeVideoRef.current === 'A' ? videoARef.current : videoBRef.current;
             
             if (activeVid && clip && clip.type === 'video') {
-                const trimStart = clip.trimStartFrame / DEFAULT_FPS;
-                const trimEnd = clip.trimEndFrame / DEFAULT_FPS;
+                const trimStart = clip.trimStartFrame / fps;
+                const trimEnd = clip.trimEndFrame / fps;
 
                 // ── STALL DETECTION ──
                 // If video currentTime hasn't changed in 5s, the source is likely
@@ -372,7 +374,7 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
             activeVid.volume = (clip.isMuted || isMasterMuted) ? 0 : vol;
             activeVid.playbackRate = Math.max(0.0625, Math.min(16, clip.speed || 1));
             // Preview always plays forward from trimStart (FFmpeg handles reversal on export)
-            const startSec = clip.trimStartFrame / DEFAULT_FPS;
+            const startSec = clip.trimStartFrame / fps;
             if (Math.abs(activeVid.currentTime - startSec) > 0.1) {
                 const onSeek = () => {
                     activeVid.removeEventListener('seeked', onSeek);
@@ -388,7 +390,7 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
         }
 
         if (bgVid && nextClip) {
-            const bgStart = nextClip.trimStartFrame / DEFAULT_FPS;
+            const bgStart = nextClip.trimStartFrame / fps;
             if (bgVid.readyState >= 1) { bgVid.currentTime = bgStart; bgVid.pause(); }
             else { bgVid.addEventListener('loadedmetadata', () => { bgVid.currentTime = bgStart; bgVid.pause(); }, { once: true }); }
         }
@@ -486,7 +488,7 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
         if (settings.useAudioGuide && settings.audioUrl) {
             const totalFrames = cleanSeq.length > 0
                 ? cleanSeq[cleanSeq.length - 1].endFrame
-                : Math.floor(settings.targetDuration * DEFAULT_FPS);
+                : Math.floor(settings.targetDuration * fps);
 
             // ── PATH RESOLUTION ──
             // Prefer audioFilePath (raw filesystem path from Electron's File.path).
@@ -537,14 +539,14 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
                         const smartResult = poolFile ? smartStore.getResult(poolFile.id) : undefined;
                         if (smartResult?.hasDialogue) {
                             speechRegions.push({
-                                start: c.startFrame / DEFAULT_FPS,
-                                end: c.endFrame / DEFAULT_FPS
+                                start: c.startFrame / fps,
+                                end: c.endFrame / fps
                             });
                         }
                     });
 
                     if (speechRegions.length > 0) {
-                        const totalDurationSec = totalFrames / DEFAULT_FPS;
+                        const totalDurationSec = totalFrames / fps;
                         const rawKeyframes = generateDuckingKeyframes(speechRegions, totalDurationSec, {
                             duckedVolume: 15,
                             normalVolume: 100,
@@ -552,7 +554,7 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
                             releaseTime: 0.5
                         });
                         const kfs = rawKeyframes.map((kf: any) => ({
-                            frame: Math.round(kf.time * DEFAULT_FPS),
+                            frame: Math.round(kf.time * fps),
                             value: kf.volume,
                             interp: 'linear' as const
                         }));
@@ -572,8 +574,8 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
                 startFrame: 0,
                 endFrame: totalFrames,
                 sourceDurationFrames: totalFrames,
-                trimStartFrame: Math.floor((settings.audioTrimStart || 0) * DEFAULT_FPS),
-                trimEndFrame: Math.floor((settings.audioTrimEnd || settings.targetDuration) * DEFAULT_FPS),
+                trimStartFrame: Math.floor((settings.audioTrimStart || 0) * fps),
+                trimEndFrame: Math.floor((settings.audioTrimEnd || settings.targetDuration) * fps),
                 track: 101,  // Audio 2 track — background music, NOT linked clip audio (track 2)
                 speed: 1,
                 volume: 100,
@@ -607,7 +609,7 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
         const mediaState = useMediaStore.getState();
         const videoClips = allClips.filter(c => c.type !== 'audio');
         const dur = videoClips.length > 0
-            ? Math.round(videoClips[videoClips.length - 1].endFrame / DEFAULT_FPS)
+            ? Math.round(videoClips[videoClips.length - 1].endFrame / fps)
             : settings.targetDuration;
         // Extract thumbnail from first video clip
         const firstVideoClip = videoClips.find(c => c.type === 'video' && c.path);

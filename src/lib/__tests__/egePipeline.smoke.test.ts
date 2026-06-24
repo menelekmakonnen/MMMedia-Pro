@@ -125,12 +125,18 @@ describe('EGE pipeline smoke', () => {
 
     it('FCPXML exporter outputs structured XML string', () => {
         const edit: IcuniEdit = {
+            schema: 'icuni-edit',
+            version: '1.2',
+            createdBy: 'mmmedia',
+            createdAt: new Date().toISOString(),
+            timeUnit: 'frames',
             project: { name: 'Smoke Test', fps: 30, width: 1920, height: 1080 },
             clips: [
                 {
                     id: 'clip1',
                     name: 'A-roll',
                     file: 'D:/media/a-roll.mp4',
+                    type: 'video',
                     trackType: 'video',
                     track: 1,
                     sourceStart: 0,
@@ -138,11 +144,16 @@ describe('EGE pipeline smoke', () => {
                     timelineStart: 0,
                     timelineEnd: 60,
                     volume: 100,
+                    speed: 1,
+                    reversed: false,
+                    muted: false,
+                    locked: false,
                 },
                 {
                     id: 'clip2',
                     name: 'B-roll Overlay',
                     file: 'D:/media/b-roll.mp4',
+                    type: 'video',
                     trackType: 'video',
                     track: 2,
                     sourceStart: 10,
@@ -150,11 +161,16 @@ describe('EGE pipeline smoke', () => {
                     timelineStart: 20,
                     timelineEnd: 50,
                     volume: 80,
+                    speed: 1,
+                    reversed: false,
+                    muted: false,
+                    locked: false,
                 },
                 {
                     id: 'audio1',
                     name: 'Music',
                     file: 'D:/media/music.mp3',
+                    type: 'audio',
                     trackType: 'audio',
                     track: 1,
                     sourceStart: 0,
@@ -162,6 +178,10 @@ describe('EGE pipeline smoke', () => {
                     timelineStart: 0,
                     timelineEnd: 90,
                     volume: 50,
+                    speed: 1,
+                    reversed: false,
+                    muted: false,
+                    locked: false,
                 }
             ],
         };

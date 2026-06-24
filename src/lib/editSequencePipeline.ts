@@ -38,8 +38,11 @@ export function finalizeGeneratedSequence(
 ): Clip[] {
     const targetFrames = Math.max(1, Math.floor((settings.targetDuration || 30) * fps));
     let clips = applyPatterns(rawClips.map(clip => ({ ...clip })), settings, fps);
-    let renderedFrames = clips.reduce((sum, clip) => sum + Math.max(0, clip.endFrame - clip.startFrame), 0);
+    // Use the actual timeline span (max endFrame) instead of summing individual clip
+    // durations — overlapping multi-track clips (PiP, split-screen, A/B roll) must
+    // not be double-counted.
     let timelineEnd = clips.length > 0 ? Math.max(...clips.map(clip => clip.endFrame)) : 0;
+    let renderedFrames = timelineEnd;
 
     for (let pass = 1; renderedFrames < targetFrames && pass <= 24; pass++) {
         const remainingFrames = targetFrames - renderedFrames;
@@ -66,29 +69,30 @@ export function finalizeGeneratedSequence(
         }));
         clips.push(...shifted);
 
-        const addedFrames = shifted.reduce((sum, clip) => sum + Math.max(0, clip.endFrame - clip.startFrame), 0);
+        const newEnd = Math.max(timelineEnd, ...shifted.map(clip => clip.endFrame));
+        const addedFrames = newEnd - timelineEnd;
         if (addedFrames <= 0) break;
-        renderedFrames += addedFrames;
-        timelineEnd = Math.max(timelineEnd, ...shifted.map(clip => clip.endFrame));
+        timelineEnd = newEnd;
+        renderedFrames = timelineEnd;
     }
 
+    // Clamp to target duration — keep every clip that starts before the deadline,
+    // trimming the last one that overflows. Multi-track clips that overlap are all
+    // kept (they share timeline space, not add to it).
     const clamped: Clip[] = [];
-    let consumed = 0;
     for (const clip of clips) {
-        if (consumed >= targetFrames) break;
-        const originalDuration = Math.max(0, clip.endFrame - clip.startFrame);
-        const duration = Math.min(originalDuration, targetFrames - consumed);
-        if (duration <= 0) continue;
-        if (duration === originalDuration) {
+        if (clip.startFrame >= targetFrames) continue; // starts after deadline
+        if (clip.endFrame <= targetFrames) {
             clamped.push(clip);
         } else {
+            // Trim this clip to fit within the target
+            const duration = targetFrames - clip.startFrame;
             const trimEnd = Math.min(
                 clip.sourceDurationFrames || Number.MAX_SAFE_INTEGER,
                 clip.trimStartFrame + Math.max(1, Math.round(duration * (clip.speed || 1))),
             );
             clamped.push({ ...clip, endFrame: clip.startFrame + duration, trimEndFrame: trimEnd });
         }
-        consumed += duration;
     }
     return clamped;
 }

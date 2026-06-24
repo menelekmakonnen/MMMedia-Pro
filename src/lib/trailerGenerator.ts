@@ -254,6 +254,10 @@ export interface TrailerSettings {
     // ── Pacing Arc ────────────────────────────────────────────────────────
     /** Explicit narrative pacing curve/shape control */
     pacingArcShape?: import('./pacingArc').PacingArcShape;
+
+    // ── Project frame rate ────────────────────────────────────────────────
+    /** Project FPS for frame calculations. Defaults to 30 if not provided. */
+    fps?: number;
 }
 
 export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
@@ -388,6 +392,9 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
     const seed = s.seed || generateSeed();
     const rng = new SeededRandom(seed);
 
+    // ── Frame rate: prefer explicit fps, fall back to DEFAULT_FPS (30) ──
+    const fps = s.fps || DEFAULT_FPS;
+
     // ── Template Resolution ──
     // If templates specified, mix them and apply to settings
     if (s.templateIds && s.templateIds.length > 0) {
@@ -428,12 +435,12 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         return f.orientation === orientationFilter;
     }).map(f => {
         let fullDurationFrames = 9000; // Assume 5 min if unknown
-        if (f.duration) fullDurationFrames = Math.floor(f.duration * DEFAULT_FPS);
+        if (f.duration) fullDurationFrames = Math.floor(f.duration * fps);
         if (mediaType !== 'video') fullDurationFrames = 900; // Images act as 30s clips
 
         // Respect pre-import trim constraints from Media Library
-        const trimInFrames = f.trimIn != null ? Math.floor(f.trimIn * DEFAULT_FPS) : 0;
-        const trimOutFrames = f.trimOut != null ? Math.floor(f.trimOut * DEFAULT_FPS) : fullDurationFrames;
+        const trimInFrames = f.trimIn != null ? Math.floor(f.trimIn * fps) : 0;
+        const trimOutFrames = f.trimOut != null ? Math.floor(f.trimOut * fps) : fullDurationFrames;
         const _effectiveDuration = trimOutFrames - trimInFrames;
 
         return {
@@ -446,12 +453,12 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
 
     if (validPool.length === 0) {
         validPool = pool.map(f => {
-            const dur = f.duration ? Math.floor(f.duration * DEFAULT_FPS) : 9000;
+            const dur = f.duration ? Math.floor(f.duration * fps) : 9000;
             return {
                 ...f,
                 sourceDurationFrames: dur,
-                effectiveTrimInFrames: f.trimIn != null ? Math.floor(f.trimIn * DEFAULT_FPS) : 0,
-                effectiveTrimOutFrames: f.trimOut != null ? Math.floor(f.trimOut * DEFAULT_FPS) : dur,
+                effectiveTrimInFrames: f.trimIn != null ? Math.floor(f.trimIn * fps) : 0,
+                effectiveTrimOutFrames: f.trimOut != null ? Math.floor(f.trimOut * fps) : dur,
             };
         });
     }
@@ -461,13 +468,13 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         allowDuplicates = true;
     }
 
-    const targetFrames = Math.floor(targetDuration * DEFAULT_FPS);
+    const targetFrames = Math.floor(targetDuration * fps);
     // Hard floor: 6 frames (0.2s) is the minimum for FFmpeg to produce a valid
     // intermediate segment with at least one keyframe. Clips shorter than this
     // produce zero-frame MKVs that crash the stitch phase.
     const MIN_RENDERABLE_FRAMES = 6;
-    const minFrames = Math.max(MIN_RENDERABLE_FRAMES, Math.floor(shortestClip * DEFAULT_FPS));
-    const maxFrames = Math.max(minFrames + 1, Math.floor(longestClip * DEFAULT_FPS));
+    const minFrames = Math.max(MIN_RENDERABLE_FRAMES, Math.floor(shortestClip * fps));
+    const maxFrames = Math.max(minFrames + 1, Math.floor(longestClip * fps));
 
     console.log('[TrailerGen] â•â•â• GENERATION START â•â•â•');
     console.log('[TrailerGen] Settings:', { targetDuration, shortestClip, longestClip, targetFrames, minFrames, maxFrames, slowmoPolicy, useAllClips, allowDuplicates });
@@ -631,7 +638,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             return trimInOffset; // File is shorter than requested — use from trim start
         }
 
-        const START_OFFSET_FRAMES = Math.floor(1.0 * DEFAULT_FPS);
+        const START_OFFSET_FRAMES = Math.floor(1.0 * fps);
         const effectiveStart = trimInOffset + Math.min(START_OFFSET_FRAMES, availableRange);
         const effectiveRange = trimOutLimit - sourceReq - effectiveStart;
 
@@ -716,7 +723,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
 
     // Helper: finalize a clip sequence with orientation-aware zoom + transitions
     const finalizeSequence = (seq: Clip[]): Clip[] => {
-        console.log(`[TrailerGen] â•â•â• FINALIZE â•â•â• ${seq.length} clips, accumulated=${accumulatedFrames}fr (${(accumulatedFrames/DEFAULT_FPS).toFixed(1)}s)`);
+        console.log(`[TrailerGen] â•â•â• FINALIZE â•â•â• ${seq.length} clips, accumulated=${accumulatedFrames}fr (${(accumulatedFrames/fps).toFixed(1)}s)`);
         
         // â”€â”€ BLACK SCREEN PREVENTION â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         // 0a. Clamp all trim ranges to valid source bounds
@@ -794,7 +801,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         for (const clip of finalClips) {
             if (clip.boomerang) {
                 const preset = getBoomerangPreset((clip as any)._boomPreset || clip.boomerangPreset || boomPresets[0]);
-                const expanded = expandClipToBoomerang(clip, preset, DEFAULT_FPS);
+                const expanded = expandClipToBoomerang(clip, preset, fps);
                 expandedClips.push(...expanded);
             } else {
                 expandedClips.push(clip);
@@ -863,7 +870,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                     intro: 'cool', outro: 'warm', breakdown: 'cool',
                 };
 
-                const cutTime = clip.endFrame / DEFAULT_FPS;
+                const cutTime = clip.endFrame / fps;
                 const isOnBeat = beats.some(b => Math.abs(b - cutTime) <= beatTol);
                 const isOnDownbeat = downbeats.some(d => Math.abs(d - cutTime) <= beatTol);
                 const isDropMoment = nextSegType === 'drop' && isOnDownbeat;
@@ -887,7 +894,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 );
                 if (transType !== 'cut') {
                     const durationMs = s.transitionDurationMs ?? 200;
-                    const durationFrames = Math.round((durationMs / 1000) * DEFAULT_FPS);
+                    const durationFrames = Math.round((durationMs / 1000) * fps);
                     clip.transition = {
                         type: transType,
                         durationFrames,
@@ -932,7 +939,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                             else pathToResult[id] = result; // fallback
                         }
 
-                        const durationFrames = Math.round(((s.transitionDurationMs ?? 200) / 1000) * DEFAULT_FPS);
+                        const durationFrames = Math.round(((s.transitionDurationMs ?? 200) / 1000) * fps);
 
                         for (let i = 0; i < expandedClips.length - 1; i++) {
                             const outClip = expandedClips[i];
@@ -1018,7 +1025,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                         intensity: s.shakeIntensity ?? 50,
                         direction: 'random',
                         decayRate: 5,
-                        durationFrames: Math.round(DEFAULT_FPS * 0.3),
+                        durationFrames: Math.round(fps * 0.3),
                     };
                 }
             }
@@ -1118,7 +1125,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                         }
 
                         if (s.zoomBeatSync) {
-                            const clipDurSec = (clip.endFrame - clip.startFrame) / DEFAULT_FPS;
+                            const clipDurSec = (clip.endFrame - clip.startFrame) / fps;
                             clip.zoomSpeed = clipDurSec <= 0.5 ? 'instant' : 'fast';
                         }
                     }
@@ -1137,7 +1144,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             const dbTol = 0.12;
             const isDownbeatClip = (clip: Clip): boolean => {
                 if (dbeats.length === 0) return true;
-                const t = clip.startFrame / DEFAULT_FPS;
+                const t = clip.startFrame / fps;
                 return dbeats.some(d => Math.abs(d - t) <= dbTol);
             };
             const shouldApply = (policy: EffectApplyPolicy | undefined, clip: Clip): boolean => {
@@ -1210,7 +1217,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 if (!clip.vibrationFlash && shouldApply(s.vibrationFlashPolicy, clip)) {
                     clip.vibrationFlash = {
                         intensity: s.vibrationFlashIntensity ?? 70,
-                        durationFrames: Math.max(2, Math.round(DEFAULT_FPS * 0.12)),
+                        durationFrames: Math.max(2, Math.round(fps * 0.12)),
                     };
                 }
                 if (!clip.smoothSlowmo && shouldApply(s.smoothSlowmoPolicy, clip)) {
@@ -1230,11 +1237,11 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         }
 
         const totalOutputFrames = expandedClips.reduce((sum, c) => sum + (c.endFrame - c.startFrame), 0);
-        console.log(`[TrailerGen] Final output: ${expandedClips.length} clips, ${totalOutputFrames}fr (${(totalOutputFrames/DEFAULT_FPS).toFixed(1)}s) target was ${targetFrames}fr (${targetDuration}s)`);
+        console.log(`[TrailerGen] Final output: ${expandedClips.length} clips, ${totalOutputFrames}fr (${(totalOutputFrames/fps).toFixed(1)}s) target was ${targetFrames}fr (${targetDuration}s)`);
 
         // Auto fade in/out via the keyframe substrate (brightness ramp from black).
         if (s.autoFadeInOut && expandedClips.length > 0) {
-            const fadeF = Math.max(2, Math.round(DEFAULT_FPS * 0.5));
+            const fadeF = Math.max(2, Math.round(fps * 0.5));
             const first = expandedClips[0];
             const firstDur = first.endFrame - first.startFrame;
             first.brightnessKeyframes = [{ frame: 0, value: -1, interp: 'linear' }, { frame: Math.min(fadeF, Math.max(2, firstDur - 1)), value: 0, interp: 'linear' }];
@@ -1477,7 +1484,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
 
             // Groove-ride: let clip duration match the beat gap naturally
             if (syncStrategy === 'groove-ride') {
-                const gapFrames = Math.floor(beatGapS * DEFAULT_FPS);
+                const gapFrames = Math.floor(beatGapS * fps);
                 clipMin = Math.max(MIN_RENDERABLE_FRAMES, gapFrames - 3);
                 clipMax = gapFrames;
             }
@@ -1501,7 +1508,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             if (accumulatedFrames >= targetFrames) break;
 
             const beatGapSeconds = activeBeats[b + 1] - activeBeats[b];
-            let beatGapFrames = Math.floor(beatGapSeconds * DEFAULT_FPS);
+            let beatGapFrames = Math.floor(beatGapSeconds * fps);
 
             // Clamp this beat gap so we don't overshoot targetDuration
             const remainingFrames = targetFrames - accumulatedFrames;
@@ -1664,7 +1671,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
 
                 // ── BEAT FLASH: strobe on downbeat-aligned clips ──
                 if (s.beatFlashEnabled && isDownbeat(activeBeats[b])) {
-                    clip.strobe = { frequency: Math.round(DEFAULT_FPS / 2), durationFrames: 2 };
+                    clip.strobe = { frequency: Math.round(fps / 2), durationFrames: 2 };
                 }
 
                 // ── BEAT DROP IMPACT: apply impact preset on drop segments ──
@@ -1675,13 +1682,13 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                         // Render the impact's shake by merging it into the clip's shake
                         // (the filter builder applies shake from clip.shake, not beatEffect).
                         if (clip.beatEffect.shake && !clip.shake) {
-                            clip.shake = { type: 'impact', intensity: clip.beatEffect.shake.intensity, direction: 'random', decayRate: 6, durationFrames: Math.round(DEFAULT_FPS * 0.25) };
+                            clip.shake = { type: 'impact', intensity: clip.beatEffect.shake.intensity, direction: 'random', decayRate: 6, durationFrames: Math.round(fps * 0.25) };
                         }
                         // Stamp clip-local beat timestamps so the filterBuilder's
                         // beat-reactive flash/chromatic filters actually fire.
                         // Compute beats that fall within this clip's time window.
                         const clipStartSec = activeBeats[b];
-                        const clipDurSec = (clip.endFrame - clip.startFrame) / DEFAULT_FPS;
+                        const clipDurSec = (clip.endFrame - clip.startFrame) / fps;
                         const clipEndSec = clipStartSec + clipDurSec;
                         const localBeats = beatTimestamps
                             .filter(bt => bt >= clipStartSec && bt < clipEndSec)
@@ -1743,7 +1750,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
 
                 // ── BEAT FLASH: strobe on downbeat-aligned sub-gap clips ──
                 if (s.beatFlashEnabled && isDownbeat(activeBeats[b])) {
-                    clip.strobe = { frequency: Math.round(DEFAULT_FPS / 2), durationFrames: 2 };
+                    clip.strobe = { frequency: Math.round(fps / 2), durationFrames: 2 };
                 }
 
                 // ── BEAT DROP IMPACT: apply impact preset on drop segments ──
@@ -1754,11 +1761,11 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                         // Render the impact's shake by merging it into the clip's shake
                         // (the filter builder applies shake from clip.shake, not beatEffect).
                         if (clip.beatEffect.shake && !clip.shake) {
-                            clip.shake = { type: 'impact', intensity: clip.beatEffect.shake.intensity, direction: 'random', decayRate: 6, durationFrames: Math.round(DEFAULT_FPS * 0.25) };
+                            clip.shake = { type: 'impact', intensity: clip.beatEffect.shake.intensity, direction: 'random', decayRate: 6, durationFrames: Math.round(fps * 0.25) };
                         }
                         // Stamp clip-local beat timestamps (see main loop above)
                         const clipStartSec = activeBeats[b];
-                        const clipDurSec = (clip.endFrame - clip.startFrame) / DEFAULT_FPS;
+                        const clipDurSec = (clip.endFrame - clip.startFrame) / fps;
                         const clipEndSec = clipStartSec + clipDurSec;
                         const localBeats = beatTimestamps
                             .filter(bt => bt >= clipStartSec && bt < clipEndSec)
@@ -1981,7 +1988,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
 
         if (!allowDuplicates && usedFiles.size >= validPool.length) {
             // All unique files used â€” auto-enable duplicates to reach target duration
-            console.log(`[TrailerGen] Pool exhausted (${usedFiles.size}/${validPool.length} files used) at ${(accumulatedFrames/DEFAULT_FPS).toFixed(1)}s / ${targetDuration}s â€” enabling duplicates to fill remaining duration`);
+            console.log(`[TrailerGen] Pool exhausted (${usedFiles.size}/${validPool.length} files used) at ${(accumulatedFrames/fps).toFixed(1)}s / ${targetDuration}s â€” enabling duplicates to fill remaining duration`);
             allowDuplicates = true;
             // Keep source-window history across coverage passes. Reusing a file is
             // allowed; replaying the same trim range is not.

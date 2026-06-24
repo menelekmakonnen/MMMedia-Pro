@@ -150,6 +150,22 @@ export interface ClipExportData {
     hueCycle?: { speed: number };
     /** Retro VHS look (chroma shift + grain). */
     vhs?: { amount: number };
+
+    // ── Multi-track composite fields ─────────────────────────────────────
+    /** Track index (0 = primary/base, 1+ = overlay). */
+    track?: number;
+    /** When true, this clip is composited ON TOP of the base track (not sequential). */
+    compositeOverlay?: boolean;
+    /** Scale percentage for overlay (30 = 30% of canvas). */
+    compositeScale?: number;
+    /** Horizontal position percentage (0=left, 50=center, 100=right). */
+    compositeX?: number;
+    /** Vertical position percentage (0=top, 50=center, 100=bottom). */
+    compositeY?: number;
+    /** Border radius in pixels for overlay (rounded corners). */
+    compositeBorderRadius?: number;
+    /** Opacity percentage for overlay (0-100). */
+    compositeOpacity?: number;
 }
 
 export interface ExportSettings {

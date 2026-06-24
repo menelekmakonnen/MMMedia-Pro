@@ -863,7 +863,52 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
             const audioClips = clips.filter((c: any) => c.type === 'audio');
             const videoClips = clips.filter((c: any) => c.type !== 'audio');
             if (videoClips.length === 0) { resolve({ success: false, error: 'No video clips to export.' }); return; }
-            log(`Segment engine: ${videoClips.length} video + ${audioClips.length} audio | ${outW}x${outH} @ ${fps}fps (project ${projectFps}) | ${outCodec} | gpu=${!!settings?.useGpu}`);
+
+            // ── Multi-Track Composite Grouping ──────────────────────────────────
+            // Identify time slices where overlay clips (track > 0, compositeOverlay = true)
+            // overlap with base clips. Group them so they can be composited in one FFmpeg pass.
+            interface CompositeGroup {
+                base: typeof videoClips[0];
+                overlays: typeof videoClips[0][];
+            }
+
+            const baseClips = videoClips.filter((c: any) => !c.compositeOverlay);
+            const overlayClips = videoClips.filter((c: any) => c.compositeOverlay);
+
+            // Build composite groups: each base clip collects any overlapping overlay clips
+            const compositeGroups: CompositeGroup[] = [];
+            const handledOverlayIndices = new Set<number>();
+
+            for (const base of baseClips) {
+                const baseStart = base.startFrame ?? 0;
+                const baseEnd = base.endFrame ?? (baseStart + 1);
+                const overlaps = overlayClips
+                    .map((ov: any, idx: number) => ({ ov, idx }))
+                    .filter(({ ov, idx }: any) => {
+                        if (handledOverlayIndices.has(idx)) return false;
+                        const ovStart = ov.startFrame ?? 0;
+                        const ovEnd = ov.endFrame ?? (ovStart + 1);
+                        return ovStart < baseEnd && ovEnd > baseStart;
+                    });
+
+                if (overlaps.length > 0) {
+                    overlaps.forEach(({ idx }: any) => handledOverlayIndices.add(idx));
+                    compositeGroups.push({ base, overlays: overlaps.map((o: any) => o.ov) });
+                } else {
+                    compositeGroups.push({ base, overlays: [] });
+                }
+            }
+
+            // Any orphan overlays (no matching base) get treated as standalone
+            overlayClips.forEach((ov: any, idx: number) => {
+                if (!handledOverlayIndices.has(idx)) {
+                    compositeGroups.push({ base: ov, overlays: [] });
+                }
+            });
+
+            const hasComposites = overlayClips.length > 0;
+
+            log(`Segment engine: ${videoClips.length} video + ${audioClips.length} audio | ${outW}x${outH} @ ${fps}fps (project ${projectFps}) | ${outCodec} | gpu=${!!settings?.useGpu}${hasComposites ? ` | composites=${overlayClips.length} overlays in ${compositeGroups.filter(g => g.overlays.length > 0).length} groups` : ''}`);
 
             // ── STAGE 1: per-clip duration-capped intermediates ──
             const probeCache = new Map<string, { hasAudio: boolean; duration: number }>();
@@ -874,6 +919,12 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
             for (let i = 0; i < videoClips.length; i++) {
                 if ((activeExportProc as any)?.__cancelled) { cancelled = true; break; }
                 const clip = videoClips[i];
+
+                // Skip overlay clips — they are composited onto their base clip below
+                if (hasComposites && (clip as any).compositeOverlay) {
+                    event.sender.send('export-progress', Math.round(((i + 1) / videoClips.length) * 70));
+                    continue;
+                }
 
                 // ── Grid clip: composite via renderGridClip ──
                 if (clip.type === 'grid') {
@@ -1008,6 +1059,89 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                 } catch {
                     log(`⚠ Clip ${i + 1}/${videoClips.length} "${clip.filename}" segment stat failed — skipping`);
                     continue;
+                }
+                // ── Composite overlay clips onto this base clip ──────────────────
+                if (hasComposites) {
+                    const group = compositeGroups.find(g => g.base === clip);
+                    if (group && group.overlays.length > 0) {
+                        try {
+                            let currentBase = finalInt;
+                            for (let oi = 0; oi < group.overlays.length; oi++) {
+                                const ov = group.overlays[oi];
+                                const ovIsImage = ov.type === 'image';
+                                const scale = (ov.compositeScale || 30) / 100;
+                                const posX = (ov.compositeX || 50) / 100;
+                                const posY = (ov.compositeY || 50) / 100;
+                                const opacity = (ov.compositeOpacity ?? 100) / 100;
+                                const borderRadius = ov.compositeBorderRadius || 0;
+
+                                // Render the overlay clip to its own intermediate first
+                                const ovIntFile = path.join(tmpDir, `mmm_ov_${i}_${oi}_${Date.now()}.mkv`);
+                                if (!probeCache.has(ov.path)) probeCache.set(ov.path, probeClipFile(ffmpegBin, ov.path));
+                                const ovProbe = probeCache.get(ov.path)!;
+                                const ovProbeData = { width: ov.width || outW, height: ov.height || outH, duration: ovIsImage ? 36000 : ovProbe.duration };
+                                const ovTiming = computeClipTiming(ov, es, ovProbeData);
+                                // Render overlay at its scaled size to avoid upscaling artifacts
+                                const scaledW = Math.round(outW * scale);
+                                const scaledH = Math.round(outH * scale);
+                                const ovEs = { ...es, width: scaledW, height: scaledH };
+                                const ovVf = buildVideoFilter(ov, ovEs, ovProbeData, { preSeeked: true });
+                                const ovInputs: string[] = ovIsImage
+                                    ? ['-loop', '1', '-t', (ovTiming.srcDurSec + 0.1).toFixed(4), '-i', ov.path]
+                                    : ['-ss', ovTiming.seekSec.toFixed(4), '-i', ov.path];
+                                ovInputs.push('-f', 'lavfi', '-t', (ovTiming.outDurSec + 0.25).toFixed(4), '-i', 'anullsrc=r=48000:cl=stereo');
+                                const ovFc = `[0:v]${ovVf}[v]`;
+                                const ovArgs = ['-y', ...ovInputs, '-filter_complex', ovFc, '-map', '[v]', '-map', '1:a',
+                                    '-t', ovTiming.outDurSec.toFixed(4), '-r', String(fps),
+                                    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '15', '-pix_fmt', 'yuva420p',
+                                    '-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-ac', '2', ovIntFile];
+                                const ovR = await runFfmpegAsync(ffmpegBin, ovArgs, `ov_${i}_${oi}`, () => {});
+                                if (ovR.code !== 0 || !fs.existsSync(ovIntFile)) {
+                                    log(`⚠ Overlay ${oi} for clip ${i} failed: ${ovR.stderr.slice(-200).trim()}`);
+                                    continue;
+                                }
+
+                                // Composite overlay onto current base using FFmpeg overlay filter
+                                const compFile = path.join(tmpDir, `mmm_comp_${i}_${oi}_${Date.now()}.mkv`);
+                                // Position: convert percentage to pixel coordinates
+                                // compositeX/Y are center-point percentages
+                                const pixelX = Math.round(posX * outW - scaledW / 2);
+                                const pixelY = Math.round(posY * outH - scaledH / 2);
+
+                                let overlayFilter = `overlay=${pixelX}:${pixelY}:format=yuv420`;
+
+                                const compFc = `[0:v][1:v]${overlayFilter}[out]`;
+                                const compArgs = ['-y', '-i', currentBase, '-i', ovIntFile,
+                                    '-filter_complex', compFc, '-map', '[out]', '-map', '0:a',
+                                    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '15', '-pix_fmt', 'yuv420p',
+                                    '-c:a', 'copy',
+                                    compFile];
+                                const compR = await runFfmpegAsync(ffmpegBin, compArgs, `comp_${i}_${oi}`, () => {});
+
+                                // Clean up overlay intermediate
+                                try { fs.unlinkSync(ovIntFile); } catch {}
+
+                                if (compR.code === 0 && fs.existsSync(compFile)) {
+                                    // Replace the current base with the composited version
+                                    if (currentBase !== finalInt) {
+                                        try { fs.unlinkSync(currentBase); } catch {}
+                                    }
+                                    currentBase = compFile;
+                                    log(`  Overlay ${oi} composited onto clip ${i + 1} at (${pixelX},${pixelY}) scale=${(scale * 100).toFixed(0)}%`);
+                                } else {
+                                    log(`⚠ Composite ${oi} for clip ${i} failed: ${compR.stderr.slice(-200).trim()}`);
+                                    try { fs.unlinkSync(compFile); } catch {}
+                                }
+                            }
+                            // Use the final composited file as the intermediate
+                            if (currentBase !== finalInt) {
+                                try { fs.unlinkSync(finalInt); } catch {}
+                                finalInt = currentBase;
+                            }
+                        } catch (compErr: any) {
+                            log(`⚠ Composite error for clip ${i}: ${compErr?.message || compErr}`);
+                        }
+                    }
                 }
                 intermediates.push(finalInt);
                 renderedClips.push(clip);

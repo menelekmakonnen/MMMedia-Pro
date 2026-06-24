@@ -374,6 +374,7 @@ async function runVisualMatchPass(allVids: Array<{ id: string; path: string; fil
  */
 async function runShotAndSemanticClassificationPass(allVids: Array<{ id: string; path: string; filename: string }>) {
     const smart = useTrailerSmartStore.getState();
+    const projFps = useProjectStore.getState().settings?.fps || 30;
     const eligible = allVids.filter(v => {
         const r = smart.getResult(v.id);
         return r?.analyzed && !(r.completedPasses || []).includes('shot-type');
@@ -402,7 +403,7 @@ async function runShotAndSemanticClassificationPass(allVids: Array<{ id: string;
         const faceCount = hasFaceKeywords ? 1 : 0;
         const faceRegionRatio = hasFaceKeywords ? 0.25 : 0;
 
-        const duration = (existing.usableOutFrames || 300) / 30;
+        const duration = (existing.usableOutFrames || (10 * projFps)) / projFps;
 
         const shotClass = classifyShot({
             edgeDensity: existing.edgeDensity ?? 0.3,

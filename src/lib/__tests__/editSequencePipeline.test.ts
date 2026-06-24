@@ -56,9 +56,11 @@ describe('edit sequence pipeline', () => {
         };
         const raw = generateTrailerSequence(media, settings);
         const clips = finalizeGeneratedSequence(raw, media, settings, FPS);
-        const renderedFrames = clips.reduce((sum, clip) => sum + clip.endFrame - clip.startFrame, 0);
+        // Multi-track presets (a-b-roll, multi-track-split) create overlapping clips
+        // on V1/V2. The correct measure is the timeline span, not sum-of-durations.
+        const timelineEnd = Math.max(...clips.map(clip => clip.endFrame));
 
-        expect(renderedFrames).toBe(settings.targetDuration * FPS);
+        expect(timelineEnd).toBe(settings.targetDuration * FPS);
         expect(clips.some(clip => (clip as any)._audioLeadFrames)).toBe(true);
         expect(clips.every(clip => (clip as any)._duckBgMusic)).toBe(true);
     });
