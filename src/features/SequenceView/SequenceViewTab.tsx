@@ -14,6 +14,10 @@ import clsx from 'clsx';
 import { TimelineCanvas } from './timeline/TimelineCanvas';
 import { KeyboardShortcutsOverlay } from './KeyboardShortcutsOverlay';
 import { useTimelineStore } from './timeline/useTimelineStore';
+import { useSequenceViewStore } from '../../store/sequenceViewStore';
+import { EffectsBrowser } from './effects/EffectsBrowser';
+import { ScopePanel } from './scopes/ScopePanel';
+import { Sparkles, BarChart2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import {
     splitAtPlayhead,
     deleteSelectedClips,
@@ -30,6 +34,12 @@ export const SequenceViewTab: React.FC = () => {
 
     const [scale, setScale] = useState(DEFAULT_SCALE);
     const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+
+    // Left panel state from store
+    const {
+        leftPanelOpen, leftPanelWidth, leftPanelTab,
+        setLeftPanelOpen, setLeftPanelWidth, setLeftPanelTab, toggleLeftPanel,
+    } = useSequenceViewStore();
 
     // Track-level controls: lock, visibility, solo
     const [trackLocked, setTrackLocked] = useState<Record<number, boolean>>({});
@@ -699,6 +709,83 @@ export const SequenceViewTab: React.FC = () => {
                 className="flex min-h-0 border-b border-white/[0.06]"
                 style={{ height: `${topHeight}%` }}
             >
+                {/* ── Left Sidebar: Effects / Scopes ── */}
+                {leftPanelOpen && (
+                    <div
+                        className="flex-shrink-0 border-r border-white/[0.06] relative flex flex-col h-full overflow-hidden bg-[#0d0d1a]/95"
+                        style={{ width: leftPanelWidth }}
+                    >
+                        {/* Tab switcher */}
+                        <div className="flex items-center border-b border-white/[0.06] flex-shrink-0 bg-[#111122]/60">
+                            <button
+                                onClick={() => setLeftPanelTab('effects')}
+                                className={clsx(
+                                    'flex-1 flex items-center justify-center gap-1 py-1.5 text-[10px] font-semibold transition-colors',
+                                    leftPanelTab === 'effects'
+                                        ? 'text-purple-300 border-b-2 border-purple-500 bg-purple-500/5'
+                                        : 'text-white/35 hover:text-white/60'
+                                )}
+                            >
+                                <Sparkles size={11} />
+                                Effects
+                            </button>
+                            <button
+                                onClick={() => setLeftPanelTab('scopes')}
+                                className={clsx(
+                                    'flex-1 flex items-center justify-center gap-1 py-1.5 text-[10px] font-semibold transition-colors',
+                                    leftPanelTab === 'scopes'
+                                        ? 'text-emerald-300 border-b-2 border-emerald-500 bg-emerald-500/5'
+                                        : 'text-white/35 hover:text-white/60'
+                                )}
+                            >
+                                <BarChart2 size={11} />
+                                Scopes
+                            </button>
+                            <button
+                                onClick={toggleLeftPanel}
+                                className="px-2 py-1.5 text-white/25 hover:text-white/60 transition-colors"
+                                title="Close panel"
+                            >
+                                <PanelLeftClose size={12} />
+                            </button>
+                        </div>
+                        {/* Content */}
+                        <div className="flex-1 overflow-hidden">
+                            {leftPanelTab === 'effects' ? <EffectsBrowser /> : <ScopePanel />}
+                        </div>
+                        {/* Resize handle (right edge) */}
+                        <div
+                            className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/30 transition-colors z-20"
+                            onMouseDown={(e) => {
+                                e.preventDefault();
+                                const startX = e.clientX;
+                                const startW = leftPanelWidth;
+                                const handleMove = (ev: MouseEvent) => {
+                                    const dx = ev.clientX - startX;
+                                    setLeftPanelWidth(startW + dx);
+                                };
+                                const handleUp = () => {
+                                    window.removeEventListener('mousemove', handleMove);
+                                    window.removeEventListener('mouseup', handleUp);
+                                };
+                                window.addEventListener('mousemove', handleMove);
+                                window.addEventListener('mouseup', handleUp);
+                            }}
+                        />
+                    </div>
+                )}
+
+                {/* Left panel toggle (when collapsed) */}
+                {!leftPanelOpen && (
+                    <button
+                        onClick={toggleLeftPanel}
+                        className="flex-shrink-0 w-6 flex flex-col items-center justify-center bg-[#0d0d1a] border-r border-white/[0.06] text-white/25 hover:text-white/60 hover:bg-white/[0.03] transition-colors"
+                        title="Open Effects / Scopes panel"
+                    >
+                        <PanelLeftOpen size={12} />
+                    </button>
+                )}
+
                 {/* Program Monitor */}
                 <ProgramMonitor
                     activeVisualClip={activeVisualClip as any}

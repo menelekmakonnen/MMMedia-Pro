@@ -13,7 +13,8 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type SequenceSubTab = 'upload' | 'media' | 'edit' | 'mix' | 'effects' | 'scopes';
+export type SequenceSubTab = 'upload' | 'media' | 'edit';
+export type LeftPanelTab = 'effects' | 'scopes';
 
 export interface SourceMonitorClip {
     id: string;
@@ -26,6 +27,15 @@ export interface SequenceViewState {
     // Subtab navigation
     activeSubTab: SequenceSubTab;
     setActiveSubTab: (tab: SequenceSubTab) => void;
+
+    // Left panel (Effects / Scopes)
+    leftPanelOpen: boolean;
+    leftPanelWidth: number;
+    leftPanelTab: LeftPanelTab;
+    setLeftPanelOpen: (open: boolean) => void;
+    setLeftPanelWidth: (w: number) => void;
+    setLeftPanelTab: (tab: LeftPanelTab) => void;
+    toggleLeftPanel: () => void;
 
     // Source monitor
     sourceMonitorClip: SourceMonitorClip | null;
@@ -54,7 +64,10 @@ export const useSequenceViewStore = create<SequenceViewState>()(
     persist(
         (set) => ({
             // ── State ────────────────────────────────────────────────
-            activeSubTab: 'edit',
+            activeSubTab: 'edit' as SequenceSubTab,
+            leftPanelOpen: true,
+            leftPanelWidth: 260,
+            leftPanelTab: 'effects' as LeftPanelTab,
             sourceMonitorClip: null,
             sourceIn: null,
             sourceOut: null,
@@ -65,6 +78,11 @@ export const useSequenceViewStore = create<SequenceViewState>()(
             // ── Actions ──────────────────────────────────────────────
 
             setActiveSubTab: (tab) => set({ activeSubTab: tab }),
+
+            setLeftPanelOpen: (open) => set({ leftPanelOpen: open }),
+            setLeftPanelWidth: (w) => set({ leftPanelWidth: Math.max(200, Math.min(400, w)) }),
+            setLeftPanelTab: (tab) => set({ leftPanelTab: tab }),
+            toggleLeftPanel: () => set((s) => ({ leftPanelOpen: !s.leftPanelOpen })),
 
             setSourceMonitorClip: (clip) => set({
                 sourceMonitorClip: clip,
@@ -85,6 +103,9 @@ export const useSequenceViewStore = create<SequenceViewState>()(
             storage: createJSONStorage(() => localStorage),
             partialize: (state) => ({
                 activeSubTab: state.activeSubTab,
+                leftPanelOpen: state.leftPanelOpen,
+                leftPanelWidth: state.leftPanelWidth,
+                leftPanelTab: state.leftPanelTab,
                 showWaveforms: state.showWaveforms,
                 showFilmstrips: state.showFilmstrips,
                 mediaPanelWidth: state.mediaPanelWidth,

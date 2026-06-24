@@ -11,6 +11,8 @@ import { useClipStore, Clip } from '../../store/clipStore';
 import { useProjectStore } from '../../store/projectStore';
 import { useMarkerStore } from '../../store/markerStore';
 import { useTrailerSmartStore } from '../../store/trailerSmartStore';
+import { useTimelineStore } from './timeline/useTimelineStore';
+import { useUserStore } from '../../store/userStore';
 import { useAutoSmartEngine } from '../../lib/smartEngine';
 import { TrailerGradeEnhance } from '../EditEngine/EditGradeEnhance';
 import { ClipControls } from '../Timeline/ClipControls';
@@ -188,7 +190,7 @@ export const SequenceInspector: React.FC<SequenceInspectorProps> = ({
         audio: true,
         effects: false,
         energy: true,
-        gradeEnhance: true,
+        trackMixer: true,
         markers: true,
         seqInfo: true,
         audioMeter: true,
@@ -388,16 +390,16 @@ export const SequenceInspector: React.FC<SequenceInspectorProps> = ({
                         )}
                     </AnimatePresence>
 
-                    {/* Grade & Enhance (project-wide color grading) */}
+                    {/* Inline Track Mixer */}
                     <SectionHeader
-                        title="Grade & Enhance"
-                        icon={<Palette size={11} />}
-                        isOpen={openSections.gradeEnhance}
-                        onToggle={() => toggleSection('gradeEnhance')}
-                        accentColor="text-pink-400"
+                        title="Track Mixer"
+                        icon={<Volume2 size={11} />}
+                        isOpen={openSections.trackMixer ?? true}
+                        onToggle={() => toggleSection('trackMixer')}
+                        accentColor="text-cyan-400"
                     />
                     <AnimatePresence>
-                        {openSections.gradeEnhance && (
+                        {(openSections.trackMixer ?? true) && (
                             <motion.div
                                 initial={{ height: 0, opacity: 0 }}
                                 animate={{ height: 'auto', opacity: 1 }}
@@ -405,13 +407,8 @@ export const SequenceInspector: React.FC<SequenceInspectorProps> = ({
                                 transition={{ duration: 0.15 }}
                                 className="overflow-hidden"
                             >
-                                <div className="px-1 py-2 border-b border-white/[0.03]">
-                                    <TrailerGradeEnhance
-                                        colorGrading={projectSettings.globalColorGrading}
-                                        effects={projectSettings.globalEffects}
-                                        onColorGradingChange={(grading) => updateProjectSettings({ globalColorGrading: grading })}
-                                        onEffectsChange={(effects) => updateProjectSettings({ globalEffects: effects })}
-                                    />
+                                <div className="px-2 py-2 border-b border-white/[0.03] space-y-1">
+                                    <InlineTrackMixer />
                                 </div>
                             </motion.div>
                         )}
@@ -684,9 +681,9 @@ export const SequenceInspector: React.FC<SequenceInspectorProps> = ({
                     )}
                 </AnimatePresence>
 
-                {/* Color */}
+                {/* Grade & Enhance (per-clip — like Premiere Pro's Lumetri) */}
                 <SectionHeader
-                    title="Color"
+                    title="Grade & Enhance"
                     icon={<Palette size={11} />}
                     isOpen={openSections.color}
                     onToggle={() => toggleSection('color')}
@@ -701,71 +698,16 @@ export const SequenceInspector: React.FC<SequenceInspectorProps> = ({
                             transition={{ duration: 0.15 }}
                             className="overflow-hidden"
                         >
-                            <div className="py-1.5 border-b border-white/[0.03]">
-                                <SliderRow
-                                    label="Exposure"
-                                    value={exposure}
-                                    min={-2}
-                                    max={2}
-                                    step={0.05}
-                                    onChange={(v) =>
-                                        updateClip(clip.id, {
-                                            colorGrading: { ...clip.colorGrading, exposure: v },
-                                        } as any)
+                            <div className="px-1 py-2 border-b border-white/[0.03]">
+                                <TrailerGradeEnhance
+                                    colorGrading={clip.colorGrading as any}
+                                    effects={(clip.parametricEffects || []) as any}
+                                    onColorGradingChange={(grading) =>
+                                        updateClip(clip.id, { colorGrading: grading } as any)
                                     }
-                                />
-                                <SliderRow
-                                    label="Contrast"
-                                    value={contrast}
-                                    min={0}
-                                    max={3}
-                                    step={0.05}
-                                    onChange={(v) =>
-                                        updateClip(clip.id, {
-                                            colorGrading: { ...clip.colorGrading, contrast: v },
-                                        } as any)
+                                    onEffectsChange={(effects) =>
+                                        updateClip(clip.id, { parametricEffects: effects } as any)
                                     }
-                                />
-                                <SliderRow
-                                    label="Saturation"
-                                    value={saturation}
-                                    min={0}
-                                    max={3}
-                                    step={0.05}
-                                    onChange={(v) =>
-                                        updateClip(clip.id, {
-                                            colorGrading: { ...clip.colorGrading, saturation: v },
-                                        } as any)
-                                    }
-                                />
-                                <SliderRow
-                                    label="Temp"
-                                    value={temperature}
-                                    min={-100}
-                                    max={100}
-                                    step={1}
-                                    onChange={(v) =>
-                                        updateClip(clip.id, {
-                                            colorGrading: { ...clip.colorGrading, temperature: v },
-                                        } as any)
-                                    }
-                                />
-                                <SliderRow
-                                    label="Film Grain"
-                                    value={clip.filmGrain ?? 0}
-                                    min={0}
-                                    max={25}
-                                    step={1}
-                                    onChange={(v) => updateClip(clip.id, { filmGrain: v } as any)}
-                                />
-                                <SliderRow
-                                    label="Vignette"
-                                    value={clip.vignette ?? 0}
-                                    min={0}
-                                    max={100}
-                                    step={1}
-                                    onChange={(v) => updateClip(clip.id, { vignette: v } as any)}
-                                    unit="%"
                                 />
                             </div>
                         </motion.div>
@@ -805,6 +747,30 @@ export const SequenceInspector: React.FC<SequenceInspectorProps> = ({
                                     onChange={(v) => useClipStore.getState().setClipMuted(clip.id, v)}
                                     icon={clipMuted ? <VolumeX size={10} /> : <Volume2 size={10} />}
                                 />
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Track Mix (context-aware: shows the selected clip's track) */}
+                <SectionHeader
+                    title="Track Mix"
+                    icon={<Activity size={11} />}
+                    isOpen={openSections.trackMixer ?? false}
+                    onToggle={() => toggleSection('trackMixer')}
+                    accentColor="text-cyan-400"
+                />
+                <AnimatePresence>
+                    {(openSections.trackMixer ?? false) && (
+                        <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.15 }}
+                            className="overflow-hidden"
+                        >
+                            <div className="px-2 py-2 border-b border-white/[0.03]">
+                                <InlineTrackMixer highlightTrack={clip.track} />
                             </div>
                         </motion.div>
                     )}
@@ -965,6 +931,86 @@ const AudioMeterVisual: React.FC = () => {
                 <span>-12</span>
                 <span>-24</span>
                 <span>-∞</span>
+            </div>
+        </div>
+    );
+};
+
+/** Compact inline mixer strip — replaces the full AudioMixer subtab. */
+const InlineTrackMixer: React.FC<{ highlightTrack?: number }> = ({ highlightTrack }) => {
+    const tracks = useTimelineStore((s) => s.tracks);
+    const updateTrack = useTimelineStore((s) => s.updateTrack);
+    const { masterVolume, isMasterMuted, setMasterVolume, setIsMasterMuted } = useUserStore();
+
+    return (
+        <div className="space-y-1.5">
+            {tracks.map((track) => {
+                const isHighlighted = highlightTrack !== undefined && track.id === highlightTrack;
+                return (
+                    <div
+                        key={track.id}
+                        className={clsx(
+                            'flex items-center gap-1.5 px-1.5 py-1 rounded-lg transition-colors',
+                            isHighlighted ? 'bg-primary/10 ring-1 ring-primary/20' : 'hover:bg-white/[0.02]'
+                        )}
+                    >
+                        <span className="text-[8px] font-bold text-white/40 w-8 truncate">{track.name}</span>
+                        <input
+                            type="range"
+                            min={0}
+                            max={100}
+                            value={track.volume}
+                            onChange={(e) => updateTrack(track.id, { volume: parseInt(e.target.value) })}
+                            className="flex-1 h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-purple-500"
+                        />
+                        <span className="text-[7px] font-mono text-white/30 w-5 text-right">
+                            {track.volume === 0 ? '-∞' : `${Math.round((track.volume / 100) * 12 - 6)}`}
+                        </span>
+                        <button
+                            onClick={() => updateTrack(track.id, { solo: !track.solo })}
+                            className={clsx(
+                                'w-4 h-4 rounded text-[7px] font-black flex items-center justify-center',
+                                track.solo
+                                    ? 'bg-yellow-500/30 text-yellow-400 border border-yellow-500/40'
+                                    : 'bg-white/5 text-white/25 hover:bg-white/10'
+                            )}
+                        >S</button>
+                        <button
+                            onClick={() => updateTrack(track.id, { muted: !track.muted })}
+                            className={clsx(
+                                'w-4 h-4 rounded text-[7px] font-black flex items-center justify-center',
+                                track.muted
+                                    ? 'bg-red-500/30 text-red-400 border border-red-500/40'
+                                    : 'bg-white/5 text-white/25 hover:bg-white/10'
+                            )}
+                        >M</button>
+                    </div>
+                );
+            })}
+
+            {/* Master bus */}
+            <div className="flex items-center gap-1.5 px-1.5 py-1 rounded-lg bg-purple-500/5 border border-purple-500/10 mt-1">
+                <span className="text-[8px] font-black text-purple-400/60 w-8">MST</span>
+                <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={masterVolume}
+                    onChange={(e) => setMasterVolume(parseInt(e.target.value))}
+                    className="flex-1 h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-purple-400"
+                />
+                <span className="text-[7px] font-mono text-white/30 w-5 text-right">
+                    {masterVolume === 0 ? '-∞' : `${Math.round((masterVolume / 100) * 12 - 6)}`}
+                </span>
+                <button
+                    onClick={() => setIsMasterMuted(!isMasterMuted)}
+                    className={clsx(
+                        'w-4 h-4 rounded text-[7px] font-black flex items-center justify-center',
+                        isMasterMuted
+                            ? 'bg-red-500/30 text-red-400 border border-red-500/40'
+                            : 'bg-white/5 text-white/25 hover:bg-white/10'
+                    )}
+                >M</button>
             </div>
         </div>
     );

@@ -1,26 +1,23 @@
 /**
  * SequenceLayout — Top-level tabbed layout for the NLE Sequence page.
  * ════════════════════════════════════════════════════════════════════════════
- * Renders a subtab bar (Media | Edit | Mix | Effects) at the top of the
+ * Renders a subtab bar (Upload | Media | Edit) at the top of the
  * Sequence area, with the active subtab's content below.
  *
- * - Edit   → existing SequenceViewTab
+ * - Upload → MediaManagerTab (media import)
  * - Media  → SequenceMediaPanel (media browser)
- * - Mix    → placeholder (Audio Mixer — Coming Soon)
- * - Effects → placeholder (Effects Browser — Coming Soon)
+ * - Edit   → SequenceViewTab (timeline + mixer + effects + scopes)
  */
 
 import React from 'react';
-import { FolderOpen, Film, Volume2, Sparkles, BarChart2, Upload } from 'lucide-react';
+import { FolderOpen, Film, Upload } from 'lucide-react';
 import clsx from 'clsx';
 
 import { useSequenceViewStore, SequenceSubTab } from '../../store/sequenceViewStore';
 import { SequenceViewTab } from './SequenceViewTab';
 import { SequenceMediaPanel } from './SequenceMediaPanel';
 import { MediaManagerTab } from '../MediaManager/MediaManagerTab';
-import { AudioMixer } from './audio/AudioMixer';
-import { EffectsBrowser } from './effects/EffectsBrowser';
-import { ScopePanel } from './scopes/ScopePanel';
+
 
 // ─── Subtab Configuration ────────────────────────────────────────────────────
 
@@ -34,9 +31,6 @@ const SUB_TABS: SubTabDef[] = [
     { id: 'upload',  label: 'Upload',  icon: Upload },
     { id: 'media',   label: 'Media',   icon: FolderOpen },
     { id: 'edit',    label: 'Edit',    icon: Film },
-    { id: 'mix',     label: 'Mix',     icon: Volume2 },
-    { id: 'effects', label: 'Effects', icon: Sparkles },
-    { id: 'scopes',  label: 'Scopes',  icon: BarChart2 },
 ];
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -52,12 +46,7 @@ export const SequenceLayout: React.FC = () => {
                 return <SequenceMediaPanel />;
             case 'edit':
                 return <SequenceViewTab />;
-            case 'mix':
-                return <AudioMixer />;
-            case 'effects':
-                return <EffectsBrowser />;
-            case 'scopes':
-                return <ScopePanel />;
+
             default:
                 return <SequenceViewTab />;
         }
