@@ -79,6 +79,8 @@ export interface ClipExportData {
     contrastKeyframes?: Array<{ frame: number; value: number; interp?: 'linear' | 'bezier' | 'constant'; handleR?: [number, number]; handleL?: [number, number] }>;
     /** Keyframed saturation (0..3) baked to an eq expression. */
     saturationKeyframes?: Array<{ frame: number; value: number; interp?: 'linear' | 'bezier' | 'constant'; handleR?: [number, number]; handleL?: [number, number] }>;
+    /** Keyframed volume (0..100) baked to a volume expression. */
+    volumeKeyframes?: Array<{ frame: number; value: number; interp?: 'linear' | 'bezier' | 'constant'; handleR?: [number, number]; handleL?: [number, number] }>;
 
     // ── Super Editing Engine fields ──────────────────────────────────────
     /** Camera shake effect */
@@ -268,9 +270,19 @@ export function buildClipAudioFilter(
         if (fx) filters.push(fx);
     }
 
-    const vol = ((clip.volume ?? 100) / 100) * (clip.isMuted ? 0 : 1);
-    filters.push(`volume=${vol.toFixed(4)}`);
+    if (clip.volumeKeyframes && clip.volumeKeyframes.length > 0) {
+        const normalizedKf = clip.volumeKeyframes.map(kf => ({
+            ...kf,
+            value: (kf.value / 100) * (clip.isMuted ? 0 : 1)
+        }));
+        const expr = buildKeyframeExpr(normalizedKf, settings.fps || 30);
+        filters.push(`volume='${expr}'`);
+    } else {
+        const vol = ((clip.volume ?? 100) / 100) * (clip.isMuted ? 0 : 1);
+        filters.push(`volume=${vol.toFixed(4)}`);
+    }
     // Normalize to a uniform layout so concat/xfade across intermediates is clean.
+    filters.push('aresample=async=1');
     filters.push('aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo');
 
     return filters.join(',');

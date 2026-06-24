@@ -172,6 +172,8 @@ export interface Clip {
     contrastKeyframes?: import('./lib/keyframes').KfPoint[];
     /** Keyframed saturation (0..3, 1 neutral). */
     saturationKeyframes?: import('./lib/keyframes').KfPoint[];
+    /** Keyframed volume (0..100). */
+    volumeKeyframes?: import('./lib/keyframes').KfPoint[];
 
     // ── Shake system ──
     shake?: ShakeConfig;

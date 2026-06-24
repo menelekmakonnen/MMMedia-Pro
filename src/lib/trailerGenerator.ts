@@ -250,6 +250,10 @@ export interface TrailerSettings {
     variantCount?: number;
     /** Variant dimensions to vary across generated options. */
     variantAxes?: ('pacing' | 'transitions' | 'color' | 'energy' | 'structure')[];
+
+    // ── Pacing Arc ────────────────────────────────────────────────────────
+    /** Explicit narrative pacing curve/shape control */
+    pacingArcShape?: import('./pacingArc').PacingArcShape;
 }
 
 export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
@@ -296,6 +300,7 @@ export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
     shakeEnabled: false,
     shakePolicy: 'off',
     shakeType: 'impact',
+    pacingArcShape: undefined,
     shakeIntensity: 50,
     motionBlurPolicy: 'off',
     motionBlurAmount: 50,
@@ -1019,24 +1024,44 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             }
         }
 
-        // ── ZOOM ASSIGNMENT ──
-        if (s.zoomEnabled) {
+        // ── ZOOM / STILL IMAGE / KEN BURNS ASSIGNMENT ──
+        {
             const zoomRng = new SeededRandom(s.seed ? s.seed + '_zoom' : generateSeed());
             const zoomValues = s.zoomValues ?? [100, 125, 150, 175, 200];
+            const isKenBurnsGlobal = s.reframingStrategy === 'ken-burns';
+
             for (const clip of expandedClips) {
                 if (clip.zoomStart !== undefined || clip.zoomEnd !== undefined) continue; // Already zoomed
 
-                let zoomVal: number;
-                if (s.zoomCustomRangeEnabled && s.zoomCustomRange) {
-                    const [lo, hi] = s.zoomCustomRange;
-                    // Round to nearest 5%
-                    zoomVal = Math.round((lo + zoomRng.random() * (hi - lo)) / 5) * 5;
-                } else {
-                    zoomVal = zoomValues[Math.floor(zoomRng.random() * zoomValues.length)];
+                const srcFile = validPool.find(f => f.path === clip.path) as PoolFile | undefined;
+                
+                // Still Image / Photo / Static Clip Detection Heuristic
+                let isStill = false;
+                if (srcFile) {
+                    if (srcFile.type === 'image') {
+                        isStill = true;
+                    } else {
+                        // Heuristic still image detection from Smart Engine results:
+                        try {
+                            const { useTrailerSmartStore: smartStore } = require('../store/trailerSmartStore');
+                            const smartState = smartStore.getState();
+                            const smartResult = smartState.getResult(srcFile.id);
+                            if (smartResult && smartResult.analyzed) {
+                                const hasNoCuts = !smartResult.sceneCutsFrames || smartResult.sceneCutsFrames.length === 0;
+                                const isStatic = smartResult.energyLevel === 'static' || (smartResult.score !== undefined && smartResult.score < 10);
+                                if (isStatic && hasNoCuts) {
+                                    isStill = true;
+                                }
+                            }
+                        } catch { /* skip if error or store not loaded */ }
+                    }
                 }
 
-                if (zoomVal !== 100) {
-                    // 50% chance zoom in, 50% zoom out
+                const applyKenBurns = isKenBurnsGlobal || isStill;
+
+                if (applyKenBurns) {
+                    // Ken Burns effect: subtle slow zoom/pan (100% to 115%, or 115% to 100%)
+                    const zoomVal = 115; 
                     if (zoomRng.random() < 0.5) {
                         clip.zoomStart = 100;
                         clip.zoomEnd = zoomVal;
@@ -1044,40 +1069,58 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                         clip.zoomStart = zoomVal;
                         clip.zoomEnd = 100;
                     }
-                    clip.zoomOrigin = 'center';
-
-                    // ── ZOOM BOUNDARY CLAMPING ──
-                    // When zoomed, the visible area shrinks. Clamp any pan offsets
-                    // so the viewport never exceeds the source frame boundaries.
-                    // For center-origin zoom no explicit offset clamping is needed
-                    // (center is always valid), but when source dimensions are
-                    // available we validate the zoom level won't cause out-of-
-                    // bounds rendering at the FFmpeg level.
+                    // Randomize origin for dynamic pans: center, left, right, top, bottom
+                    const origins: Array<'center' | 'left' | 'right' | 'top' | 'bottom'> = ['center', 'left', 'right', 'top', 'bottom'];
+                    clip.zoomOrigin = origins[Math.floor(zoomRng.random() * origins.length)];
+                    clip.zoomSpeed = 'slow';
+                    
+                    // Clamp offsets
                     const maxZoom = Math.max(clip.zoomStart ?? 100, clip.zoomEnd ?? 100);
-                    const srcFile = validPool.find(f => f.path === clip.path) as PoolFile | undefined;
                     if (srcFile?.width && srcFile?.height && maxZoom > 100) {
-                        // Validate that the zoom won't produce negative crop dimensions.
-                        // clampZoomOffset at center: offset = (dim - dim/z) / 2
                         const clampedX = clampZoomOffset(maxZoom, (srcFile.width - srcFile.width / (maxZoom / 100)) / 2, srcFile.width);
                         const clampedY = clampZoomOffset(maxZoom, (srcFile.height - srcFile.height / (maxZoom / 100)) / 2, srcFile.height);
-                        // Store clamped offsets for filterBuilder to use (only relevant for non-center origins)
                         (clip as any)._zoomClampedX = clampedX;
                         (clip as any)._zoomClampedY = clampedY;
                     }
-                    // Forward zoomSpeed from wizard settings to the clip so the
-                    // filterBuilder's zoompan 'd' parameter respects the user's
-                    // Instant/Fast/Slow/All selection.
-                    if (s.zoomSpeed && s.zoomSpeed !== 'all') {
-                        clip.zoomSpeed = s.zoomSpeed as any;
-                    } else if (s.zoomSpeed === 'all') {
-                        // 'all' means randomly pick a speed per clip
-                        const speeds: Array<'instant' | 'fast' | 'slow'> = ['instant', 'fast', 'slow'];
-                        clip.zoomSpeed = speeds[Math.floor(zoomRng.random() * speeds.length)];
+                } else if (s.zoomEnabled) {
+                    // Regular settings-based zoom
+                    let zoomVal: number;
+                    if (s.zoomCustomRangeEnabled && s.zoomCustomRange) {
+                        const [lo, hi] = s.zoomCustomRange;
+                        zoomVal = Math.round((lo + zoomRng.random() * (hi - lo)) / 5) * 5;
+                    } else {
+                        zoomVal = zoomValues[Math.floor(zoomRng.random() * zoomValues.length)];
                     }
-                    // zoomBeatSync: force instant/fast zoom for punchier beat alignment
-                    if (s.zoomBeatSync) {
-                        const clipDurSec = (clip.endFrame - clip.startFrame) / DEFAULT_FPS;
-                        clip.zoomSpeed = clipDurSec <= 0.5 ? 'instant' : 'fast';
+
+                    if (zoomVal !== 100) {
+                        if (zoomRng.random() < 0.5) {
+                            clip.zoomStart = 100;
+                            clip.zoomEnd = zoomVal;
+                        } else {
+                            clip.zoomStart = zoomVal;
+                            clip.zoomEnd = 100;
+                        }
+                        clip.zoomOrigin = 'center';
+
+                        const maxZoom = Math.max(clip.zoomStart ?? 100, clip.zoomEnd ?? 100);
+                        if (srcFile?.width && srcFile?.height && maxZoom > 100) {
+                            const clampedX = clampZoomOffset(maxZoom, (srcFile.width - srcFile.width / (maxZoom / 100)) / 2, srcFile.width);
+                            const clampedY = clampZoomOffset(maxZoom, (srcFile.height - srcFile.height / (maxZoom / 100)) / 2, srcFile.height);
+                            (clip as any)._zoomClampedX = clampedX;
+                            (clip as any)._zoomClampedY = clampedY;
+                        }
+
+                        if (s.zoomSpeed && s.zoomSpeed !== 'all') {
+                            clip.zoomSpeed = s.zoomSpeed as any;
+                        } else if (s.zoomSpeed === 'all') {
+                            const speeds: Array<'instant' | 'fast' | 'slow'> = ['instant', 'fast', 'slow'];
+                            clip.zoomSpeed = speeds[Math.floor(zoomRng.random() * speeds.length)];
+                        }
+
+                        if (s.zoomBeatSync) {
+                            const clipDurSec = (clip.endFrame - clip.startFrame) / DEFAULT_FPS;
+                            clip.zoomSpeed = clipDurSec <= 0.5 ? 'instant' : 'fast';
+                        }
                     }
                 }
             }
@@ -1439,6 +1482,17 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 clipMax = gapFrames;
             }
 
+            // Apply Pacing Arc Multiplier
+            if (s.pacingArcShape) {
+                try {
+                    const { getPacingArcMultiplier } = require('./pacingArc');
+                    const progress = accumulatedFrames / targetFrames;
+                    const pacingMult = getPacingArcMultiplier(s.pacingArcShape, progress);
+                    clipMin = Math.max(MIN_RENDERABLE_FRAMES, Math.floor(clipMin * pacingMult));
+                    clipMax = Math.max(clipMin + 3, Math.floor(clipMax * pacingMult));
+                } catch { /* fallback */ }
+            }
+
             return { clipMin, clipMax, speedMult, applyEffect };
         };
 
@@ -1754,8 +1808,20 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 fillIdx++;
                 const remainingFrames = targetFrames - accumulatedFrames;
                 if (remainingFrames < MIN_RENDERABLE_FRAMES) break;
+                let currentMin = minFrames;
+                let currentMax = maxFrames;
+                if (s.pacingArcShape) {
+                    try {
+                        const { getPacingArcMultiplier } = require('./pacingArc');
+                        const progress = accumulatedFrames / targetFrames;
+                        const pacingMult = getPacingArcMultiplier(s.pacingArcShape, progress);
+                        currentMin = Math.max(MIN_RENDERABLE_FRAMES, Math.floor(minFrames * pacingMult));
+                        currentMax = Math.max(currentMin + 1, Math.floor(maxFrames * pacingMult));
+                    } catch { /* fallback */ }
+                }
+
                 let clipDur = Math.min(
-                    Math.floor(rng.random() * (maxFrames - minFrames + 1)) + minFrames,
+                    Math.floor(rng.random() * (currentMax - currentMin + 1)) + currentMin,
                     remainingFrames
                 );
                 const { speed, volume, isMuted } = getSpeedAndVolume(rng);
@@ -1786,8 +1852,20 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             let dynamicMaxFrames = Math.floor(remainingFrames / remainingFiles);
             if (dynamicMaxFrames < minFrames) dynamicMaxFrames = minFrames;
 
+            let currentMin = minFrames;
+            let currentMax = maxFrames;
+            if (s.pacingArcShape) {
+                try {
+                    const { getPacingArcMultiplier } = require('./pacingArc');
+                    const progress = accumulatedFrames / targetFrames;
+                    const pacingMult = getPacingArcMultiplier(s.pacingArcShape, progress);
+                    currentMin = Math.max(MIN_RENDERABLE_FRAMES, Math.floor(minFrames * pacingMult));
+                    currentMax = Math.max(currentMin + 1, Math.floor(maxFrames * pacingMult));
+                } catch { /* fallback */ }
+            }
+
             const { durationFrames: rhythmDur, multiplier: rhythmMult } = resolveRhythmDuration(
-                rhythmPattern, clipIndex, totalExpectedClips, minFrames, maxFrames, prevRhythmMult, rng
+                rhythmPattern, clipIndex, totalExpectedClips, currentMin, currentMax, prevRhythmMult, rng
             );
             prevRhythmMult = rhythmMult;
             let cutDurationFrames = Math.min(rhythmDur, dynamicMaxFrames);
@@ -1824,14 +1902,26 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             continue;
         }
 
+        let currentMin = minFrames;
+        let currentMax = maxFrames;
+        if (s.pacingArcShape) {
+            try {
+                const { getPacingArcMultiplier } = require('./pacingArc');
+                const progress = accumulatedFrames / targetFrames;
+                const pacingMult = getPacingArcMultiplier(s.pacingArcShape, progress);
+                currentMin = Math.max(MIN_RENDERABLE_FRAMES, Math.floor(minFrames * pacingMult));
+                currentMax = Math.max(currentMin + 1, Math.floor(maxFrames * pacingMult));
+            } catch { /* fallback */ }
+        }
+
         const { durationFrames: rhythmDur, multiplier: rhythmMult } = resolveRhythmDuration(
-            rhythmPattern, clipIndex, totalExpectedClips, minFrames, maxFrames, prevRhythmMult, rng
+            rhythmPattern, clipIndex, totalExpectedClips, currentMin, currentMax, prevRhythmMult, rng
         );
         prevRhythmMult = rhythmMult;
         let cutDurationFrames = rhythmDur;
 
-        if (maxFrames > minFrames && cutDurationFrames === lastDurationFrames) {
-            cutDurationFrames = (cutDurationFrames === maxFrames) ? minFrames : cutDurationFrames + 1;
+        if (currentMax > currentMin && cutDurationFrames === lastDurationFrames) {
+            cutDurationFrames = (cutDurationFrames === currentMax) ? currentMin : cutDurationFrames + 1;
         }
 
         const sourceAvailable = Math.max(

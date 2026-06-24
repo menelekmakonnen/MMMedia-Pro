@@ -523,6 +523,47 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
             // Decode URL-encoded characters (e.g., %20 → space)
             try { resolvedAudioPath = decodeURIComponent(resolvedAudioPath); } catch {}
 
+            // Generate ducking keyframes if mix strategy is ducking
+            let volumeKeyframes: any[] | undefined = undefined;
+            if (settings.audioMixStrategy === 'ducking') {
+                try {
+                    const { generateDuckingKeyframes } = require('../../lib/audioDucker');
+                    const { useTrailerSmartStore } = require('../../store/trailerSmartStore');
+                    const smartStore = useTrailerSmartStore.getState();
+                    const speechRegions: Array<{ start: number; end: number }> = [];
+
+                    cleanSeq.forEach(c => {
+                        const poolFile = pool.find(f => f.path === c.path);
+                        const smartResult = poolFile ? smartStore.getResult(poolFile.id) : undefined;
+                        if (smartResult?.hasDialogue) {
+                            speechRegions.push({
+                                start: c.startFrame / DEFAULT_FPS,
+                                end: c.endFrame / DEFAULT_FPS
+                            });
+                        }
+                    });
+
+                    if (speechRegions.length > 0) {
+                        const totalDurationSec = totalFrames / DEFAULT_FPS;
+                        const rawKeyframes = generateDuckingKeyframes(speechRegions, totalDurationSec, {
+                            duckedVolume: 15,
+                            normalVolume: 100,
+                            attackTime: 0.3,
+                            releaseTime: 0.5
+                        });
+                        const kfs = rawKeyframes.map((kf: any) => ({
+                            frame: Math.round(kf.time * DEFAULT_FPS),
+                            value: kf.volume,
+                            interp: 'linear' as const
+                        }));
+                        volumeKeyframes = kfs;
+                        console.log('[TrailerPlayer] Generated VAD ducking keyframes:', kfs.length);
+                    }
+                } catch (duckErr) {
+                    console.error('[TrailerPlayer] Ducking generation error:', duckErr);
+                }
+            }
+
             const audioClip: Clip = {
                 id: uuidv4(),
                 type: 'audio',
@@ -540,6 +581,7 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
                 loopToTimeline: true,
                 locked: false,
                 origin: 'auto',
+                volumeKeyframes,
             };
             allClips.push(audioClip);
         }

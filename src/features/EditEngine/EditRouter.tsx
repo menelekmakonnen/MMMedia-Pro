@@ -16,6 +16,7 @@ import { useTrailerSmartStore } from '../../store/trailerSmartStore';
 import { reorderClips } from '../../lib/clipOrdering';
 import { validateEdit, autoRepairEdit, type PoolSource } from '../../lib/ege/generationContract';
 import { resolveSubcategories } from '../../lib/subcategoryResolver';
+import { deClusterShotTypes } from '../../lib/ege/shotDiversity';
 import { useExportSettingsStore } from '../../store/exportSettingsStore';
 import type { QueuedEdit } from '../../store/exportSettingsStore';
 import { SmartEngineConfirmModal } from './SmartEngineConfirmModal';
@@ -379,6 +380,23 @@ export const EditRouter: React.FC = () => {
                 seed: newSettings.seed,
             });
             console.log('[EditRouter] Clip-order mode:', newSettings.clipOrderMode, newSettings.sequentialBy);
+        }
+
+        // ── Shot-diversity de-clustering (slot-preserving) ───────────────
+        // When the active subcategory asks for shot variety (e.g. showreels),
+        // avoid two same shot-types back-to-back by swapping slot CONTENT only —
+        // cut times never move. Uses shot types produced by the Smart Engine.
+        if (newSettings.shotDiversityEnabled) {
+            const smart = useTrailerSmartStore.getState();
+            const shotMap = new Map<string, string>();
+            for (const f of workingPool as any[]) {
+                const st = smart.getResult(f.id)?.shotType;
+                if (st) shotMap.set(f.id, st);
+            }
+            if (shotMap.size > 0) {
+                clips = deClusterShotTypes(clips as any, shotMap) as any;
+                console.log('[EditRouter] Shot-diversity de-cluster applied across', shotMap.size, 'classified sources');
+            }
         }
 
         commitClips(clips, workingPool);

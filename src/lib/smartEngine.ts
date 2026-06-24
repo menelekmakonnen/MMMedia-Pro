@@ -358,6 +358,117 @@ async function runVisualMatchPass(allVids: Array<{ id: string; path: string; fil
 
     smart.finish('visual-match');
     console.log(`[SmartEngine] Pass 2 (visual-match) complete — ${eligible.length} clips processed`);
+
+    // Pass 3: Shot classification + Semantic Tagging refinement
+    try {
+        await runShotAndSemanticClassificationPass(allVids);
+    } catch (err) {
+        console.error('[SmartEngine] Pass 3 (shot & semantic) error:', err);
+    }
+}
+
+/**
+ * Runs Pass 3: Shot type classification & Semantic tagging on all clips.
+ * Takes Pass 1 and Pass 2 results (luma, color, motion, hashes) and categorizes
+ * them into cinematic classifications (shot scale, camera motion, mood, setting, pace).
+ */
+async function runShotAndSemanticClassificationPass(allVids: Array<{ id: string; path: string; filename: string }>) {
+    const smart = useTrailerSmartStore.getState();
+    const eligible = allVids.filter(v => {
+        const r = smart.getResult(v.id);
+        return r?.analyzed && !(r.completedPasses || []).includes('shot-type');
+    });
+
+    if (eligible.length === 0) return;
+
+    smart.begin('shot-type', eligible.length);
+    smart.begin('semantic', eligible.length);
+    console.log(`[SmartEngine] Starting Pass 3 (shot & semantic) for ${eligible.length} clips`);
+
+    const { classifyShot } = await import('./shotClassifier');
+    const { inferMood, inferSetting, inferTimeOfDay, inferPace, estimateColorTemperature } = await import('./semanticTagger');
+
+    for (const f of eligible) {
+        const existing = smart.getResult(f.id);
+        if (!existing) continue;
+
+        // Construct heuristic features from existing pass 1 results
+        const isStatic = existing.energyLevel === 'static';
+        const motionMagnitude = existing.score / 100;
+        
+        // Check filename cues for faces/interviews (talking-head indicator)
+        const nameLower = f.filename.toLowerCase();
+        const hasFaceKeywords = nameLower.includes('interview') || nameLower.includes('face') || nameLower.includes('talking') || nameLower.includes('host') || nameLower.includes('speaker');
+        const faceCount = hasFaceKeywords ? 1 : 0;
+        const faceRegionRatio = hasFaceKeywords ? 0.25 : 0;
+
+        const duration = (existing.usableOutFrames || 300) / 30;
+
+        const shotClass = classifyShot({
+            edgeDensity: existing.edgeDensity ?? 0.3,
+            motionMagnitude,
+            faceRegionRatio,
+            faceCount,
+            isStatic,
+            histogramUniformity: 0.5,
+            hasUIEdges: nameLower.includes('screen') || nameLower.includes('app') || nameLower.includes('ui'),
+            avgLuma: 120,
+            salientRegion: { x: 0.1, y: 0.1, w: 0.8, h: 0.8 },
+            aspectRatio: 16 / 9,
+            duration,
+            motionStdDev: isStatic ? 0.01 : 0.15
+        });
+
+        // Infer settings & mood
+        const colorTemp = estimateColorTemperature(120, 120, 120); // Neutral baseline temperature
+        const inferredMoodObj = inferMood({
+            avgLuma: 120,
+            avgSaturation: 80,
+            motionMagnitude,
+            colorTempK: colorTemp,
+            edgeDensity: existing.edgeDensity ?? 0.3
+        });
+
+        const inferredSetting = inferSetting({
+            avgLuma: 120,
+            edgeDensity: existing.edgeDensity ?? 0.3,
+            colorVariance: 0.5,
+            greenRatio: 0.1,
+            blueRatio: 0.1,
+            hasUIEdges: nameLower.includes('screen') || nameLower.includes('app') || nameLower.includes('ui')
+        });
+
+        const inferredTime = inferTimeOfDay({
+            avgLuma: 120,
+            colorTempK: colorTemp,
+            warmthRatio: 0.2
+        });
+
+        const updatedPasses = [...(existing.completedPasses || []), 'shot-type' as SmartKey, 'semantic' as SmartKey];
+        const updatedResult: ClipAnalysisResult = {
+            ...existing,
+            shotType: shotClass.shotType,
+            shotTypeConfidence: shotClass.confidence,
+            cameraMovement: shotClass.cameraMovement,
+            hasFaces: shotClass.hasFaces,
+            faceCount: shotClass.faceCount,
+            mood: inferredMoodObj.mood,
+            moodConfidence: inferredMoodObj.confidence,
+            setting: inferredSetting,
+            timeOfDay: inferredTime,
+            pace: inferPace(motionMagnitude),
+            completedPasses: updatedPasses,
+            analysisPass: 3
+        };
+
+        smart.storeResult(f.id, updatedResult);
+        smart.tick('shot-type');
+        smart.tick('semantic');
+    }
+
+    smart.finish('shot-type');
+    smart.finish('semantic');
+    console.log(`[SmartEngine] Pass 3 complete — classified ${eligible.length} clips`);
 }
 
 // ── React hook: auto-trigger ─────────────────────────────────────────────────

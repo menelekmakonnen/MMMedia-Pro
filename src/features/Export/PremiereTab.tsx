@@ -5,6 +5,7 @@ import { useClipStore } from '../../store/clipStore';
 import { useProjectStore } from '../../store/projectStore';
 import { generateManifest } from '../../lib/manifestBridge';
 import { generateIcuniEdit } from '../../lib/icuniBridge';
+import { exportToFCPXML } from '../../lib/fcpxmlExport';
 import { toast } from '../../components/Toast';
 
 interface Props { isExporting: boolean; onExport: () => void; disabled: boolean; }
@@ -32,6 +33,22 @@ export const PremiereTab: React.FC<Props> = ({ isExporting, onExport, disabled }
         }
     };
 
+    const [fcpxmlBusy, setFcpxmlBusy] = React.useState(false);
+    const handleExportFCPXML = async () => {
+        setFcpxmlBusy(true);
+        try {
+            const edit = generateIcuniEdit();
+            const fcpxml = exportToFCPXML(edit);
+            const res = await window.ipcRenderer.exportFCPXML(fcpxml);
+            if (res?.success) toast.success('Exported FCPXML — import directly in FCP, Premiere, or Resolve');
+            else if (!(res as any)?.canceled) toast.error('FCPXML export failed');
+        } catch {
+            toast.error('FCPXML export failed');
+        } finally {
+            setFcpxmlBusy(false);
+        }
+    };
+
     return (
         <div className="flex-1 flex flex-col lg:flex-row gap-6 p-6 overflow-y-auto custom-scrollbar">
             {/* Left: Illustration */}
@@ -40,14 +57,14 @@ export const PremiereTab: React.FC<Props> = ({ isExporting, onExport, disabled }
                     <FileCode size={56} className="text-blue-400/60" />
                 </div>
                 <div className="text-center">
-                    <h3 className="text-lg font-black text-white">Premiere Pro</h3>
+                    <h3 className="text-lg font-black text-white">Premiere & NLEs</h3>
                     <p className="text-[10px] text-white/40 mt-1 max-w-[240px]">
-                        Export the raw timeline manifest for the MMMedia Premiere Pro Extension panel.
+                        Export native timelines or interchanges to rebuild in Premiere Pro, DaVinci Resolve, or Final Cut Pro X.
                     </p>
                 </div>
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20">
                     <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-blue-300/70">Extension Required</span>
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-blue-300/70">Interchange Available</span>
                 </div>
             </div>
 
@@ -76,8 +93,8 @@ export const PremiereTab: React.FC<Props> = ({ isExporting, onExport, disabled }
                 <div className="bg-black/30 rounded-xl border border-white/5 p-4 space-y-2">
                     <div className="text-[9px] font-black uppercase tracking-widest text-white/30">Integration Details</div>
                     {[
-                        ['Format', 'Native JSON Payload (.mmm)'],
-                        ['Target', 'MMMedia Premiere Panel Extension'],
+                        ['Format', 'FCPXML 1.9 / ICUNI JSON'],
+                        ['Target', 'Premiere / FCPX / Resolve'],
                         ['Project', settings.name || 'Untitled'],
                         ['Resolution', `${settings.resolution?.width || 1920} × ${settings.resolution?.height || 1080}`],
                     ].map(([l, v]) => (
@@ -90,16 +107,23 @@ export const PremiereTab: React.FC<Props> = ({ isExporting, onExport, disabled }
 
                 <div className="flex-1" />
 
-                <motion.button onClick={onExport} disabled={disabled} whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}
-                    className="w-full py-3.5 rounded-xl text-xs font-black uppercase tracking-wider text-white bg-gradient-to-r from-blue-600 to-indigo-600 shadow-[0_0_30px_rgba(59,130,246,0.3)] hover:shadow-[0_0_40px_rgba(59,130,246,0.5)] flex items-center justify-center gap-2 disabled:opacity-40 disabled:grayscale transition-all">
-                    <FileJson size={16} /> {isExporting ? 'Saving...' : 'Export Manifest for Premiere'}
+                <motion.button onClick={handleExportFCPXML} disabled={disabled || fcpxmlBusy} whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}
+                    className="w-full py-3.5 rounded-xl text-xs font-black uppercase tracking-wider text-white bg-gradient-to-r from-emerald-600 to-teal-600 shadow-[0_0_30px_rgba(16,185,129,0.3)] hover:shadow-[0_0_40px_rgba(16,185,129,0.5)] flex items-center justify-center gap-2 disabled:opacity-40 disabled:grayscale transition-all">
+                    <Layers size={16} /> {fcpxmlBusy ? 'Saving...' : 'Export Universal FCPXML'}
                 </motion.button>
 
-                <motion.button onClick={handleExportIcuni} disabled={icuniBusy} whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}
-                    className="w-full py-3 rounded-xl text-xs font-black uppercase tracking-wider text-indigo-200 bg-indigo-600/15 border border-indigo-500/30 hover:bg-indigo-600/25 flex items-center justify-center gap-2 disabled:opacity-40 transition-all">
-                    <FileCode size={16} /> {icuniBusy ? 'Saving…' : 'Export for Edia (ICUNI Edit)'}
-                </motion.button>
-                <p className="text-[9px] text-white/30 text-center">Edia (ChaosEdit) is the official bridge — it rebuilds this edit natively in Premiere, approximating effects and reporting anything that can’t transfer.</p>
+                <div className="grid grid-cols-2 gap-3">
+                    <motion.button onClick={onExport} disabled={disabled} whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}
+                        className="py-3 rounded-xl text-xs font-black uppercase tracking-wider text-blue-200 bg-blue-600/15 border border-blue-500/30 hover:bg-blue-600/25 flex items-center justify-center gap-2 disabled:opacity-40 transition-all">
+                        <FileJson size={16} /> {isExporting ? 'Saving...' : 'Premiere Manifest'}
+                    </motion.button>
+
+                    <motion.button onClick={handleExportIcuni} disabled={disabled || icuniBusy} whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}
+                        className="py-3 rounded-xl text-xs font-black uppercase tracking-wider text-indigo-200 bg-indigo-600/15 border border-indigo-500/30 hover:bg-indigo-600/25 flex items-center justify-center gap-2 disabled:opacity-40 transition-all">
+                        <FileCode size={16} /> {icuniBusy ? 'Saving…' : 'Edia (ICUNI Edit)'}
+                    </motion.button>
+                </div>
+                <p className="text-[9px] text-white/30 text-center">FCPXML supports drag-and-drop import to DaVinci Resolve, Final Cut Pro X, and Premiere Pro. Edia is the native Premiere Pro companion app.</p>
             </div>
         </div>
     );

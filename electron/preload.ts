@@ -19,6 +19,7 @@ try {
         loadProject: () => ipcRenderer.invoke('load-project'),
         exportManifest: (content: string) => ipcRenderer.invoke('export-manifest', content),
         exportIcuniEdit: (content: string) => ipcRenderer.invoke('export-icuni-edit', content),
+        exportFCPXML: (content: string) => ipcRenderer.invoke('export-fcpxml', content),
         saveManifest: (content: string) => ipcRenderer.invoke('export-manifest', content),
         importManifest: () => ipcRenderer.invoke('import-manifest'),
 
@@ -96,6 +97,7 @@ try {
         // Preview Proxy API
         generatePreviewProxy: (args: { clip: any; settings: any }) => ipcRenderer.invoke('generate-preview-proxy', args),
         invalidatePreviewProxy: (args: { hash: string }) => ipcRenderer.invoke('invalidate-preview-proxy', args),
+        extractFrameHashes: (args: { path: string }) => ipcRenderer.invoke('extract-frame-hashes', args),
     })
 
     console.log('[Preload] ✅ IPC API successfully exposed to window.ipcRenderer');
