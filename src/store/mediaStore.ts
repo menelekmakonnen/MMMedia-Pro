@@ -28,6 +28,10 @@ export interface MediaFile {
     format?: string;
     size?: number;
     createdAt?: number;
+    /** Filesystem modification time (mtime) — populated from fs.stat at import */
+    modifiedAt?: number;
+    /** Filesystem birth/creation time — populated from fs.stat at import */
+    fileCreatedAt?: number;
     // Pre-import trim constraints (seconds). When set, all downstream tools
     // (trailer, godmode, timeline, flux) only use this portion of the source.
     trimIn?: number;   // Start of usable region (default: 0)

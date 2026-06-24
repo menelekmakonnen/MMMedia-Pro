@@ -223,6 +223,8 @@ ipcMain.handle('select-files', async (_event, type?: 'video' | 'audio' | 'folder
             path,
             filename: path.split(/[/\\]/).pop() || path,
             size: stats.size,
+            modifiedAt: stats.mtimeMs,
+            fileCreatedAt: stats.birthtimeMs,
             // When picked via the audio picker, ALL files are treated as audio
             // (video files will be stripped to audio downstream by FFmpeg)
             type: type === 'audio' ? 'audio' : getMediaType(path)
@@ -252,6 +254,8 @@ ipcMain.handle('load-folder', async (_event, folderPath: string) => {
                 path,
                 filename: path.split(/[/\\]/).pop() || path,
                 size: stats.size,
+                modifiedAt: stats.mtimeMs,
+                fileCreatedAt: stats.birthtimeMs,
                 type: getMediaType(path)
             };
         }));

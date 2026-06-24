@@ -177,3 +177,10 @@
 .no-drag {
   -webkit-app-region: no-drag;
 }
+
+/* Dark-themed native select/option for Electron */
+select option {
+  background-color: #1e1e30;
+  color: rgba(255, 255, 255, 0.8);
+  padding: 4px 8px;
+}

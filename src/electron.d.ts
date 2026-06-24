@@ -1,5 +1,5 @@
 export interface ElectronAPI {
-    selectFiles: (type?: 'video' | 'audio' | 'folder') => Promise<{ success?: boolean; files?: Array<{ path: string; filename: string; size: number; type: string }>; canceled?: boolean }>;
+    selectFiles: (type?: 'video' | 'audio' | 'folder') => Promise<{ success?: boolean; files?: Array<{ path: string; filename: string; size: number; modifiedAt?: number; fileCreatedAt?: number; type: string }>; canceled?: boolean }>;
     saveProject: (content: string) => Promise<{ success: boolean; filePath?: string; error?: string }>;
     loadProject: () => Promise<{ success?: boolean; content?: string; filePath?: string; error?: string; canceled?: boolean }>;
     exportManifest: (content: string) => Promise<{ success: boolean; filePath?: string; error?: string }>;

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Upload, Grid, List, Search, Wand2, Film, FolderOpen, Smartphone, Monitor, Square, Trash2, CheckSquare, Crown, Plus, FileVideo, FileAudio, X, Clock, Music } from 'lucide-react';
+import { Upload, Grid, List, Search, Wand2, Film, FolderOpen, Smartphone, Monitor, Square, Trash2, CheckSquare, Crown, Plus, FileVideo, FileAudio, X, Clock, Music, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import clsx from 'clsx';
 import { useClipStore, Clip } from '../../store/clipStore';
 import { useMediaStore, MediaFile } from '../../store/mediaStore';
@@ -22,6 +22,12 @@ export const MediaManagerTab: React.FC = () => {
     const [viewMode, setViewMode] = useState<'grid' | 'list'>(mediaManagerView);
     const [searchQuery, setSearchQuery] = useState('');
     const [detailFileId, setDetailFileId] = useState<string | null>(null);
+
+    // ── Sort state ──
+    type SortField = 'default' | 'name' | 'duration' | 'size' | 'date-modified' | 'date-created' | 'random';
+    const [sortBy, setSortBy] = useState<SortField>('default');
+    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+    const [randomSeed, setRandomSeed] = useState(() => Math.random());
 
     // ── Resizable sidebar state ──
     const [sidebarWidth, setSidebarWidth] = useState(mediaSidebarWidth);
@@ -55,11 +61,44 @@ export const MediaManagerTab: React.FC = () => {
         };
     }, [isResizingSidebar, sidebarWidth, setMediaSidebarWidth]);
 
-    const filteredFiles = files.filter((file) => {
+    // ── Sort comparator ──
+    const sortFiles = useCallback((arr: MediaFile[]): MediaFile[] => {
+        if (sortBy === 'default') return arr;
+        if (sortBy === 'random') {
+            // Seeded Fisher-Yates for stable random per seed
+            const copy = [...arr];
+            let s = Math.floor(randomSeed * 2147483647);
+            for (let i = copy.length - 1; i > 0; i--) {
+                s = (s * 16807) % 2147483647;
+                const j = s % (i + 1);
+                [copy[i], copy[j]] = [copy[j], copy[i]];
+            }
+            return copy;
+        }
+        const dir = sortDirection === 'asc' ? 1 : -1;
+        return [...arr].sort((a, b) => {
+            switch (sortBy) {
+                case 'name':
+                    return dir * a.filename.localeCompare(b.filename, undefined, { numeric: true, sensitivity: 'base' });
+                case 'duration':
+                    return dir * ((a.duration || 0) - (b.duration || 0));
+                case 'size':
+                    return dir * ((a.size || 0) - (b.size || 0));
+                case 'date-modified':
+                    return dir * ((a.modifiedAt || 0) - (b.modifiedAt || 0));
+                case 'date-created':
+                    return dir * ((a.fileCreatedAt || a.createdAt || 0) - (b.fileCreatedAt || b.createdAt || 0));
+                default:
+                    return 0;
+            }
+        });
+    }, [sortBy, sortDirection, randomSeed]);
+
+    const filteredFiles = sortFiles(files.filter((file) => {
         if (!file.filename.toLowerCase().includes(searchQuery.toLowerCase())) return false;
         if (orientationFilter !== 'all' && file.type === 'video' && file.orientation !== orientationFilter) return false;
         return true;
-    });
+    }));
 
     // Ctrl+A select all VISIBLE (filtered) media
     useEffect(() => {
@@ -174,6 +213,9 @@ export const MediaManagerTab: React.FC = () => {
                         width,
                         height,
                         orientation,
+                        size: file.size,
+                        modifiedAt: file.modifiedAt,
+                        fileCreatedAt: file.fileCreatedAt,
                         createdAt: Date.now()
                     };
                 }));
@@ -238,6 +280,9 @@ export const MediaManagerTab: React.FC = () => {
                         width,
                         height,
                         orientation,
+                        size: file.size,
+                        modifiedAt: file.modifiedAt,
+                        fileCreatedAt: file.fileCreatedAt,
                         createdAt: Date.now()
                     };
                 }));
@@ -616,6 +661,68 @@ export const MediaManagerTab: React.FC = () => {
                                     </button>
                                 );
                             })}
+                        </div>
+                    )}
+
+                    {/* Sort Controls */}
+                    {files.length > 0 && (
+                        <div className="flex items-center gap-2 flex-shrink-0 py-2">
+                            <span className="text-[10px] font-black text-white/30 uppercase tracking-widest mr-1">Sort:</span>
+                            <div className="relative">
+                                <select
+                                    id="media-sort-field"
+                                    value={sortBy}
+                                    onChange={(e) => {
+                                        const val = e.target.value as SortField;
+                                        setSortBy(val);
+                                        if (val === 'random') setRandomSeed(Math.random());
+                                    }}
+                                    className="appearance-none bg-black/40 border border-white/10 rounded-lg pl-3 pr-8 py-1.5 text-[10px] font-bold text-white/70 uppercase tracking-wider outline-none focus:border-primary/50 cursor-pointer transition-colors hover:bg-white/5"
+                                >
+                                    <option value="default">Default</option>
+                                    <option value="name">Name</option>
+                                    <option value="duration">Duration</option>
+                                    <option value="size">Size</option>
+                                    <option value="date-modified">Date Modified</option>
+                                    <option value="date-created">Date Created</option>
+                                    <option value="random">Random</option>
+                                </select>
+                                <ArrowUpDown size={10} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/30 pointer-events-none" />
+                            </div>
+                            {sortBy !== 'default' && sortBy !== 'random' && (
+                                <button
+                                    id="media-sort-direction"
+                                    onClick={() => setSortDirection(d => d === 'asc' ? 'desc' : 'asc')}
+                                    className={clsx(
+                                        "flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all border",
+                                        "bg-white/5 text-white/50 border-white/5 hover:bg-primary/20 hover:text-primary hover:border-primary/30"
+                                    )}
+                                    title={sortDirection === 'asc' ? 'Ascending — click for Descending' : 'Descending — click for Ascending'}
+                                >
+                                    {sortDirection === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
+                                    {sortDirection === 'asc' ? 'Asc' : 'Desc'}
+                                </button>
+                            )}
+                            {sortBy === 'random' && (
+                                <motion.button
+                                    whileHover={{ scale: 1.05 }}
+                                    whileTap={{ scale: 0.95 }}
+                                    onClick={() => setRandomSeed(Math.random())}
+                                    className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all border bg-accent/10 text-accent/70 border-accent/20 hover:bg-accent/30 hover:text-accent"
+                                    title="Re-shuffle"
+                                >
+                                    <ArrowUpDown size={12} /> Re-shuffle
+                                </motion.button>
+                            )}
+                            {sortBy !== 'default' && (
+                                <button
+                                    onClick={() => { setSortBy('default'); setSortDirection('asc'); }}
+                                    className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold text-white/30 border border-transparent hover:text-white/60 hover:border-white/10 transition-all"
+                                    title="Reset sort"
+                                >
+                                    <X size={10} /> Reset
+                                </button>
+                            )}
                         </div>
                     )}
 
