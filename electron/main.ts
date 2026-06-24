@@ -906,6 +906,14 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                 }
             });
 
+            // Only overlays that were actually consumed ONTO a base get composited in
+            // the group pass — those are the ones the per-clip loop must skip. Orphan
+            // overlays (no base, e.g. a preset marked every clip an overlay) are NOT
+            // skipped: they render as normal full-frame clips. Without this guard an
+            // all-overlay/no-base edit skips every clip → "All clips failed to render".
+            const consumedOverlaySet = new Set<any>();
+            handledOverlayIndices.forEach((idx) => consumedOverlaySet.add(overlayClips[idx]));
+
             const hasComposites = overlayClips.length > 0;
 
             log(`Segment engine: ${videoClips.length} video + ${audioClips.length} audio | ${outW}x${outH} @ ${fps}fps (project ${projectFps}) | ${outCodec} | gpu=${!!settings?.useGpu}${hasComposites ? ` | composites=${overlayClips.length} overlays in ${compositeGroups.filter(g => g.overlays.length > 0).length} groups` : ''}`);
@@ -920,8 +928,9 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                 if ((activeExportProc as any)?.__cancelled) { cancelled = true; break; }
                 const clip = videoClips[i];
 
-                // Skip overlay clips — they are composited onto their base clip below
-                if (hasComposites && (clip as any).compositeOverlay) {
+                // Skip ONLY overlays that are composited onto a base in the group pass.
+                // Orphan overlays (no base) fall through and render as normal clips.
+                if (hasComposites && consumedOverlaySet.has(clip)) {
                     event.sender.send('export-progress', Math.round(((i + 1) / videoClips.length) * 70));
                     continue;
                 }
