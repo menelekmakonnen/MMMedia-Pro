@@ -3,9 +3,8 @@ import { persist } from 'zustand/middleware';
 
 export type SmartStatus = 'idle' | 'running' | 'done' | 'error';
 export interface FeatureProgress { status: SmartStatus; done: number; total: number; }
-export type SmartKey = 'scoring' | 'silence' | 'scenes' | 'color';
+export type SmartKey = 'scoring' | 'silence' | 'scenes' | 'color' | 'visual-match';
 
-/** Per-clip analysis result produced by the Smart Engine. */
 export interface ClipAnalysisResult {
     score: number;
     energyLevel: 'static' | 'low' | 'moderate' | 'high' | 'intense';
@@ -19,6 +18,13 @@ export interface ClipAnalysisResult {
     analysisVersion?: number;
     sourceSize?: number;
     sourceMtimeMs?: number;
+    /** Visual-match analysis — used for match-cut & seamless transitions */
+    startFrameSignature?: string;     // perceptual hash of the first frame
+    endFrameSignature?: string;       // perceptual hash of the last frame
+    colorHistogram?: number[];        // 16-bin normalized luma histogram (last 10 frames)
+    dominantMotionDirection?: number; // dominant optical flow direction in degrees (0-360)
+    /** Which analysis pass produced this result (1 = first, 2 = refinement). */
+    analysisPass?: number;
 }
 
 interface TrailerSmartStore {
@@ -27,6 +33,7 @@ interface TrailerSmartStore {
     silence: FeatureProgress;
     scenes: FeatureProgress;
     color: FeatureProgress;
+    'visual-match': FeatureProgress;
     active: boolean;
     reset: () => void;
     setActive: (v: boolean) => void;
@@ -57,9 +64,9 @@ export const useTrailerSmartStore = create<TrailerSmartStore>()(
     persist(
         (set, get) => ({
             // ── Legacy ──
-            scoring: idle(), silence: idle(), scenes: idle(), color: idle(), active: false,
+            scoring: idle(), silence: idle(), scenes: idle(), color: idle(), 'visual-match': idle(), active: false,
             reset: () => set({
-                scoring: idle(), silence: idle(), scenes: idle(), color: idle(), active: false,
+                scoring: idle(), silence: idle(), scenes: idle(), color: idle(), 'visual-match': idle(), active: false,
             }),
             setActive: (active) => set({ active }),
             begin: (key, total) => set(() => ({ [key]: { status: 'running' as SmartStatus, done: 0, total } } as any)),

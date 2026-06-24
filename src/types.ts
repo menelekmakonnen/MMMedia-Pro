@@ -74,7 +74,8 @@ export type TransitionType =
     | 'diagtl' | 'diagtr' | 'diagbl' | 'diagbr'
     | 'squeezeh' | 'squeezev'
     | 'flash' | 'glitch' | 'rgb-split' | 'zoom-through'
-    | 'spin' | 'film-burn' | 'whip';
+    | 'spin' | 'film-burn' | 'whip'
+    | 'match-cut' | 'seamless';
 
 export type ShakeType = 'impact' | 'handheld' | 'earthquake' | 'vibration' | 'whip';
 export type ZoomSpeed = 'instant' | 'fast' | 'slow' | 'smooth';

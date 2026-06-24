@@ -20,6 +20,7 @@ import {
     type ColorTemperature,
 } from './clipIntelligence';
 import { getColorForSection } from './colorEngine';
+import { findMatchCutPairs, findSeamlessTransitionPairs, hammingDistance, histogramSimilarity, motionDirectionDelta } from './matchAnalysis';
 import { VideoMode, SegmentEditType, getSectionBehavior, DEFAULT_SECTION_BEHAVIORS, SectionBehavior } from './editingModes';
 import { MixedTemplate, mixTemplates, templateToSettings } from './templateMixer';
 import type { TemplateId } from './editingModes';
@@ -757,6 +758,18 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             expandedClips = laid;
         }
 
+        // ── VISUAL FX SAFETY SWEEP ──
+        // Ensure film grain, vignette, chromatic aberration, and letterbox are
+        // stamped on EVERY clip. Some code paths (standard mode, fill loops) may
+        // create clips without passing through the beat-driven VFX assignment.
+        // This sweep guarantees the effects persist throughout the entire edit.
+        for (const clip of expandedClips) {
+            if (s.filmGrainAmount && s.filmGrainAmount > 0 && !clip.filmGrain) clip.filmGrain = s.filmGrainAmount;
+            if (s.vignetteAmount && s.vignetteAmount > 0 && !clip.vignette) clip.vignette = s.vignetteAmount;
+            if (s.chromaticAmount && s.chromaticAmount > 0 && !clip.chromaticAberration) clip.chromaticAberration = s.chromaticAmount;
+            if (s.letterboxEnabled && !clip.letterbox) clip.letterbox = true;
+        }
+
         // ── TRANSITION ASSIGNMENT (Context-Aware) ──
         // Uses clip intelligence metadata when available for smarter transition selection.
         // Falls back to segment-based selection when intelligence data is absent.
@@ -828,6 +841,70 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                     frequency: s.returnTransitionFrequency ?? 50,
                     seed: s.seed ? s.seed + '_return' : undefined,
                 });
+            }
+        }
+
+        // ── INTELLIGENT TRANSITIONS (Match-Cut & Seamless) ──
+        // If the user has enabled match-cut or seamless transitions, overlay them
+        // at clip boundaries where the Smart Engine detected visual similarity.
+        // This respects the user's allowed transition list — only applies if the
+        // intelligent types are in their selection.
+        {
+            const allowed = s.transitionTypes ?? [];
+            const wantMatchCut = allowed.length === 0 || allowed.includes('match-cut');
+            const wantSeamless = allowed.length === 0 || allowed.includes('seamless');
+
+            if ((wantMatchCut || wantSeamless) && typeof window !== 'undefined') {
+                try {
+                    // Access smart engine store synchronously — it's always available in the renderer
+                    const { useTrailerSmartStore: smartStore } = require('../store/trailerSmartStore');
+                    const smartState = smartStore.getState();
+                    const smartResults = smartState.analysisResults;
+
+                    if (smartResults && Object.keys(smartResults).length > 0) {
+                        // Build a lookup from file path → analysis result
+                        const pathToResult: Record<string, any> = {};
+                        for (const [id, result] of Object.entries(smartResults)) {
+                            const scannedFile = smartState.scannedFiles?.[id];
+                            if (scannedFile?.path) pathToResult[scannedFile.path] = result;
+                            else pathToResult[id] = result; // fallback
+                        }
+
+                        const durationFrames = Math.round(((s.transitionDurationMs ?? 200) / 1000) * DEFAULT_FPS);
+
+                        for (let i = 0; i < expandedClips.length - 1; i++) {
+                            const outClip = expandedClips[i];
+                            const inClip = expandedClips[i + 1];
+                            const outResult = pathToResult[outClip.path];
+                            const inResult = pathToResult[inClip.path];
+
+                            if (!outResult || !inResult) continue;
+
+                            // Check for seamless first (stronger requirement)
+                            if (wantSeamless) {
+                                const histSim = histogramSimilarity(outResult.colorHistogram, inResult.colorHistogram);
+                                const motionDelta = motionDirectionDelta(outResult.dominantMotionDirection, inResult.dominantMotionDirection);
+                                const hashDist = hammingDistance(outResult.endFrameSignature, inResult.startFrameSignature);
+
+                                if (histSim >= 0.85 && motionDelta <= 30 && hashDist <= 12) {
+                                    outClip.transition = { type: 'seamless', durationFrames: Math.max(3, Math.round(durationFrames * 0.5)) };
+                                    continue;
+                                }
+                            }
+
+                            // Check for match-cut (lighter requirement — just visual similarity)
+                            if (wantMatchCut) {
+                                const hashDist = hammingDistance(outResult.endFrameSignature, inResult.startFrameSignature);
+                                if (hashDist <= 8) {
+                                    outClip.transition = { type: 'match-cut', durationFrames: 0 }; // hard cut at matched frames
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                } catch {
+                    // Smart engine data not available — skip intelligent transitions gracefully
+                }
             }
         }
 

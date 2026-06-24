@@ -1925,10 +1925,10 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                             <Sparkles size={13} className="text-indigo-400" /> Trending Effects
                         </span>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <motion.div layout className="flex flex-wrap gap-2.5">
                             {/* Double Exposure */}
-                            <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-indigo-600/10 via-white/5 to-purple-600/10",
-                                (settings.doubleExposurePolicy ?? 'off') !== 'off' ? "border-indigo-400/40 shadow-[0_0_18px_rgba(99,102,241,0.2)]" : "border-white/10")}>
+                            <motion.div layout transition={{ layout: { duration: 0.3 } }} className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-indigo-600/10 via-white/5 to-purple-600/10",
+                                (settings.doubleExposurePolicy ?? 'off') !== 'off' ? "w-full border-indigo-400/40 shadow-[0_0_18px_rgba(99,102,241,0.2)]" : "w-full sm:w-[calc(50%-5px)] border-white/10")}>
                                 <div className="absolute -top-8 -right-8 w-24 h-24 bg-indigo-500/20 blur-[40px] pointer-events-none rounded-full" />
                                 <PreviewBubble
                                     preview={<DoubleExposurePreview />}
@@ -2009,10 +2009,11 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                         </span>
                                     </div>
                                 </EffectPolicyControl>
-                            </div>
+                            </motion.div>
 
                             {/* Motion Blur */}
-                            <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-sky-600/10 via-white/5 to-blue-600/10",
+                            <motion.div layout transition={{ layout: { duration: 0.3 } }} className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-sky-600/10 via-white/5 to-blue-600/10",
+                                "w-full sm:w-[calc(50%-5px)]",
                                 (settings.motionBlurPolicy ?? 'off') !== 'off' ? "border-sky-400/40 shadow-[0_0_18px_rgba(56,189,248,0.2)]" : "border-white/10")}>
                                 <div className="absolute -top-8 -right-8 w-24 h-24 bg-sky-500/20 blur-[40px] pointer-events-none rounded-full" />
                                 <PreviewBubble
@@ -2034,10 +2035,11 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                     <SliderControl label="Amount" icon={Zap} value={settings.motionBlurAmount ?? 50}
                                         min={0} max={100} step={5} unit="%" onChange={(v) => update({ motionBlurAmount: v })} />
                                 </EffectPolicyControl>
-                            </div>
+                            </motion.div>
 
                             {/* Glow */}
-                            <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-amber-600/10 via-white/5 to-pink-600/10",
+                            <motion.div layout transition={{ layout: { duration: 0.3 } }} className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-amber-600/10 via-white/5 to-pink-600/10",
+                                "w-full sm:w-[calc(50%-5px)]",
                                 (settings.glowPolicy ?? 'off') !== 'off' ? "border-amber-400/40 shadow-[0_0_18px_rgba(251,191,36,0.2)]" : "border-white/10")}>
                                 <div className="absolute -top-8 -right-8 w-24 h-24 bg-amber-500/20 blur-[40px] pointer-events-none rounded-full" />
                                 <PreviewBubble
@@ -2061,10 +2063,11 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                     <SliderControl label="Radius" icon={Sparkles} value={settings.glowRadius ?? 50}
                                         min={0} max={100} step={5} unit="%" onChange={(v) => update({ glowRadius: v })} />
                                 </EffectPolicyControl>
-                            </div>
+                            </motion.div>
 
                             {/* Vibration Flash */}
-                            <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-rose-600/10 via-white/5 to-red-600/10",
+                            <motion.div layout transition={{ layout: { duration: 0.3 } }} className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-rose-600/10 via-white/5 to-red-600/10",
+                                "w-full sm:w-[calc(50%-5px)]",
                                 (settings.vibrationFlashPolicy ?? 'off') !== 'off' ? "border-rose-400/40 shadow-[0_0_18px_rgba(244,63,94,0.2)]" : "border-white/10")}>
                                 <div className="absolute -top-8 -right-8 w-24 h-24 bg-rose-500/20 blur-[40px] pointer-events-none rounded-full" />
                                 <PreviewBubble
@@ -2086,11 +2089,11 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                     <SliderControl label="Intensity" icon={Zap} value={settings.vibrationFlashIntensity ?? 70}
                                         min={0} max={100} step={5} unit="%" onChange={(v) => update({ vibrationFlashIntensity: v })} />
                                 </EffectPolicyControl>
-                            </div>
+                            </motion.div>
 
                             {/* Optical-Flow Slow-Mo */}
-                            <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-teal-600/10 via-white/5 to-emerald-600/10 sm:col-span-2",
-                                (settings.smoothSlowmoPolicy ?? 'off') !== 'off' ? "border-teal-400/40 shadow-[0_0_18px_rgba(20,184,166,0.2)]" : "border-white/10")}>
+                            <motion.div layout transition={{ layout: { duration: 0.3 } }} className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-teal-600/10 via-white/5 to-emerald-600/10",
+                                (settings.smoothSlowmoPolicy ?? 'off') !== 'off' ? "w-full border-teal-400/40 shadow-[0_0_18px_rgba(20,184,166,0.2)]" : "w-full sm:w-[calc(50%-5px)] border-white/10")}>
                                 <div className="absolute -top-8 -right-8 w-24 h-24 bg-teal-500/20 blur-[40px] pointer-events-none rounded-full" />
                                 <PreviewBubble
                                     preview={<SlowmoPreview />}
@@ -2108,10 +2111,11 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                     policy={settings.smoothSlowmoPolicy ?? 'off'}
                                     onPolicy={(p) => update({ smoothSlowmoPolicy: p })}
                                     renderPreview={(p) => <SlowmoPolicyPreview policy={p} />} />
-                            </div>
+                            </motion.div>
 
                             {/* RGB Split */}
-                            <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-fuchsia-600/10 via-white/5 to-cyan-600/10",
+                            <motion.div layout transition={{ layout: { duration: 0.3 } }} className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-fuchsia-600/10 via-white/5 to-cyan-600/10",
+                                "w-full sm:w-[calc(50%-5px)]",
                                 (settings.rgbSplitPolicy ?? 'off') !== 'off' ? "border-fuchsia-400/40 shadow-[0_0_18px_rgba(217,70,239,0.2)]" : "border-white/10")}>
                                 <div className="absolute -top-8 -right-8 w-24 h-24 bg-fuchsia-500/20 blur-[40px] pointer-events-none rounded-full" />
                                 <PreviewBubble
@@ -2133,10 +2137,11 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                     <SliderControl label="Intensity" icon={Palette} value={settings.rgbSplitAmount ?? 50}
                                         min={0} max={100} step={5} unit="%" onChange={(v) => update({ rgbSplitAmount: v })} />
                                 </EffectPolicyControl>
-                            </div>
+                            </motion.div>
 
                             {/* Hue Cycle */}
-                            <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-violet-600/10 via-white/5 to-green-600/10",
+                            <motion.div layout transition={{ layout: { duration: 0.3 } }} className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-violet-600/10 via-white/5 to-green-600/10",
+                                "w-full sm:w-[calc(50%-5px)]",
                                 (settings.hueCyclePolicy ?? 'off') !== 'off' ? "border-violet-400/40 shadow-[0_0_18px_rgba(139,92,246,0.2)]" : "border-white/10")}>
                                 <div className="absolute -top-8 -right-8 w-24 h-24 bg-violet-500/20 blur-[40px] pointer-events-none rounded-full" />
                                 <PreviewBubble
@@ -2158,11 +2163,11 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                     <SliderControl label="Speed" icon={Repeat} value={settings.hueCycleSpeed ?? 50}
                                         min={0} max={100} step={5} unit="%" onChange={(v) => update({ hueCycleSpeed: v })} />
                                 </EffectPolicyControl>
-                            </div>
+                            </motion.div>
 
                             {/* VHS / Retro */}
-                            <div className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-orange-600/10 via-white/5 to-purple-600/10 sm:col-span-2",
-                                (settings.vhsPolicy ?? 'off') !== 'off' ? "border-orange-400/40 shadow-[0_0_18px_rgba(249,115,22,0.2)]" : "border-white/10")}>
+                            <motion.div layout transition={{ layout: { duration: 0.3 } }} className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-orange-600/10 via-white/5 to-purple-600/10",
+                                (settings.vhsPolicy ?? 'off') !== 'off' ? "w-full border-orange-400/40 shadow-[0_0_18px_rgba(249,115,22,0.2)]" : "w-full sm:w-[calc(50%-5px)] border-white/10")}>
                                 <div className="absolute -top-8 -right-8 w-24 h-24 bg-orange-500/20 blur-[40px] pointer-events-none rounded-full" />
                                 <PreviewBubble
                                     preview={<VhsPreview />}
@@ -2183,11 +2188,11 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                                     <SliderControl label="Amount" icon={Video} value={settings.vhsAmount ?? 50}
                                         min={0} max={100} step={5} unit="%" onChange={(v) => update({ vhsAmount: v })} />
                                 </EffectPolicyControl>
-                            </div>
-                        </div>
+                            </motion.div>
+                        </motion.div>
                     </div>
 
-                    <SequencePresetPicker category="advanced" settings={settings} update={update} />
+
                 </CollapsibleSection>
 
                 {/* ═══════════════════════════ TRANSITIONS ═══════════════════════════ */}

@@ -45,7 +45,7 @@ function computeAutoGrade(yavg: number, satavg: number): any {
 // of 8+, which matters when this runs while the user is editing.
 const CONCURRENCY = 1;
 /** Bump when analysis logic changes so cached results are recomputed. */
-const ANALYSIS_VERSION = 2;
+const ANALYSIS_VERSION = 3;
 let activeAnalysisPromise: Promise<void> | null = null;
 
 /**
@@ -123,7 +123,7 @@ async function doSmartAnalysis(forceKey?: SmartKey): Promise<void> {
         smart.begin(key, total);
     }
 
-    console.log(`[SmartEngine] Starting analysis of ${total} clips (forceKey: ${forceKey || 'none'})`);
+    console.log(`[SmartEngine] Starting pass 1 analysis of ${total} clips (forceKey: ${forceKey || 'none'})`);
 
     const inProgressIds = new Set<string>();
 
@@ -254,6 +254,7 @@ async function doSmartAnalysis(forceKey?: SmartKey): Promise<void> {
                 analysisVersion: ANALYSIS_VERSION,
                 sourceSize,
                 sourceMtimeMs,
+                analysisPass: 1,
             };
             useTrailerSmartStore.getState().storeResult(f.id, finalResult);
         }
@@ -267,7 +268,96 @@ async function doSmartAnalysis(forceKey?: SmartKey): Promise<void> {
     }
     smart.setActive(false);
 
-    console.log(`[SmartEngine] Analysis complete — ${pendingVids.length} clips processed`);
+    console.log(`[SmartEngine] Pass 1 complete — ${pendingVids.length} clips processed`);
+
+    // ── Multi-pass: schedule a refinement pass after a delay ──
+    // Pass 2 runs the visual-match analysis (perceptual hashing, histograms,
+    // motion direction) and re-scans borderline clips for upgraded classification.
+    if (!forceKey) {
+        setTimeout(async () => {
+            try {
+                await runVisualMatchPass(allVids);
+            } catch (err) {
+                console.error('[SmartEngine] Pass 2 (visual-match) error:', err);
+            }
+        }, 5000);
+    }
+}
+
+// ── Pass 2: Visual-match analysis ────────────────────────────────────────────
+
+/**
+ * Runs the visual-match analysis pass on all clips.
+ * Extracts perceptual hashes for start/end frames, colour histograms,
+ * and dominant motion direction. Used for match-cut and seamless transitions.
+ * Runs at lower priority (sleep between clips) to avoid impacting editing.
+ */
+async function runVisualMatchPass(allVids: Array<{ id: string; path: string; filename: string; type: 'video' }>): Promise<void> {
+    const ipc = (window as any).ipcRenderer;
+    if (!ipc) return;
+
+    const smart = useTrailerSmartStore.getState();
+
+    // Only process clips that have completed pass 1 but not visual-match
+    const eligible = allVids.filter(v => {
+        const r = smart.getResult(v.id);
+        return r?.analyzed && !(r.completedPasses || []).includes('visual-match');
+    });
+
+    if (eligible.length === 0) return;
+
+    smart.begin('visual-match', eligible.length);
+    console.log(`[SmartEngine] Starting pass 2 (visual-match) for ${eligible.length} clips`);
+
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+    for (const f of eligible) {
+        // Check pause
+        while (useTrailerSmartStore.getState().isPaused) {
+            await sleep(500);
+        }
+
+        const existing = useTrailerSmartStore.getState().getResult(f.id);
+        if (!existing) continue;
+
+        let startFrameSignature: string | undefined;
+        let endFrameSignature: string | undefined;
+        let colorHistogram: number[] | undefined;
+        let dominantMotionDirection: number | undefined;
+
+        // Extract perceptual hashes for first and last frames
+        try {
+            const hashResult = await ipc.extractFrameHashes?.({ path: f.path });
+            if (hashResult?.success) {
+                startFrameSignature = hashResult.startHash;
+                endFrameSignature = hashResult.endHash;
+                colorHistogram = hashResult.histogram;
+                dominantMotionDirection = hashResult.motionDirection;
+            }
+        } catch {
+            // Frame extraction may fail for some formats — skip gracefully
+        }
+
+        // Update the existing result with visual-match data
+        const updatedPasses = [...(existing.completedPasses || []), 'visual-match' as SmartKey];
+        const updatedResult: ClipAnalysisResult = {
+            ...existing,
+            startFrameSignature,
+            endFrameSignature,
+            colorHistogram,
+            dominantMotionDirection,
+            completedPasses: updatedPasses,
+            analysisPass: 2,
+        };
+        useTrailerSmartStore.getState().storeResult(f.id, updatedResult);
+        smart.tick('visual-match');
+
+        // Lower-priority: sleep 200ms between clips to keep the UI responsive
+        await sleep(200);
+    }
+
+    smart.finish('visual-match');
+    console.log(`[SmartEngine] Pass 2 (visual-match) complete — ${eligible.length} clips processed`);
 }
 
 // ── React hook: auto-trigger ─────────────────────────────────────────────────

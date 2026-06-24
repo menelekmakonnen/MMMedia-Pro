@@ -22,6 +22,7 @@ export const TRANSITION_CATEGORIES: Record<string, { label: string; transitions:
     squeeze:     { label: 'Squeeze',     transitions: ['squeezeh', 'squeezev'] },
     blur:        { label: 'Blur',        transitions: ['hblur'] },
     impact:      { label: 'Impact',      transitions: ['flash', 'glitch', 'rgb-split', 'zoom-through', 'spin', 'film-burn', 'whip'] },
+    intelligent: { label: 'Intelligent', transitions: ['match-cut', 'seamless'] },
 };
 
 // ═══════════════════════════════════════════════════════
@@ -36,6 +37,7 @@ export const TRANSITION_CATEGORIES: Record<string, { label: string; transitions:
  */
 const CUSTOM_TRANSITIONS: ReadonlySet<TransitionType> = new Set([
     'flash', 'glitch', 'rgb-split', 'zoom-through', 'spin', 'film-burn', 'whip',
+    'match-cut', 'seamless',
 ]);
 
 /**
@@ -98,6 +100,10 @@ export const TRANSITION_META: Record<TransitionType, { label: string; icon: stri
     spin:         { label: 'Spin',            icon: '@',   isCustom: true, description: 'Rotational spin transition' },
     'film-burn':  { label: 'Film Burn',       icon: '***', isCustom: true, description: 'Analog film burn light leak' },
     whip:         { label: 'Whip',            icon: '->',  isCustom: true, description: 'Fast whip pan blur' },
+
+    // ── Intelligent (Smart Engine-driven) ──
+    'match-cut':  { label: 'Match Cut',       icon: '≈',   isCustom: true, description: 'Cuts at visually similar frames — matched by shape, colour, or composition' },
+    seamless:     { label: 'Seamless',        icon: '∞',   isCustom: true, description: 'Imperceptible transition — pattern, colour, and motion direction match so closely the cut is invisible' },
 };
 
 // ═══════════════════════════════════════════════════════
@@ -110,14 +116,14 @@ export const TRANSITION_META: Record<TransitionType, { label: string; icon: stri
  * higher-indexed entries are progressively more dramatic.
  */
 export const SEGMENT_TRANSITION_MAP: Record<SegmentType, TransitionType[]> = {
-    intro:     ['fade', 'dissolve'],
-    verse:     ['cut', 'dissolve', 'smoothleft'],
-    buildup:   ['wipeup', 'slideup', 'radial'],
+    intro:     ['fade', 'dissolve', 'seamless'],
+    verse:     ['cut', 'dissolve', 'smoothleft', 'match-cut', 'seamless'],
+    buildup:   ['wipeup', 'slideup', 'radial', 'match-cut'],
     drop:      ['flash', 'glitch', 'zoom-through', 'cut'],
-    chorus:    ['cut', 'slideleft', 'circleopen'],
-    breakdown: ['dissolve', 'fadeblack', 'hblur'],
-    bridge:    ['fade', 'diagtl', 'squeezeh'],
-    outro:     ['fadeblack', 'dissolve'],
+    chorus:    ['cut', 'slideleft', 'circleopen', 'match-cut'],
+    breakdown: ['dissolve', 'fadeblack', 'hblur', 'seamless'],
+    bridge:    ['fade', 'diagtl', 'squeezeh', 'seamless'],
+    outro:     ['fadeblack', 'dissolve', 'seamless'],
 };
 
 // ═══════════════════════════════════════════════════════
@@ -225,6 +231,9 @@ export const TRANSITION_XFADE_MAP: Record<TransitionType, string | null> = {
     spin: 'radial',            // rotational clock sweep
     'film-burn': 'fadewhite',  // burn-to-white
     whip: 'smoothleft',        // fast directional smear (whip pan)
+    // ── Intelligent (rendered as near-invisible cuts/dissolves) ──
+    'match-cut': null,          // match cuts are hard cuts placed at visually similar frames
+    seamless: 'dissolve',       // ultra-short dissolve disguised by visual similarity
 };
 
 /**
