@@ -15,6 +15,7 @@ import { generateMusicVideoSequence } from '../../lib/musicVideoBuild';
 import { useTrailerSmartStore } from '../../store/trailerSmartStore';
 import { reorderClips } from '../../lib/clipOrdering';
 import { validateEdit, autoRepairEdit, type PoolSource } from '../../lib/ege/generationContract';
+import { resolveSubcategories } from '../../lib/subcategoryResolver';
 import { useExportSettingsStore } from '../../store/exportSettingsStore';
 import type { QueuedEdit } from '../../store/exportSettingsStore';
 import { SmartEngineConfirmModal } from './SmartEngineConfirmModal';
@@ -288,6 +289,17 @@ export const EditRouter: React.FC = () => {
             if (!newSettings.seed) newSettings.seed = generateSeed();
         } else {
             newSettings.seed = generateSeed();
+        }
+
+        // ── Subcategory intelligence → concrete settings ─────────────────
+        // Translate the selected subcategories (e.g. "Meme Edit", "Product
+        // Trailer") into real TrailerSettings overrides so each one actually
+        // edits differently. Subcategory overrides win over incoming defaults;
+        // multiple active subcategories stack (later wins).
+        const subOverrides = resolveSubcategories(newSettings.generatorMode || activeMode, newSettings.activeSubcategories);
+        if (Object.keys(subOverrides).length > 0) {
+            newSettings = { ...newSettings, ...subOverrides };
+            console.log('[EditRouter] Subcategory overrides:', newSettings.activeSubcategories, '→', Object.keys(subOverrides).join(', '));
         }
         setSettings(newSettings);
 
