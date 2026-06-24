@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 
 export type SmartStatus = 'idle' | 'running' | 'done' | 'error';
 export interface FeatureProgress { status: SmartStatus; done: number; total: number; }
-export type SmartKey = 'scoring' | 'silence' | 'scenes' | 'color' | 'visual-match';
+export type SmartKey = 'scoring' | 'silence' | 'scenes' | 'color' | 'visual-match' | 'shot-type' | 'semantic';
 
 export interface ClipAnalysisResult {
     score: number;
@@ -25,6 +25,22 @@ export interface ClipAnalysisResult {
     dominantMotionDirection?: number; // dominant optical flow direction in degrees (0-360)
     /** Which analysis pass produced this result (1 = first, 2 = refinement). */
     analysisPass?: number;
+    /** Shot classification — from shotClassifier.ts */
+    shotType?: import('../lib/shotClassifier').ShotType;
+    shotTypeConfidence?: number;
+    cameraMovement?: import('../lib/shotClassifier').CameraMovement;
+    hasFaces?: boolean;
+    faceCount?: number;
+    edgeDensity?: number;
+    /** Semantic tagging — from semanticTagger.ts */
+    mood?: import('../lib/semanticTagger').MoodTag;
+    moodConfidence?: number;
+    setting?: import('../lib/semanticTagger').SettingTag;
+    timeOfDay?: import('../lib/semanticTagger').TimeOfDayTag;
+    pace?: import('../lib/semanticTagger').PaceTag;
+    dominantColor?: string;
+    colorTemperatureK?: number;
+    contentFlags?: import('../lib/semanticTagger').ContentFlag[];
 }
 
 interface TrailerSmartStore {
@@ -34,6 +50,8 @@ interface TrailerSmartStore {
     scenes: FeatureProgress;
     color: FeatureProgress;
     'visual-match': FeatureProgress;
+    'shot-type': FeatureProgress;
+    semantic: FeatureProgress;
     active: boolean;
     reset: () => void;
     setActive: (v: boolean) => void;
@@ -64,9 +82,9 @@ export const useTrailerSmartStore = create<TrailerSmartStore>()(
     persist(
         (set, get) => ({
             // ── Legacy ──
-            scoring: idle(), silence: idle(), scenes: idle(), color: idle(), 'visual-match': idle(), active: false,
+            scoring: idle(), silence: idle(), scenes: idle(), color: idle(), 'visual-match': idle(), 'shot-type': idle(), semantic: idle(), active: false,
             reset: () => set({
-                scoring: idle(), silence: idle(), scenes: idle(), color: idle(), 'visual-match': idle(), active: false,
+                scoring: idle(), silence: idle(), scenes: idle(), color: idle(), 'visual-match': idle(), 'shot-type': idle(), semantic: idle(), active: false,
             }),
             setActive: (active) => set({ active }),
             begin: (key, total) => set(() => ({ [key]: { status: 'running' as SmartStatus, done: 0, total } } as any)),

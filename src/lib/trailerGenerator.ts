@@ -193,6 +193,58 @@ export interface TrailerSettings {
     initialSourceUseCounts?: Record<string, number>;
     /** Last source in a preceding generation pass, to prevent a boundary repeat. */
     initialLastSourcePath?: string;
+
+    // ── Social Media Recipe System ───────────────────────────────────────
+    /** Active social media recipe ID(s). Recipes compose: later overrides earlier. */
+    recipeIds?: import('./socialMediaRecipes').RecipeId[];
+    /** Output aspect ratios for multi-format export. */
+    outputAspectRatios?: import('./socialMediaRecipes').AspectRatio[];
+    /** Reframing strategy when aspect ratio differs from source. */
+    reframingStrategy?: 'center-crop' | 'smart-pan' | 'ken-burns' | 'letterbox';
+
+    // ── Shot Classification & Scene Graph ────────────────────────────────
+    /** Shot type preference weights (0-100 per type). Higher = more likely selected. */
+    shotTypePreference?: Partial<Record<import('./shotClassifier').ShotType, number>>;
+    /** Enable intelligent shot diversity enforcement (no two same types adjacent). */
+    shotDiversityEnabled?: boolean;
+    /** Group related clips into scenes and treat them as atomic units. */
+    sceneGrouping?: boolean;
+    /** Performance vs B-roll interleaving ratio (0-100, where 100=all performance). */
+    performanceBRollRatio?: number;
+
+    // ── Semantic Tagging & Content Intelligence ──────────────────────────
+    /** Mood preference for clip selection (match these moods to song sections). */
+    moodPreference?: import('./semanticTagger').MoodTag[];
+    /** Setting filter: only use clips matching these settings. */
+    settingFilter?: import('./semanticTagger').SettingTag[];
+    /** Time-of-day filter. */
+    timeOfDayFilter?: import('./semanticTagger').TimeOfDayTag[];
+    /** Enable mood-to-segment matching (calm verse clips, energetic drop clips). */
+    moodMatchEnabled?: boolean;
+
+    // ── Caption / Text Overlay Engine ────────────────────────────────────
+    /** Caption style preset for auto-generated captions. */
+    captionStyle?: import('./captionStyles').CaptionStyleId;
+    /** Caption source: SRT file, VTT file, or lyric timestamps. */
+    captionSource?: 'srt' | 'vtt' | 'lyrics' | 'none';
+    /** Path to caption/subtitle file. */
+    captionFilePath?: string;
+    /** Title card configuration. */
+    titleCard?: { text: string; duration: number; style: import('./captionStyles').CaptionStyleId };
+    /** End card configuration. */
+    endCard?: { text: string; duration: number; style: import('./captionStyles').CaptionStyleId };
+
+    // ── Style DNA System ─────────────────────────────────────────────────
+    /** Active Style DNA to apply (extracted from a reference video). */
+    styleDNA?: import('./styleDNA').StyleDNA;
+    /** Whether to prioritise Style DNA settings over manual overrides. */
+    styleDNAPriority?: boolean;
+
+    // ── Edit Memory & Variant Engine ─────────────────────────────────────
+    /** Number of creative variants to generate (1 = default, 2-5 for comparison). */
+    variantCount?: number;
+    /** Variant dimensions to vary across generated options. */
+    variantAxes?: ('pacing' | 'transitions' | 'color' | 'energy' | 'structure')[];
 }
 
 export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
