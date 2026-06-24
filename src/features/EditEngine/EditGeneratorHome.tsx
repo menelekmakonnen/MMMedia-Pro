@@ -59,13 +59,25 @@ const ShortFilmIcon: React.FC<{ size?: number; className?: string; strokeWidth?:
     </svg>
 );
 
+/** Social Media icon — phone with play button and trending arrow */
+const SocialMediaIcon: React.FC<{ size?: number; className?: string; strokeWidth?: number }> = ({ size = 22, className }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={`${className ?? ''} gm-social`}>
+        <rect x="6" y="2" width="12" height="20" rx="2" stroke="currentColor" strokeWidth="1.5" />
+        <polygon points="10,9 10,15 15,12" fill="currentColor" opacity="0.7" />
+        <path d="M14 18h2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.5" />
+        <path d="M17 6l2-2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
+        <path d="M19 4l0 2.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.4" />
+        <path d="M19 4l-2.5 0" stroke="currentColor" strokeWidth="1" strokeLinecap="round" opacity="0.4" />
+    </svg>
+);
+
 // ══════════════════════════════════════════════════════════════════════════════
 // EditGeneratorHome — the entry screen of the Edit Generator Engine.
 // The user picks ONE editing style; the engine then adapts the wizard, options,
 // and generation pipeline to that project type. Complexity rises 1→5.
 // ══════════════════════════════════════════════════════════════════════════════
 
-export type EditType = 'trailer' | 'music-video' | 'showreel' | 'video-essay' | 'short-film';
+export type EditType = 'trailer' | 'music-video' | 'showreel' | 'video-essay' | 'short-film' | 'social-media';
 
 export interface EditTypeDef {
     id: EditType;
@@ -135,6 +147,17 @@ export const EDIT_TYPES: EditTypeDef[] = [
         complexity: 5,
         driver: 'Script + dialogue',
     },
+    {
+        id: 'social-media',
+        label: 'Social Media',
+        tagline: 'Viral-ready formats',
+        description: 'Optimized cuts for TikTok, Reels, Shorts, and Stories. Vertical-first, attention-grabbing hooks, trending edit styles.',
+        icon: SocialMediaIcon,
+        accent: 'text-pink-400',
+        glow: 'rgba(244,114,182,0.35)',
+        complexity: 2,
+        driver: 'Platform + trend style',
+    },
 ];
 
 interface EditGeneratorHomeProps {
@@ -168,6 +191,8 @@ export const EditGeneratorHome: React.FC<EditGeneratorHomeProps> = ({ onSelect, 
             .group:hover .gm-reel { animation: gm-spin 2s linear infinite; }
             .group:hover .gm-essay { animation: gm-write 1s ease-in-out infinite; }
             .group:hover .gm-clap { animation: gm-snap 0.5s ease-in-out infinite; }
+            @keyframes gm-viral { 0%,100%{transform:scale(1)} 25%{transform:scale(1.1) rotate(3deg)} 75%{transform:scale(0.95) rotate(-3deg)} }
+            .group:hover .gm-social { animation: gm-viral 0.8s ease-in-out infinite; }
         `}</style>
         <div className="h-full w-full overflow-y-auto p-8">
             <div className="max-w-5xl mx-auto">

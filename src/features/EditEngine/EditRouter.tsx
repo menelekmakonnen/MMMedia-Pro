@@ -246,7 +246,7 @@ export const EditRouter: React.FC = () => {
 
         if (isExporting) {
             // ── QUEUE MODE: Don't touch the active timeline during render ──
-            const modeLabel = { 'trailer': 'Trailer', 'music-video': 'Music Video', 'showreel': 'Showreel', 'video-essay': 'Video Essay', 'short-film': 'Short Film' }[activeMode] || 'Edit';
+            const modeLabel = { 'trailer': 'Trailer', 'music-video': 'Music Video', 'showreel': 'Showreel', 'video-essay': 'Video Essay', 'short-film': 'Short Film', 'social-media': 'Social Media' }[activeMode] || 'Edit';
             const edit: QueuedEdit = {
                 id: crypto.randomUUID?.() || `q-${Date.now()}`,
                 clips,
@@ -494,41 +494,17 @@ export const EditRouter: React.FC = () => {
 
     return (
         <div className="w-full h-full bg-[#050505] flex flex-col">
-            {/* ── Compact mode switcher (replaces the old full-page landing) ── */}
-            {inWizard && (
-                <div className="flex items-center gap-1.5 px-4 py-2 border-b border-white/5 bg-[#0a0a15]/60 backdrop-blur-sm flex-shrink-0 overflow-x-auto">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-white/25 mr-1 flex-shrink-0">Edit Generator</span>
-                    {EDIT_TYPES.map((t) => {
-                        const Icon = t.icon;
-                        const active = activeMode === t.id;
-                        return (
-                            <button
-                                key={t.id}
-                                onClick={() => handleModeSelect(t.id)}
-                                title={t.description}
-                                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors flex-shrink-0 ${active ? `bg-white/10 ${t.accent}` : 'text-white/40 hover:text-white/70 hover:bg-white/5'}`}
-                            >
-                                <Icon size={13} />
-                                {t.label}
-                            </button>
-                        );
-                    })}
-                </div>
-            )}
+            {/* Mode is now selected via the unified GENERATOR MODE buttons inside the wizard */}
 
             <div className="flex-1 min-h-0">
                 {inWizard ? (
-                    /* ── WIZARD: Route to mode-specific wizard ──────────── */
-                    activeMode === 'showreel' ? (
-                        <ShowreelWizard onGenerate={handleShowreelGenerate} />
-                    ) : activeMode === 'video-essay' ? (
-                        <VideoEssayWizard onGenerate={handleVideoEssayGenerate} />
-                    ) : activeMode === 'short-film' ? (
-                        <ShortFilmDashboard onAssemblyCut={handleShortFilmGenerate} />
-                    ) : (
-                        /* trailer + music-video share the same wizard */
-                        <EditWizard onGenerate={handleGenerate} />
-                    )
+                    /* All modes now use the unified EditWizard — mode-specific
+                       options are shown/hidden based on generatorMode inside it. */
+                    <EditWizard
+                        onGenerate={handleGenerate}
+                        onModeChange={(mode) => handleModeSelect(mode as EditType)}
+                        activeMode={activeMode}
+                    />
                 ) : (
                     /* ── PLAYER: Generated timeline ─────────────────────── */
                     <EditPlayer

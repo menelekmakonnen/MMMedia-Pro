@@ -260,15 +260,24 @@ const SequencePresetPicker: React.FC<{
 
 interface WizardProps {
     onGenerate: (settings: TrailerSettings) => void;
+    onModeChange?: (mode: string) => void;
+    activeMode?: string;
 }
 
-export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
+export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, activeMode }) => {
     const { files, orientationFilter, setOrientationFilter, selectedFileIds, preloadedAudioPath, preloadedAudioName, setPreloadedAudio } = useMediaStore();
     const isExporting = useExportSettingsStore(s => s.isExporting);
 
     const audioCache = useAudioAnalysisCache();
 
     const narrationStore = useNarrationStore();
+
+    // Sync activeMode from router with local generator mode
+    useEffect(() => {
+        if (activeMode && activeMode !== settings.generatorMode) {
+            update({ generatorMode: activeMode as any });
+        }
+    }, [activeMode]);
     const [mergeStrategy, setMergeStrategy] = useState<MergeStrategy>('balanced');
 
 
@@ -980,24 +989,26 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate }) => {
                 </div>
 
                 {/* ── Generator Mode (top selector) ── */}
-                <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-purple-600/15 via-black/30 to-blue-600/15 p-5 shadow-[0_0_30px_rgba(124,58,237,0.15)]">
+                <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-purple-600/15 via-black/30 to-blue-600/15 p-4 shadow-[0_0_30px_rgba(124,58,237,0.15)] @container">
                     <div className="absolute -top-10 -right-10 w-40 h-40 bg-purple-500/20 blur-[60px] pointer-events-none rounded-full" />
                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Generator Mode</span>
-                    <div className="flex flex-wrap gap-2 mt-2">
+                    <div className="flex flex-nowrap gap-1.5 mt-2 overflow-x-auto">
                         {([
                             { m: 'trailer' as const, label: 'Trailer', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="2" y="4" width="20" height="16" rx="2" stroke="currentColor" strokeWidth="1.5"/><line x1="7" y1="4" x2="7" y2="20" stroke="currentColor" strokeWidth="1" opacity="0.5"/><line x1="12" y1="4" x2="12" y2="20" stroke="currentColor" strokeWidth="1.5"/><line x1="17" y1="4" x2="17" y2="20" stroke="currentColor" strokeWidth="1" opacity="0.5"/><polygon points="10,9 10,15 14,12" fill="currentColor" opacity="0.7"/></svg> },
                             { m: 'music-video' as const, label: 'Music Video', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M3 12h2l2-4 2 8 2-6 2 4 2-2h2l2-3 2 6h1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><circle cx="18" cy="16" r="2" stroke="currentColor" strokeWidth="1.5"/><line x1="20" y1="8" x2="20" y2="16" stroke="currentColor" strokeWidth="1.5"/></svg> },
                             { m: 'showreel' as const, label: 'Showreel', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5"/><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.5"/><line x1="12" y1="3" x2="12" y2="9" stroke="currentColor" strokeWidth="1" opacity="0.4"/><line x1="12" y1="15" x2="12" y2="21" stroke="currentColor" strokeWidth="1" opacity="0.4"/><line x1="3" y1="12" x2="9" y2="12" stroke="currentColor" strokeWidth="1" opacity="0.4"/><line x1="15" y1="12" x2="21" y2="12" stroke="currentColor" strokeWidth="1" opacity="0.4"/></svg> },
                             { m: 'video-essay' as const, label: 'Video Essay', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 19V5a2 2 0 012-2h8l6 6v10a2 2 0 01-2 2H6a2 2 0 01-2-2z" stroke="currentColor" strokeWidth="1.5"/><path d="M14 3v6h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="8" y1="13" x2="16" y2="13" stroke="currentColor" strokeWidth="1" opacity="0.5"/><line x1="8" y1="16" x2="13" y2="16" stroke="currentColor" strokeWidth="1" opacity="0.5"/></svg> },
                             { m: 'short-film' as const, label: 'Short Film', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="3" y="8" width="18" height="13" rx="1" stroke="currentColor" strokeWidth="1.5"/><path d="M3 8l3-5h12l3 5" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><line x1="7" y1="3" x2="9" y2="8" stroke="currentColor" strokeWidth="1" opacity="0.5"/><line x1="12" y1="3" x2="13" y2="8" stroke="currentColor" strokeWidth="1" opacity="0.5"/><line x1="17" y1="3" x2="17" y2="8" stroke="currentColor" strokeWidth="1" opacity="0.5"/></svg> },
+                            { m: 'social-media' as const, label: 'Social Media', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="6" y="2" width="12" height="20" rx="2" stroke="currentColor" strokeWidth="1.5"/><polygon points="10,9 10,15 15,12" fill="currentColor" opacity="0.7"/><path d="M17 6l2-2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.6"/></svg> },
                         ]).map(({ m, label, icon }) => (
-                            <button key={m} onClick={() => update({ generatorMode: m })}
-                                className={clsx("px-4 py-3 rounded-xl text-xs font-black uppercase tracking-wider border transition-all flex items-center gap-2",
+                            <button key={m} onClick={() => { update({ generatorMode: m }); onModeChange?.(m); }}
+                                title={label}
+                                className={clsx("px-3 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider border transition-all flex items-center gap-1.5 shrink-0 whitespace-nowrap",
                                     (settings.generatorMode ?? 'trailer') === m
                                         ? "bg-gradient-to-br from-purple-600/40 to-blue-600/40 border-primary/50 text-white shadow-[0_0_18px_rgba(168,85,247,0.35)]"
                                         : "bg-white/5 border-white/10 text-white/40 hover:bg-white/10")}>
                                 <span className="shrink-0 opacity-80">{icon}</span>
-                                {label}
+                                <span className="hidden min-[900px]:inline">{label}</span>
                             </button>
                         ))}
                     </div>

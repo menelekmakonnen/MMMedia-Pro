@@ -56,7 +56,7 @@ export interface TrailerSettings {
     beatPattern: 'auto' | 'every' | 'half' | 'quarter' | 'drops' | 'risers-drops' | 'downbeats' | 'custom';
 
     // ── Generator mode (Trailer vs Music Video) ──
-    generatorMode?: 'trailer' | 'music-video' | 'showreel' | 'video-essay' | 'short-film';
+    generatorMode?: 'trailer' | 'music-video' | 'showreel' | 'video-essay' | 'short-film' | 'social-media';
     mvBeatAnchor?: 'downbeat' | 'beat';
     mvIntroEnabled?: boolean;
     mvOutroEnabled?: boolean;
