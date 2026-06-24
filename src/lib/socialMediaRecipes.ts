@@ -13,6 +13,14 @@ import type { TrailerSettings } from './trailerGenerator';
 import type { CaptionStyleId } from './captionStyles';
 import type { TransitionType, EffectApplyPolicy, SpeedCurvePreset, ShakeType, ShakePolicy } from '../types';
 
+// LAYER RELATIONSHIP: This module provides CONTENT-GENRE recipes (velocity-edit,
+// phonk-edit, etc.) that flatten to Partial<TrailerSettings>. The deeper EGE
+// recipe layer (ege/styleRecipes.ts) provides OUTPUT-TYPE recipes (trailer,
+// music-video, showreel, social-hook, etc.) with richer sub-shapes (pacing
+// curves, transition palettes, color moods). Both layers compose: an EGE recipe
+// sets the structural foundation, then a social media recipe applies genre
+// flavour on top.
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type AspectRatio = '16:9' | '9:16' | '1:1' | '4:5' | '4:3' | '21:9';

@@ -14,6 +14,7 @@ import { useEditSettingsStore } from '../../store/editSettingsStore';
 import { generateMusicVideoSequence } from '../../lib/musicVideoBuild';
 import { useTrailerSmartStore } from '../../store/trailerSmartStore';
 import { reorderClips } from '../../lib/clipOrdering';
+import { validateEdit, autoRepairEdit, type PoolSource } from '../../lib/ege/generationContract';
 import { useExportSettingsStore } from '../../store/exportSettingsStore';
 import type { QueuedEdit } from '../../store/exportSettingsStore';
 import { SmartEngineConfirmModal } from './SmartEngineConfirmModal';
@@ -200,8 +201,47 @@ export const EditRouter: React.FC = () => {
     // CLIP COMMIT — pushes generated clips to the timeline store
     // ═════════════════════════════════════════════════════════════════════════
 
+    // ── Generation contract: the EGE reliability backbone ────────────────────
+    // Every generated edit passes through here before it reaches the timeline.
+    // It validates structural invariants (contiguity, slot length, trim bounds,
+    // over-reuse) and non-destructively repairs violations. A valid edit passes
+    // through untouched. Wrapped in try/catch so a contract issue can NEVER block
+    // a generation — worst case it commits the un-repaired clips.
+    const runGenerationContract = (clips: any[], pool?: any[]): any[] => {
+        try {
+            const projFps = useProjectStore.getState().settings.fps || 30;
+            const mainTrack = 0;
+            const videoClips = clips.filter((c: any) => c.track === mainTrack);
+            if (videoClips.length === 0) return clips;
+            // Target = the generator's own total, so the contract never fights the
+            // chosen length — it only fixes internal violations (starved slots,
+            // out-of-source trims, over-reuse, overlaps/gaps).
+            const targetFrames = Math.max(...videoClips.map((c: any) => c.endFrame));
+            const poolSources: PoolSource[] | undefined = pool?.map((f: any) => ({
+                id: f.id,
+                sourceDurationFrames: Math.max(1, Math.round((f.duration || 0) * projFps)),
+                mediaLibraryId: f.id,
+                path: f.path,
+                filename: f.filename,
+            }));
+            const opts = { targetFrames, mainTrack, pool: poolSources, fps: projFps };
+            const report = validateEdit(clips as any, opts);
+            if (report.valid) {
+                console.log('[EditRouter] Generation contract OK', report.metrics);
+                return clips;
+            }
+            const fixed = autoRepairEdit(clips as any, opts);
+            console.warn('[EditRouter] Generation contract repaired:', report.violations.map((v: any) => v.kind).join(', '), '→ repaired:', fixed.repaired);
+            return fixed.clips as any;
+        } catch (e) {
+            console.error('[EditRouter] Generation contract error (committing as-is):', e);
+            return clips;
+        }
+    };
+
     /** Commit clips: preserve manually-imported audio, replace auto audio. */
-    const commitClips = (clips: any[]) => {
+    const commitClips = (clips: any[], pool?: any[]) => {
+        clips = runGenerationContract(clips, pool);
         const isExporting = useExportSettingsStore.getState().isExporting;
 
         if (isExporting) {
@@ -329,7 +369,7 @@ export const EditRouter: React.FC = () => {
             console.log('[EditRouter] Clip-order mode:', newSettings.clipOrderMode, newSettings.sequentialBy);
         }
 
-        commitClips(clips);
+        commitClips(clips, workingPool);
     };
 
     // ═════════════════════════════════════════════════════════════════════════

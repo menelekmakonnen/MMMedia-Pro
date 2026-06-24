@@ -8,6 +8,10 @@
  * Deeply connected to: textEngine.ts (consumer), filterBuilder.ts (FFmpeg drawtext rendering)
  */
 
+// COMPANION: ../social/kineticCaptions.ts handles word-level TIMING (active
+// windows, event grouping, line wrapping). This module defines VISUAL STYLING
+// (fonts, colours, animations, positions). Together they form the full pipeline.
+
 // ── Caption Style Types ──────────────────────────────────────────────────────
 
 export type CaptionStyleId =
