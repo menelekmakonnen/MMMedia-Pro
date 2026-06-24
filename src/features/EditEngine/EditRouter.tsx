@@ -329,6 +329,18 @@ export const EditRouter: React.FC = () => {
             newSettings = { ...newSettings, ...subOverrides };
             console.log('[EditRouter] Subcategory overrides:', newSettings.activeSubcategories, '→', Object.keys(subOverrides).join(', '));
         }
+
+        // ── Aspect intent → real export orientation ──────────────────────
+        // Social subcategories declare outputAspectRatios (e.g. ['9:16']). Map the
+        // primary aspect onto the export orientation so the rendered output is
+        // actually vertical/square, not just a setting nobody reads.
+        const aspects = newSettings.outputAspectRatios;
+        if (aspects && aspects.length) {
+            const a = aspects[0];
+            const orientation = (a === '9:16' || a === '4:5') ? 'portrait' : a === '1:1' ? 'square' : 'landscape';
+            useExportSettingsStore.getState().setOrientation(orientation as any);
+            console.log('[EditRouter] Output aspect', a, '→ export orientation', orientation);
+        }
         setSettings(newSettings);
 
         // Ask how Smart Engine should participate before beat extraction or any
