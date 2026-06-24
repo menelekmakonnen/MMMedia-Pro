@@ -259,6 +259,20 @@ export interface Clip {
         blend: number;      // 0.0-1.0
     };
 
+    // ── Compositing transform (for PiP, Split Screen, multi-track compositing) ──
+    /** Scale 0-100 as percentage of frame (100 = full frame). Defaults to 100. */
+    compositeScale?: number;
+    /** X position as percentage of frame (-50 to 150). 50 = centered. */
+    compositeX?: number;
+    /** Y position as percentage of frame (-50 to 150). 50 = centered. */
+    compositeY?: number;
+    /** Composite opacity 0-100. Defaults to 100. */
+    compositeOpacity?: number;
+    /** Border radius for the composited clip in px. */
+    compositeBorderRadius?: number;
+    /** Whether this clip should render as an overlay on top of lower tracks. */
+    compositeOverlay?: boolean;
+
     // Video stabilization
     stabilize?: {
         enabled: boolean;

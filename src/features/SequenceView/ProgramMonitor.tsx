@@ -10,6 +10,8 @@ import { formatTimecode } from '../../lib/time';
 
 interface ProgramMonitorProps {
     activeVisualClip: Clip | null;
+    /** All visual clips at the current playhead across all tracks (ordered bottom-to-top) */
+    activeVisualClips: Clip[];
     currentGlobalFrame: number;
     isPlaying: boolean;
     onPlayPause: () => void;
@@ -43,6 +45,7 @@ interface ProgramMonitorProps {
 
 export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
     activeVisualClip,
+    activeVisualClips,
     currentGlobalFrame,
     isPlaying,
     onPlayPause,
@@ -128,46 +131,135 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                         volumeBarTimeoutRef.current = setTimeout(() => setShowVolumeBar(false), 1500);
                     }}
                 >
-                    {isGrid && activeVisualClip ? (
-                        <GridPlayer
-                            grid={activeVisualClip as GridClip}
-                            currentFrame={Math.floor((currentGlobalFrame - activeVisualClip.startFrame) * activeVisualClip.speed) + (activeVisualClip.trimStartFrame || 0)}
-                            isPlaying={isPlaying}
-                            onFrameChange={() => {}}
-                        />
-                    ) : activeVisualClip?.type === 'video' ? (
-                        <>
-                            <video
-                                ref={videoARef}
-                                src={activeVisualClip ? `file://${activeVisualClip.path}` : ''}
-                                className={clsx(
-                                    `absolute inset-0 w-full h-full ${seqObjectFit} transition-none`,
-                                    isActA ? 'z-20 opacity-100' : 'z-0 opacity-0'
-                                )}
-                                style={{
-                                    transform: `scale(${currentZoom / 100}) ${isActA ? transitionStyle.transform : ''}`,
-                                    transformOrigin: activeVisualClip?.zoomOrigin || 'center',
-                                    opacity: isActA ? transitionStyle.opacity : 0,
-                                }}
-                                playsInline
-                                muted={isMasterMuted || (trackMutes[2] ?? false)}
-                            />
-                            <video
-                                ref={videoBRef}
-                                src={activeVisualClip ? `file://${activeVisualClip.path}` : ''}
-                                className={clsx(
-                                    `absolute inset-0 w-full h-full ${seqObjectFit} transition-none`,
-                                    !isActA ? 'z-20 opacity-100' : 'z-0 opacity-0'
-                                )}
-                                style={{
-                                    transform: `scale(${currentZoom / 100}) ${!isActA ? transitionStyle.transform : ''}`,
-                                    transformOrigin: activeVisualClip?.zoomOrigin || 'center',
-                                    opacity: !isActA ? transitionStyle.opacity : 0,
-                                }}
-                                playsInline
-                                muted={isMasterMuted || (trackMutes[2] ?? false)}
-                            />
-                        </>
+                    {/* Multi-track clip compositor */}
+                    {activeVisualClips.length > 0 ? (
+                        activeVisualClips.map((clip, idx) => {
+                            const isTopClip = idx === activeVisualClips.length - 1;
+                            const hasComposite = clip.compositeOverlay && clip.compositeScale !== undefined;
+
+                            // Compositing transform
+                            const scale = (clip.compositeScale ?? 100) / 100;
+                            const x = clip.compositeX ?? 50; // percentage
+                            const y = clip.compositeY ?? 50;
+                            const opacity = (clip.compositeOpacity ?? 100) / 100;
+                            const borderRadius = clip.compositeBorderRadius ?? 0;
+
+                            // Calculate clip-local zoom
+                            const clipLocalFrame = currentGlobalFrame - clip.startFrame;
+                            const clipTotalFrames = Math.max(1, clip.endFrame - clip.startFrame);
+                            const clipProgress = clipLocalFrame / clipTotalFrames;
+                            const clipZoom = clip.zoomStart !== undefined && clip.zoomEnd !== undefined
+                                ? clip.zoomStart + (clipProgress * (clip.zoomEnd - clip.zoomStart))
+                                : (clip.zoomLevel || 100);
+
+                            if (clip.type === 'grid') {
+                                return (
+                                    <div
+                                        key={clip.id}
+                                        className="absolute inset-0"
+                                        style={hasComposite ? {
+                                            width: `${scale * 100}%`,
+                                            height: `${scale * 100}%`,
+                                            left: `${x - (scale * 50)}%`,
+                                            top: `${y - (scale * 50)}%`,
+                                            position: 'absolute',
+                                            opacity,
+                                            borderRadius,
+                                            overflow: 'hidden',
+                                            zIndex: idx + 1,
+                                            boxShadow: hasComposite ? '0 2px 12px rgba(0,0,0,0.6)' : undefined,
+                                        } : { position: 'absolute', inset: 0, zIndex: idx + 1 }}
+                                    >
+                                        <GridPlayer
+                                            grid={clip as GridClip}
+                                            currentFrame={Math.floor(clipLocalFrame * clip.speed) + (clip.trimStartFrame || 0)}
+                                            isPlaying={isPlaying}
+                                            onFrameChange={() => {}}
+                                        />
+                                    </div>
+                                );
+                            }
+
+                            if (clip.type === 'video') {
+                                // For the topmost (or only) clip, use the double-buffered engine
+                                if (isTopClip && !hasComposite) {
+                                    return (
+                                        <React.Fragment key={clip.id}>
+                                            <video
+                                                ref={videoARef}
+                                                src={`file://${clip.path}`}
+                                                className={clsx(
+                                                    `absolute inset-0 w-full h-full ${seqObjectFit} transition-none`,
+                                                    isActA ? 'z-20 opacity-100' : 'z-0 opacity-0'
+                                                )}
+                                                style={{
+                                                    transform: `scale(${clipZoom / 100}) ${isActA ? transitionStyle.transform : ''}`,
+                                                    transformOrigin: clip.zoomOrigin || 'center',
+                                                    opacity: isActA ? transitionStyle.opacity : 0,
+                                                    zIndex: idx + 20,
+                                                }}
+                                                playsInline
+                                                muted={isMasterMuted || (trackMutes[clip.track] ?? false)}
+                                            />
+                                            <video
+                                                ref={videoBRef}
+                                                src={`file://${clip.path}`}
+                                                className={clsx(
+                                                    `absolute inset-0 w-full h-full ${seqObjectFit} transition-none`,
+                                                    !isActA ? 'z-20 opacity-100' : 'z-0 opacity-0'
+                                                )}
+                                                style={{
+                                                    transform: `scale(${clipZoom / 100}) ${!isActA ? transitionStyle.transform : ''}`,
+                                                    transformOrigin: clip.zoomOrigin || 'center',
+                                                    opacity: !isActA ? transitionStyle.opacity : 0,
+                                                    zIndex: idx + 20,
+                                                }}
+                                                playsInline
+                                                muted={isMasterMuted || (trackMutes[clip.track] ?? false)}
+                                            />
+                                        </React.Fragment>
+                                    );
+                                }
+
+                                // Composite clips (PiP, split screen, etc.)
+                                return (
+                                    <div
+                                        key={clip.id}
+                                        className="absolute"
+                                        style={hasComposite ? {
+                                            width: `${scale * 100}%`,
+                                            height: `${scale * 100}%`,
+                                            left: `${x - (scale * 50)}%`,
+                                            top: `${y - (scale * 50)}%`,
+                                            opacity,
+                                            borderRadius,
+                                            overflow: 'hidden',
+                                            zIndex: idx + 10,
+                                            boxShadow: '0 2px 12px rgba(0,0,0,0.6)',
+                                            border: '1px solid rgba(255,255,255,0.08)',
+                                        } : {
+                                            position: 'absolute',
+                                            inset: 0,
+                                            zIndex: idx + 1,
+                                        }}
+                                    >
+                                        <video
+                                            src={`file://${clip.path}`}
+                                            className={`w-full h-full ${seqObjectFit}`}
+                                            style={{
+                                                transform: `scale(${clipZoom / 100})`,
+                                                transformOrigin: clip.zoomOrigin || 'center',
+                                            }}
+                                            playsInline
+                                            muted={isMasterMuted || (trackMutes[clip.track] ?? false)}
+                                            autoPlay={isPlaying}
+                                        />
+                                    </div>
+                                );
+                            }
+
+                            return null;
+                        })
                     ) : (
                         <div className="flex flex-col items-center gap-2">
                             <div className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center">

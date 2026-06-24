@@ -433,6 +433,22 @@ export const SequenceViewTab: React.FC = () => {
         return null;
     }, [tracks, currentGlobalFrame]);
 
+    // All visual clips at the current playhead (for multi-track compositing: PiP, split screen, etc.)
+    const activeVisualClips = React.useMemo(() => {
+        const videoTracks = tracks.filter(t => !t.isAudio);
+        // Sort tracks bottom-to-top (V1 first, V2 next, etc.) for correct compositing order
+        videoTracks.sort((a, b) => a.id - b.id);
+        const result: Clip[] = [];
+        for (const track of videoTracks) {
+            for (const clip of track.clips) {
+                if (!clip.disabled && currentGlobalFrame >= clip.startFrame && currentGlobalFrame < clip.endFrame) {
+                    result.push(clip);
+                }
+            }
+        }
+        return result;
+    }, [tracks, currentGlobalFrame]);
+
     // Compute max frame of the entire sequence
     const maxFrameId = React.useMemo(() => {
         const allClips = tracks.flatMap(t => t.clips).filter(c => !c.disabled);
@@ -789,6 +805,7 @@ export const SequenceViewTab: React.FC = () => {
                 {/* Program Monitor */}
                 <ProgramMonitor
                     activeVisualClip={activeVisualClip as any}
+                    activeVisualClips={activeVisualClips}
                     currentGlobalFrame={currentGlobalFrame}
                     isPlaying={isPlaying}
                     onPlayPause={handlePlayPause}

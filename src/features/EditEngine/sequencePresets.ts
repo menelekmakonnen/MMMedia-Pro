@@ -57,8 +57,21 @@ const multiTrackSplit: SequencePreset = {
     category: 'structure',
     apply: (clips, fps) => {
         const out = cloneClips(clips);
+        let cursorV1 = 0;
+        let cursorV2 = 0;
         out.forEach((c, i) => {
-            c.track = i % 2 === 0 ? TRACK.V1 : TRACK.V2;
+            const dur = clipDuration(c);
+            if (i % 2 === 0) {
+                c.track = TRACK.V1;
+                c.startFrame = cursorV1;
+                c.endFrame = cursorV1 + dur;
+                cursorV1 += dur;
+            } else {
+                c.track = TRACK.V2;
+                c.startFrame = cursorV2;
+                c.endFrame = cursorV2 + dur;
+                cursorV2 += dur;
+            }
         });
         return { clips: out, videoTrackCount: 2, audioTrackCount: 2 };
     },
@@ -75,17 +88,22 @@ const abRoll: SequencePreset = {
         const overlapFrames = Math.round(fps); // 1 second overlap
         let cursor = 0;
         out.forEach((c, i) => {
-            c.track = i % 2 === 0 ? TRACK.V1 : TRACK.V2;
             const dur = clipDuration(c);
+            c.track = i % 2 === 0 ? TRACK.V1 : TRACK.V2;
             if (i === 0) {
                 c.startFrame = 0;
                 c.endFrame = dur;
                 cursor = dur;
             } else {
+                // Overlap with previous clip for dissolve
                 c.startFrame = Math.max(0, cursor - overlapFrames);
                 c.endFrame = c.startFrame + dur;
                 cursor = c.endFrame;
                 c.transition = { type: 'dissolve' as TransitionType, durationFrames: overlapFrames, params: {} };
+            }
+            // Both tracks visible — V2 clips appear as overlaid B-roll during overlap
+            if (c.track === TRACK.V2) {
+                c.compositeOverlay = true;
             }
         });
         return { clips: out, videoTrackCount: 2, audioTrackCount: 2 };
@@ -100,13 +118,41 @@ const splitScreenDual: SequencePreset = {
     category: 'structure',
     apply: (clips, fps) => {
         const out = cloneClips(clips);
-        const half = Math.ceil(out.length / 2);
-        out.forEach((c, i) => {
-            c.track = i < half ? TRACK.V1 : TRACK.V2;
-            // Scale and position: left half or right half
-            c.zoomLevel = 200; // 2× zoom so we can pan left/right
-            c.zoomOrigin = i < half ? 'left' : 'right';
-        });
+        // Pair clips: first goes left (V1), second goes right (V2), etc.
+        // Both clips in a pair play at the same time
+        const pairs = Math.ceil(out.length / 2);
+        let cursor = 0;
+        for (let p = 0; p < pairs; p++) {
+            const leftIdx = p * 2;
+            const rightIdx = p * 2 + 1;
+            const leftClip = out[leftIdx];
+            const rightClip = rightIdx < out.length ? out[rightIdx] : null;
+
+            const leftDur = clipDuration(leftClip);
+            const rightDur = rightClip ? clipDuration(rightClip) : 0;
+            const pairDur = Math.max(leftDur, rightDur);
+
+            // Left half
+            leftClip.track = TRACK.V1;
+            leftClip.startFrame = cursor;
+            leftClip.endFrame = cursor + pairDur;
+            leftClip.compositeScale = 50;
+            leftClip.compositeX = 25;  // Centered in left half
+            leftClip.compositeY = 50;
+            leftClip.compositeOverlay = true;
+
+            // Right half
+            if (rightClip) {
+                rightClip.track = TRACK.V2;
+                rightClip.startFrame = cursor;
+                rightClip.endFrame = cursor + pairDur;
+                rightClip.compositeScale = 50;
+                rightClip.compositeX = 75;  // Centered in right half
+                rightClip.compositeY = 50;
+                rightClip.compositeOverlay = true;
+            }
+            cursor += pairDur;
+        }
         return { clips: out, videoTrackCount: 2, audioTrackCount: 1 };
     },
 };
@@ -119,13 +165,34 @@ const pictureInPicture: SequencePreset = {
     category: 'structure',
     apply: (clips, fps) => {
         const out = cloneClips(clips);
+        // Separate main and PiP clips
+        let mainCursor = 0;
         out.forEach((c, i) => {
+            const dur = clipDuration(c);
             if (i % 3 === 2) {
+                // PiP overlay — small in bottom-right corner, overlaying the previous clip
                 c.track = TRACK.V2;
-                c.zoomLevel = 40;  // 40% size
-                c.zoomOrigin = 'right';
+                c.compositeScale = 30;          // 30% of frame
+                c.compositeX = 82;              // Bottom-right area
+                c.compositeY = 78;
+                c.compositeBorderRadius = 8;
+                c.compositeOpacity = 95;
+                c.compositeOverlay = true;
+                // Time-align with the previous main clip
+                const prevClip = out[i - 1];
+                if (prevClip) {
+                    c.startFrame = prevClip.startFrame;
+                    c.endFrame = Math.min(prevClip.endFrame, prevClip.startFrame + dur);
+                } else {
+                    c.startFrame = mainCursor;
+                    c.endFrame = mainCursor + dur;
+                }
             } else {
+                // Main footage — full frame
                 c.track = TRACK.V1;
+                c.startFrame = mainCursor;
+                c.endFrame = mainCursor + dur;
+                mainCursor = c.endFrame;
             }
         });
         return { clips: out, videoTrackCount: 2, audioTrackCount: 2 };
@@ -140,8 +207,15 @@ const tripleLayer: SequencePreset = {
     category: 'structure',
     apply: (clips, fps) => {
         const out = cloneClips(clips);
+        const cursors = [0, 0, 0]; // V1, V2, V3
+        const trackIds = [TRACK.V1, TRACK.V2, TRACK.V3];
         out.forEach((c, i) => {
-            c.track = [TRACK.V1, TRACK.V2, TRACK.V3][i % 3];
+            const trackIdx = i % 3;
+            const dur = clipDuration(c);
+            c.track = trackIds[trackIdx];
+            c.startFrame = cursors[trackIdx];
+            c.endFrame = cursors[trackIdx] + dur;
+            cursors[trackIdx] += dur;
         });
         return { clips: out, videoTrackCount: 3, audioTrackCount: 2 };
     },
