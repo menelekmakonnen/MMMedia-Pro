@@ -72,7 +72,7 @@ export function classifyContent(
         return 'establishing';
     }
 
-    if (result.shotType === 'extreme-close-up' || result.shotType === 'close-up') {
+    if (result.shotType === 'extreme-close' || result.shotType === 'close-up') {
         return 'detail';
     }
 

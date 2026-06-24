@@ -42,10 +42,14 @@ describe('transition export mapping (single source of truth)', () => {
     });
 
     it('NEVER silently degrades a non-cut transition to a hard cut', () => {
+        // 'match-cut' is the one intentional exception: it is a CUT placed at a
+        // visually-matched frame, so it renders as a hard cut on export (not an
+        // xfade) by design. Every other non-cut transition must map to a real xfade.
+        const CUT_CLASS = new Set<TransitionType>(['cut', 'match-cut']);
         for (const t of allTypes) {
             const name = getTransitionFFmpegName(t);
-            if (t === 'cut') {
-                expect(name).toBeNull();
+            if (CUT_CLASS.has(t)) {
+                expect(name, `${t} is cut-class and must render as a hard cut`).toBeNull();
             } else {
                 expect(name, `${t} must resolve to an xfade name`).not.toBeNull();
                 expect(VALID_XFADE.has(name as string), `${t} → "${name}" must be a real xfade transition`).toBe(true);
@@ -53,10 +57,12 @@ describe('transition export mapping (single source of truth)', () => {
         }
     });
 
-    it('flags the 7 impact transitions as approximated, and nothing else', () => {
+    it('flags the impact + intelligent transitions as approximated, and nothing else', () => {
+        // 7 "impact" looks + the 2 "intelligent" transitions (match-cut, seamless)
+        // are approximations of effects FFmpeg's xfade cannot reproduce exactly.
         const approx = allTypes.filter(isApproximatedTransition).sort();
         expect(approx).toEqual(
-            ['film-burn', 'flash', 'glitch', 'rgb-split', 'spin', 'whip', 'zoom-through'].sort()
+            ['film-burn', 'flash', 'glitch', 'match-cut', 'rgb-split', 'seamless', 'spin', 'whip', 'zoom-through'].sort()
         );
     });
 
