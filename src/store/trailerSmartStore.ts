@@ -41,6 +41,8 @@ export interface ClipAnalysisResult {
     dominantColor?: string;
     colorTemperatureK?: number;
     contentFlags?: import('../lib/semanticTagger').ContentFlag[];
+    /** High-level content category — from contentClassifier.ts (Pass 3). */
+    contentType?: import('../lib/contentClassifier').ContentLabel;
 }
 
 interface TrailerSmartStore {

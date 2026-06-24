@@ -17,6 +17,7 @@
 // ══════════════════════════════════════════════════════════════════════════════
 
 import type { TrailerSettings } from './trailerGenerator';
+import type { PacingArcShape } from './pacingArc';
 
 type Sub = Partial<TrailerSettings>;
 
@@ -219,6 +220,22 @@ const BY_MODE: Record<string, Record<string, Sub>> = {
     'short-film': shortFilm, 'social-media': socialMedia, bts,
 };
 
+// ─── Macro pacing arc per subcategory ─────────────────────────────────────────
+// The generator already consumes `pacingArcShape` (getPacingArcMultiplier), but
+// nothing set it — so the whole pacing-arc feature was dark. Each subcategory
+// gets a narrative energy shape: build-to-climax (rising), flat-high (relentless),
+// slow-burn (long build → burst), wave (tension/release cycles), bookend (strong
+// open+close), chronological (even, time-ordered).
+const PACING: Record<string, Record<string, PacingArcShape>> = {
+    trailer: { product: 'build-to-climax', film: 'build-to-climax', 'music-release': 'flat-high', brand: 'build-to-climax', event: 'build-to-climax', game: 'flat-high', documentary: 'slow-burn', teaser: 'slow-burn', recap: 'chronological' },
+    'music-video': { performance: 'flat-high', narrative: 'build-to-climax', 'calm-spiritual': 'slow-burn', action: 'flat-high', 'lyric-visual': 'wave', dance: 'flat-high', aesthetic: 'wave', live: 'flat-high' },
+    showreel: { actor: 'bookend', director: 'bookend', cinematographer: 'bookend', vfx: 'build-to-climax', editor: 'wave', model: 'bookend', photographer: 'bookend' },
+    'video-essay': { analysis: 'build-to-climax', commentary: 'chronological', explainer: 'chronological', review: 'build-to-climax', 'documentary-essay': 'slow-burn', educational: 'chronological' },
+    'short-film': { drama: 'build-to-climax', comedy: 'wave', horror: 'slow-burn', 'action-film': 'flat-high', experimental: 'wave', 'music-driven': 'build-to-climax', silent: 'build-to-climax' },
+    'social-media': { 'talking-head': 'chronological', 'viral-hook': 'flat-high', boomerang: 'flat-high', 'before-after': 'build-to-climax', carousel: 'chronological', reaction: 'wave', 'transition-trend': 'flat-high', 'asmr-satisfying': 'slow-burn', 'day-in-life': 'chronological', 'tutorial-short': 'chronological', 'meme-edit': 'flat-high', 'cinematic-reel': 'build-to-climax' },
+    bts: { 'film-bts': 'chronological', 'music-video-bts': 'build-to-climax', 'event-bts': 'build-to-climax', 'photoshoot-bts': 'chronological', 'studio-session': 'chronological', 'travel-bts': 'chronological', 'production-diary': 'chronological', 'making-of': 'build-to-climax' },
+};
+
 /**
  * Resolve the active subcategories of a mode into a single merged
  * Partial<TrailerSettings>. Multiple active subcategories stack; later entries
@@ -229,10 +246,13 @@ export function resolveSubcategories(mode: string | undefined, activeSubcategori
     if (!mode || !activeSubcategories || activeSubcategories.length === 0) return {};
     const dict = BY_MODE[mode];
     if (!dict) return {};
+    const pacingDict = PACING[mode];
     let merged: Sub = {};
     for (const subId of activeSubcategories) {
         const override = dict[subId];
         if (override) merged = { ...merged, ...override };
+        const pacing = pacingDict?.[subId];
+        if (pacing) merged.pacingArcShape = pacing;
     }
     return merged;
 }

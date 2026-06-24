@@ -180,6 +180,33 @@ export const EditRouter: React.FC = () => {
             workingPool = [...workingPool].sort((a, b) => ((b as any).score || 0) - ((a as any).score || 0));
         }
 
+        // ── Semantic filtering & ranking (mood / setting / time-of-day) ──
+        // Activates the Smart Engine's semantic tags. Filters never empty the pool
+        // (unclassified clips are kept), and mood preference biases selection order.
+        const settingFilter = newSettings.settingFilter;
+        const timeFilter = newSettings.timeOfDayFilter;
+        const moodPref = newSettings.moodPreference;
+        const tagOf = (f: any) => smart.getResult(f.id);
+        if ((settingFilter && settingFilter.length) || (timeFilter && timeFilter.length)) {
+            const filtered = workingPool.filter((f: any) => {
+                const r = tagOf(f);
+                if (!r) return true; // keep unclassified — never starve the pool
+                const settingOk = !settingFilter?.length || !r.setting || settingFilter.includes(r.setting);
+                const timeOk = !timeFilter?.length || !r.timeOfDay || timeFilter.includes(r.timeOfDay);
+                return settingOk && timeOk;
+            });
+            if (filtered.length >= Math.min(2, workingPool.length)) workingPool = filtered;
+        }
+        if (moodPref && moodPref.length) {
+            const prefSet = new Set(moodPref);
+            const pref: any[] = [], rest: any[] = [];
+            for (const f of workingPool as any[]) {
+                const r = tagOf(f);
+                (r?.mood && prefSet.has(r.mood) ? pref : rest).push(f);
+            }
+            if (pref.length > 0) workingPool = [...pref, ...rest];
+        }
+
         return workingPool;
     };
 

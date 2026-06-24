@@ -388,6 +388,7 @@ async function runShotAndSemanticClassificationPass(allVids: Array<{ id: string;
 
     const { classifyShot } = await import('./shotClassifier');
     const { inferMood, inferSetting, inferTimeOfDay, inferPace, estimateColorTemperature } = await import('./semanticTagger');
+    const { classifyContent } = await import('./contentClassifier');
 
     for (const f of eligible) {
         const existing = smart.getResult(f.id);
@@ -461,6 +462,11 @@ async function runShotAndSemanticClassificationPass(allVids: Array<{ id: string;
             completedPasses: updatedPasses,
             analysisPass: 3
         };
+
+        // High-level content label (performance / B-roll / interview / BTS / …)
+        // derived from the now-complete feature set + filename cues. Used by
+        // generators for content-aware sequencing (BTS intercut, talking-head).
+        updatedResult.contentType = classifyContent(f.filename, updatedResult);
 
         smart.storeResult(f.id, updatedResult);
         smart.tick('shot-type');
