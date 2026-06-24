@@ -3,6 +3,21 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Clip } from '../../store/clipStore';
 import { Plus, FileVideo, FileAudio, LayoutGrid, Trash2, CheckSquare, Square as SquareIcon, RotateCw, Scissors, Check, X } from 'lucide-react';
 
+/** Format seconds into a human-readable duration that scales with magnitude.
+ *  < 60s  → "12.3s"   |  ≥ 60s → "2:05"  |  ≥ 1h → "1:02:05"  |  ≥ 1d → "1:02:05:30" */
+const formatDuration = (seconds: number): string => {
+    if (!seconds || seconds < 0) return '0s';
+    if (seconds < 60) return `${seconds.toFixed(1)}s`;
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    if (d > 0) return `${d}:${pad(h)}:${pad(m)}:${pad(s)}`;
+    if (h > 0) return `${h}:${pad(m)}:${pad(s)}`;
+    return `${m}:${pad(s)}`;
+};
+
 interface MediaItemProps {
     clip: Clip;
     isSelected: boolean;
@@ -84,7 +99,7 @@ export const MediaItem: React.FC<MediaItemProps> = ({ clip, isSelected, isMultiS
 
                 {/* Duration Badge */}
                 <div className="absolute bottom-1 right-1 px-1.5 py-0.5 bg-black/80 rounded text-[10px] items-center text-white/80 font-mono">
-                    {(clip.sourceDurationFrames / 30).toFixed(1)}s
+                    {formatDuration(clip.sourceDurationFrames / 30)}
                 </div>
 
                 {/* Trim Badge */}

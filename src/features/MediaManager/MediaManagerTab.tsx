@@ -62,11 +62,18 @@ export const MediaManagerTab: React.FC = () => {
     }, [isResizingSidebar, sidebarWidth, setMediaSidebarWidth]);
 
     // ── Sort comparator ──
-    const sortFiles = useCallback((arr: MediaFile[]): MediaFile[] => {
-        if (sortBy === 'default') return arr;
+    const sortedAndFilteredFiles = React.useMemo(() => {
+        // 1. Filter
+        const filtered = files.filter((file) => {
+            if (!file.filename.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+            if (orientationFilter !== 'all' && file.type === 'video' && file.orientation !== orientationFilter) return false;
+            return true;
+        });
+
+        // 2. Sort
+        if (sortBy === 'default') return filtered;
         if (sortBy === 'random') {
-            // Seeded Fisher-Yates for stable random per seed
-            const copy = [...arr];
+            const copy = [...filtered];
             let s = Math.floor(randomSeed * 2147483647);
             for (let i = copy.length - 1; i > 0; i--) {
                 s = (s * 16807) % 2147483647;
@@ -76,7 +83,7 @@ export const MediaManagerTab: React.FC = () => {
             return copy;
         }
         const dir = sortDirection === 'asc' ? 1 : -1;
-        return [...arr].sort((a, b) => {
+        return [...filtered].sort((a, b) => {
             switch (sortBy) {
                 case 'name':
                     return dir * a.filename.localeCompare(b.filename, undefined, { numeric: true, sensitivity: 'base' });
@@ -92,13 +99,10 @@ export const MediaManagerTab: React.FC = () => {
                     return 0;
             }
         });
-    }, [sortBy, sortDirection, randomSeed]);
+    }, [files, searchQuery, orientationFilter, sortBy, sortDirection, randomSeed]);
 
-    const filteredFiles = sortFiles(files.filter((file) => {
-        if (!file.filename.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-        if (orientationFilter !== 'all' && file.type === 'video' && file.orientation !== orientationFilter) return false;
-        return true;
-    }));
+    // Alias for backward compatibility with all references below
+    const filteredFiles = sortedAndFilteredFiles;
 
     // Ctrl+A select all VISIBLE (filtered) media
     useEffect(() => {
