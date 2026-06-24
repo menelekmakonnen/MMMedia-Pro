@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useMediaStore } from '../../store/mediaStore';
 import { TrailerSettings, DEFAULT_TRAILER_SETTINGS } from '../../lib/trailerGenerator';
-import { Wand2, Clock, Zap, Video, Scissors, PlayCircle, Music, Upload, Play, Pause, Trash2, Loader2, Sparkles, Smartphone, Monitor, Square, ArrowLeftRight, Layers, ChevronDown, Eye, Palette, Repeat, Search, Activity } from 'lucide-react';
+import { Wand2, Clock, Zap, Video, Scissors, PlayCircle, Music, Upload, Play, Pause, Trash2, Loader2, Sparkles, Smartphone, Monitor, Square, ArrowLeftRight, Layers, ChevronDown, Eye, Palette, Repeat, Search, Activity, FolderOpen, History, ChevronRight } from 'lucide-react';
 import { analyzeAudio, AudioAnalysisResult, SegmentType as _SegmentType } from '../../lib/audioAnalysis';
 import { TRANSITION_CATEGORIES, TRANSITION_META } from '../../lib/transitions';
 import type { TransitionType, SpeedCurvePreset, ShakeType, ShakePolicy, BeatDropIntensity, TransitionStyle, BoomerangPresetId, ZoomSpeed, EffectApplyPolicy } from '../../types';
@@ -22,6 +22,10 @@ import { analyzeNarration } from '../../lib/narrationAnalysis';
 import type { MergeStrategy } from '../../lib/intelligenceMerger';
 
 import clsx from 'clsx';
+import { getSubcategories } from '../../lib/generatorModeConfig';
+import { useSavedEditsStore, SavedEdit } from '../../store/savedEditsStore';
+import { useViewStore } from '../../store/viewStore';
+
 import { getPresetById, getPresetsByCategory, resolveSequencePresetIds } from './sequencePresets';
 import type { PresetCategory } from './sequencePresets';
 import { PreviewBubble } from '../../components/PreviewBubble';
@@ -278,6 +282,23 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
             update({ generatorMode: activeMode as any });
         }
     }, [activeMode]);
+
+    // ── Subcategory multi-select state ──
+    const [activeSubcats, setActiveSubcats] = useState<string[]>([]);
+
+    // Sync subcategories to settings whenever they change
+    useEffect(() => {
+        update({ activeSubcategories: activeSubcats } as any);
+    }, [activeSubcats]);
+
+    const toggleSubcat = (id: string) => {
+        setActiveSubcats(prev => prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]);
+    };
+
+    // Previous projects dropdown state
+    const [showProjectsDropdown, setShowProjectsDropdown] = useState(false);
+    const savedEdits = useSavedEditsStore(s => s.savedEdits);
+
     const [mergeStrategy, setMergeStrategy] = useState<MergeStrategy>('balanced');
 
 
@@ -989,7 +1010,7 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                 </div>
 
                 {/* ── Generator Mode (top selector) ── */}
-                <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-purple-600/15 via-black/30 to-blue-600/15 p-4 shadow-[0_0_30px_rgba(124,58,237,0.15)] @container">
+                <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-purple-600/15 via-black/30 to-blue-600/15 p-4 shadow-[0_0_30px_rgba(124,58,237,0.15)]">
                     <div className="absolute -top-10 -right-10 w-40 h-40 bg-purple-500/20 blur-[60px] pointer-events-none rounded-full" />
                     <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/40">Generator Mode</span>
                     <div className="flex flex-nowrap gap-1.5 mt-2 overflow-x-auto">
@@ -1000,8 +1021,9 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                             { m: 'video-essay' as const, label: 'Video Essay', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 19V5a2 2 0 012-2h8l6 6v10a2 2 0 01-2 2H6a2 2 0 01-2-2z" stroke="currentColor" strokeWidth="1.5"/><path d="M14 3v6h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="8" y1="13" x2="16" y2="13" stroke="currentColor" strokeWidth="1" opacity="0.5"/><line x1="8" y1="16" x2="13" y2="16" stroke="currentColor" strokeWidth="1" opacity="0.5"/></svg> },
                             { m: 'short-film' as const, label: 'Short Film', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="3" y="8" width="18" height="13" rx="1" stroke="currentColor" strokeWidth="1.5"/><path d="M3 8l3-5h12l3 5" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><line x1="7" y1="3" x2="9" y2="8" stroke="currentColor" strokeWidth="1" opacity="0.5"/><line x1="12" y1="3" x2="13" y2="8" stroke="currentColor" strokeWidth="1" opacity="0.5"/><line x1="17" y1="3" x2="17" y2="8" stroke="currentColor" strokeWidth="1" opacity="0.5"/></svg> },
                             { m: 'social-media' as const, label: 'Social Media', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="6" y="2" width="12" height="20" rx="2" stroke="currentColor" strokeWidth="1.5"/><polygon points="10,9 10,15 15,12" fill="currentColor" opacity="0.7"/><path d="M17 6l2-2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.6"/></svg> },
+                            { m: 'bts' as const, label: 'BTS', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="2" y="9" width="15" height="11" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M17 13l4-2.5v7L17 15" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><circle cx="9" cy="14.5" r="2.5" stroke="currentColor" strokeWidth="1" opacity="0.4"/></svg> },
                         ]).map(({ m, label, icon }) => (
-                            <button key={m} onClick={() => { update({ generatorMode: m }); onModeChange?.(m); }}
+                            <button key={m} onClick={() => { update({ generatorMode: m }); onModeChange?.(m); setActiveSubcats([]); }}
                                 title={label}
                                 className={clsx("px-3 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-wider border transition-all flex items-center gap-1.5 shrink-0 whitespace-nowrap",
                                     (settings.generatorMode ?? 'trailer') === m
@@ -1012,8 +1034,44 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                             </button>
                         ))}
                     </div>
+
+                    {/* ── Subcategory pills (shown for ALL modes) ── */}
+                    {(() => {
+                        const currentMode = settings.generatorMode ?? 'trailer';
+                        const subs = getSubcategories(currentMode);
+                        if (subs.length === 0) return null;
+                        return (
+                            <div className="mt-3 pt-3 border-t border-white/5">
+                                <span className="text-[9px] font-bold uppercase tracking-[0.15em] text-white/30 mb-1.5 block">
+                                    Subcategory — stacks with mode
+                                </span>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {subs.map(sub => {
+                                        const isActive = activeSubcats.includes(sub.id);
+                                        return (
+                                            <button
+                                                key={sub.id}
+                                                onClick={() => toggleSubcat(sub.id)}
+                                                title={sub.summary}
+                                                className={clsx(
+                                                    "px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border transition-all",
+                                                    isActive
+                                                        ? "bg-purple-600/25 border-purple-500/40 text-purple-200 shadow-[0_0_8px_rgba(168,85,247,0.2)]"
+                                                        : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60"
+                                                )}
+                                            >
+                                                {sub.label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        );
+                    })()}
+
+                    {/* ── Music-video specific options ── */}
                     {(settings.generatorMode === 'music-video') && (
-                        <div className="flex flex-wrap gap-1.5 pt-3">
+                        <div className="flex flex-wrap gap-1.5 pt-3 border-t border-white/5 mt-3">
                             {([['mvIntroEnabled', 'Intro'], ['mvOutroEnabled', 'Outro Shrink'], ['mvBtsSlot', 'BTS Slot']] as const).map(([key, label]) => (
                                 <button key={key} onClick={() => update({ [key]: !(settings[key] ?? true) } as any)}
                                     className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border transition-all",
@@ -1034,15 +1092,132 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
 
                 <div className="bg-black/40 rounded-xl border border-white/5 p-4 relative overflow-hidden space-y-4">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 blur-[50px] pointer-events-none rounded-full" />
-                    <div>
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-white/40">Media Pool</span>
-                        <div className="text-2xl font-black text-white">{videoCount} <span className="text-[10px] font-bold text-white/30 uppercase">Videos</span></div>
-                        {audioCount > 0 && <div className="text-xs text-pink-400">{audioCount} audio files</div>}
-                        {hasMediaSelection && (
-                            <div className="text-[10px] text-purple-300 font-bold mt-1">
-                                ✦ {selectedFileIds.length} selected — only these will be used
+                    <div className="flex items-start justify-between gap-4">
+                        <div>
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-white/40">Media Pool</span>
+                            <div className="text-2xl font-black text-white">{videoCount} <span className="text-[10px] font-bold text-white/30 uppercase">Videos</span></div>
+                            {audioCount > 0 && <div className="text-xs text-pink-400">{audioCount} audio files</div>}
+                            {hasMediaSelection && (
+                                <div className="text-[10px] text-purple-300 font-bold mt-1">
+                                    ✦ {selectedFileIds.length} selected — only these will be used
+                                </div>
+                            )}
+                        </div>
+
+                        {/* ── Quick-load: folder + previous projects ── */}
+                        <div className="flex items-center gap-1.5 shrink-0 relative">
+                            {videoCount === 0 && (
+                                <button
+                                    onClick={async () => {
+                                        try {
+                                            const w = window as any;
+                                            if (w.electronAPI?.selectFolder) {
+                                                const folderPath = await w.electronAPI.selectFolder();
+                                                if (folderPath) {
+                                                    // Load files into import and auto-select all
+                                                    if (w.electronAPI.loadMediaFromFolder) {
+                                                        await w.electronAPI.loadMediaFromFolder(folderPath);
+                                                    }
+                                                }
+                                            } else {
+                                                // Web fallback: trigger file input
+                                                const input = document.createElement('input');
+                                                input.type = 'file';
+                                                input.webkitdirectory = true;
+                                                input.multiple = true;
+                                                input.accept = 'video/*,audio/*';
+                                                input.onchange = () => {
+                                                    if (input.files && input.files.length > 0) {
+                                                        const mediaStore = useMediaStore.getState();
+                                                        mediaStore.addFiles(Array.from(input.files) as any);
+                                                    }
+                                                };
+                                                input.click();
+                                            }
+                                        } catch (e) {
+                                            console.warn('[EditWizard] Folder select failed:', e);
+                                        }
+                                    }}
+                                    className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-[10px] font-bold uppercase border border-purple-500/30 bg-purple-600/20 text-purple-200 hover:bg-purple-600/30 transition-all"
+                                >
+                                    <FolderOpen size={14} />
+                                    Load Media
+                                </button>
+                            )}
+
+                            <div className="relative">
+                                <button
+                                    onClick={() => setShowProjectsDropdown(!showProjectsDropdown)}
+                                    title="Load from previous project"
+                                    className={clsx(
+                                        "flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-[10px] font-bold uppercase border transition-all",
+                                        showProjectsDropdown
+                                            ? "border-amber-500/40 bg-amber-600/20 text-amber-200"
+                                            : "border-white/10 bg-white/5 text-white/40 hover:bg-white/10 hover:text-white/60"
+                                    )}
+                                >
+                                    <History size={13} />
+                                    <span className="hidden min-[700px]:inline">Projects</span>
+                                    <ChevronDown size={10} className={clsx("transition-transform", showProjectsDropdown && "rotate-180")} />
+                                </button>
+
+                                {showProjectsDropdown && (
+                                    <div className="absolute right-0 top-full mt-1 w-72 max-h-80 overflow-y-auto bg-[#0c0c18] border border-white/10 rounded-xl shadow-2xl z-50 custom-scrollbar">
+                                        {savedEdits.length === 0 ? (
+                                            <div className="p-4 text-center text-white/30 text-xs">No saved projects yet</div>
+                                        ) : (
+                                            savedEdits.slice(0, 20).map((edit: SavedEdit) => (
+                                                <button
+                                                    key={edit.id}
+                                                    onClick={() => {
+                                                        // Load clips from saved edit into the import + generator
+                                                        const mediaStore = useMediaStore.getState();
+                                                        // Restore source folders if available
+                                                        if (edit.sourceFolders && edit.sourceFolders.length > 0) {
+                                                            const w = window as any;
+                                                            if (w.electronAPI?.loadMediaFromFolder) {
+                                                                edit.sourceFolders.forEach((f: string) => w.electronAPI.loadMediaFromFolder(f));
+                                                            }
+                                                        }
+                                                        // Restore audio if available
+                                                        if (edit.audioFilePath) {
+                                                            mediaStore.setPreloadedAudio(edit.audioFilePath, edit.audioFileName || 'Audio');
+                                                        }
+                                                        // Restore settings if available
+                                                        if (edit.settingsSnapshot) {
+                                                            Object.entries(edit.settingsSnapshot).forEach(([k, v]) => {
+                                                                update({ [k]: v } as any);
+                                                            });
+                                                        }
+                                                        setShowProjectsDropdown(false);
+                                                        useSavedEditsStore.getState().updateEditLastOpened(edit.id);
+                                                    }}
+                                                    className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 transition-colors border-b border-white/5 last:border-b-0 text-left"
+                                                >
+                                                    {/* Thumbnail */}
+                                                    <div className="w-12 h-8 rounded bg-gradient-to-br from-purple-900/40 to-blue-900/40 border border-white/10 flex items-center justify-center shrink-0 overflow-hidden">
+                                                        {edit.thumbnailPath ? (
+                                                            <img src={`file://${edit.thumbnailPath}`} alt="" className="w-full h-full object-cover rounded" />
+                                                        ) : (
+                                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="2" y="4" width="20" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" opacity="0.3"/><polygon points="10,9 10,15 14,12" fill="currentColor" opacity="0.3"/></svg>
+                                                        )}
+                                                    </div>
+                                                    {/* Info */}
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="text-[11px] font-bold text-white/80 truncate">{edit.name}</div>
+                                                        <div className="text-[9px] text-white/30">
+                                                            {edit.clipCount} clips · {Math.round(edit.duration)}s
+                                                            {edit.godModeVibe && <span className="ml-1 text-purple-400">✦ {edit.godModeVibe}</span>}
+                                                        </div>
+                                                    </div>
+                                                    <ChevronRight size={12} className="text-white/20 shrink-0" />
+                                                </button>
+                                            ))
+                                        )}
+                                    </div>
+                                )}
                             </div>
-                        )}
+                        </div>
                     </div>
                     {videoCount > 0 && (
                         <div className="space-y-2 pt-3 border-t border-white/5">

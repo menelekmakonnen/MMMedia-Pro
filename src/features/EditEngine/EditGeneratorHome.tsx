@@ -71,13 +71,23 @@ const SocialMediaIcon: React.FC<{ size?: number; className?: string; strokeWidth
     </svg>
 );
 
+/** BTS icon — camera with behind-scenes clapperboard */
+const BtsIcon: React.FC<{ size?: number; className?: string; strokeWidth?: number }> = ({ size = 22, className }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={`${className ?? ''} gm-bts`}>
+        <rect x="2" y="9" width="15" height="11" rx="2" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M17 13l4-2.5v7L17 15" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+        <circle cx="9" cy="14.5" r="2.5" stroke="currentColor" strokeWidth="1" opacity="0.4" />
+        <path d="M5 9V6l3-3h4l3 3v3" stroke="currentColor" strokeWidth="1" opacity="0.5" strokeLinejoin="round" />
+    </svg>
+);
+
 // ══════════════════════════════════════════════════════════════════════════════
 // EditGeneratorHome — the entry screen of the Edit Generator Engine.
 // The user picks ONE editing style; the engine then adapts the wizard, options,
 // and generation pipeline to that project type. Complexity rises 1→5.
 // ══════════════════════════════════════════════════════════════════════════════
 
-export type EditType = 'trailer' | 'music-video' | 'showreel' | 'video-essay' | 'short-film' | 'social-media';
+export type EditType = 'trailer' | 'music-video' | 'showreel' | 'video-essay' | 'short-film' | 'social-media' | 'bts';
 
 export interface EditTypeDef {
     id: EditType;
@@ -158,6 +168,17 @@ export const EDIT_TYPES: EditTypeDef[] = [
         complexity: 2,
         driver: 'Platform + trend style',
     },
+    {
+        id: 'bts',
+        label: 'BTS',
+        tagline: 'Behind the scenes',
+        description: 'Document the creative process. Setup → shoot → result intercuts, crew moments, and production diary formats.',
+        icon: BtsIcon,
+        accent: 'text-orange-400',
+        glow: 'rgba(251,146,60,0.35)',
+        complexity: 2,
+        driver: 'Process + candids',
+    },
 ];
 
 interface EditGeneratorHomeProps {
@@ -193,6 +214,8 @@ export const EditGeneratorHome: React.FC<EditGeneratorHomeProps> = ({ onSelect, 
             .group:hover .gm-clap { animation: gm-snap 0.5s ease-in-out infinite; }
             @keyframes gm-viral { 0%,100%{transform:scale(1)} 25%{transform:scale(1.1) rotate(3deg)} 75%{transform:scale(0.95) rotate(-3deg)} }
             .group:hover .gm-social { animation: gm-viral 0.8s ease-in-out infinite; }
+            @keyframes gm-rec { 0%,100%{opacity:1} 50%{opacity:0.5} }
+            .group:hover .gm-bts { animation: gm-rec 1s ease-in-out infinite; }
         `}</style>
         <div className="h-full w-full overflow-y-auto p-8">
             <div className="max-w-5xl mx-auto">

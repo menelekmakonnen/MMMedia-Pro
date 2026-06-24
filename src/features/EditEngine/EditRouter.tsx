@@ -246,7 +246,7 @@ export const EditRouter: React.FC = () => {
 
         if (isExporting) {
             // ── QUEUE MODE: Don't touch the active timeline during render ──
-            const modeLabel = { 'trailer': 'Trailer', 'music-video': 'Music Video', 'showreel': 'Showreel', 'video-essay': 'Video Essay', 'short-film': 'Short Film', 'social-media': 'Social Media' }[activeMode] || 'Edit';
+            const modeLabel = { 'trailer': 'Trailer', 'music-video': 'Music Video', 'showreel': 'Showreel', 'video-essay': 'Video Essay', 'short-film': 'Short Film', 'social-media': 'Social Media', 'bts': 'BTS' }[activeMode] || 'Edit';
             const edit: QueuedEdit = {
                 id: crypto.randomUUID?.() || `q-${Date.now()}`,
                 clips,
