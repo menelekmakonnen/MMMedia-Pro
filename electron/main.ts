@@ -18,13 +18,6 @@ import type { GridCellLayout } from '../src/lib/gridTemplates';
 process.env.DIST = join(__dirname, '../dist')
 process.env.VITE_PUBLIC = app.isPackaged ? process.env.DIST : join(process.env.DIST, '../public')
 
-// ── Suppress EPIPE crashes on Windows ──────────────────────────────────
-// When Electron's parent console pipe closes (e.g. during shutdown or when
-// the renderer crashes), writing to stdout/stderr throws EPIPE. Ignoring
-// these prevents the "broken pipe" uncaught exception dialog.
-process.stdout?.on?.('error', (err: any) => { if (err?.code !== 'EPIPE') throw err; });
-process.stderr?.on?.('error', (err: any) => { if (err?.code !== 'EPIPE') throw err; });
-
 // Set AppUserModelId for correct taskbar icon when pinned on Windows
 // Version suffix forces Windows to invalidate its cached taskbar icon
 app.setAppUserModelId('com.icunilabs.mmmediapro.v2');
@@ -125,7 +118,7 @@ function createWindow() {
     });
 
     win.webContents.on('console-message', (_event, _level, message, line, sourceId) => {
-        try { console.log(`[Renderer] ${message} (${sourceId}:${line})`); } catch {}
+        console.log(`[Renderer] ${message} (${sourceId}:${line})`);
     });
 
     if (process.argv.includes('--dev') || !app.isPackaged) {
@@ -137,7 +130,7 @@ function createWindow() {
     })
 
     win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-        try { console.error(`[Main] Failed to load URL: ${validatedURL} with error: ${errorDescription} (${errorCode})`); } catch {}
+        console.error(`[Main] Failed to load URL: ${validatedURL} with error: ${errorDescription} (${errorCode})`);
     });
 
     if (VITE_DEV_SERVER_URL) {
@@ -393,11 +386,37 @@ app.on('activate', () => {
     }
 })
 
+/**
+ * Forcefully tear down any in-flight render (the PowerShell→FFmpeg tree) so it
+ * never orphans. FFmpeg under a PowerShell wrapper — especially with GPU encode —
+ * can resist an external `taskkill /F` from the dev server's hot-reload restart,
+ * which previously crashed the whole session ("could not be terminated"). Killing
+ * our own process tree first leaves nothing stuck behind.
+ */
+function killActiveRender(): void {
+    const proc = activeExportProc;
+    if (!proc) return;
+    try { (proc as any).__cancelled = true; } catch { /* ignore */ }
+    try {
+        if (process.platform === 'win32' && proc.pid) {
+            require('child_process').execSync(`taskkill /PID ${proc.pid} /T /F`, { windowsHide: true, stdio: 'ignore' });
+        } else {
+            proc.kill('SIGKILL');
+        }
+    } catch { /* best-effort */ }
+    activeExportProc = null;
+}
+
 app.on('before-quit', () => {
+    killActiveRender();
     if (bridgeServer && typeof bridgeServer.close === 'function') {
         bridgeServer.close();
     }
 })
+
+// Last-chance cleanup for hard exits (dev hot-reload, crashes) so FFmpeg doesn't
+// linger and hold the GPU / fail the next restart's process-tree kill.
+process.on('exit', () => { try { killActiveRender(); } catch { /* ignore */ } });
 
 app.whenReady().then(createWindow)
 
