@@ -64,6 +64,8 @@ export const useTimelineStore = create<TimelineState>()(
   showAudioMeters: true,
   markersPanelOpen: false,
   adjustmentDialogOpen: false,
+  showSafeMargins: false,
+  globalFxMute: false,
 
   // ── Actions ───────────────────────────────────────────────────────
   setTracks: (tracks) => set({ tracks }),
@@ -143,6 +145,14 @@ export const useTimelineStore = create<TimelineState>()(
   toggleAudioMeters: () => set((s) => ({ showAudioMeters: !s.showAudioMeters })),
   toggleMarkersPanel: () => set((s) => ({ markersPanelOpen: !s.markersPanelOpen })),
   setAdjustmentDialogOpen: (open) => set({ adjustmentDialogOpen: open }),
+  toggleSafeMargins: () => set((s) => ({ showSafeMargins: !s.showSafeMargins })),
+  toggleGlobalFxMute: () => set((s) => ({ globalFxMute: !s.globalFxMute })),
+  expandAllTracks: () => set((s) => ({
+    tracks: s.tracks.map((t) => ({ ...t, height: t.type === 'audio' ? 90 : 110 })),
+  })),
+  collapseAllTracks: () => set((s) => ({
+    tracks: s.tracks.map((t) => ({ ...t, height: 36 })),
+  })),
     }),
     {
       name: 'mmmedia-timeline-ui',
@@ -155,6 +165,7 @@ export const useTimelineStore = create<TimelineState>()(
         pixelsPerFrame: s.pixelsPerFrame,
         prerenderEnabled: s.prerenderEnabled,
         showGuides: s.showGuides,
+        showSafeMargins: s.showSafeMargins,
       }),
     },
   ),

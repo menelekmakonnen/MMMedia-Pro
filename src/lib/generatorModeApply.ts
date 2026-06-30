@@ -297,7 +297,11 @@ export function applyGeneratorMode(modeId: string): ApplyModeResult {
     };
     if (!mode) return empty;
 
-    const toggles = useGeneratorModeStore.getState().getToggles(modeId);
+    const modeToggles = useGeneratorModeStore.getState().getToggles(modeId);
+    // Merge global Creator Hacks panel state on top of mode toggles so the
+    // standalone panel controls override the per-mode defaults.
+    const globalHacks = useGeneratorModeStore.getState().toggleState['_global_hacks'] ?? {};
+    const toggles = { ...modeToggles, ...globalHacks };
     const fps = projectFps();
 
     // Drive the program-monitor blend strategy.

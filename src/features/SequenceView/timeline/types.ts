@@ -72,6 +72,10 @@ export interface TimelineState {
   markersPanelOpen: boolean;
   /** Adjustment Layer creation dialog (File ▸ New ▸ Adjustment Layer). */
   adjustmentDialogOpen: boolean;
+  /** Safe-margin overlay (Action/Title safe) on the program monitor. */
+  showSafeMargins: boolean;
+  /** Global FX Mute — bypass clip effects during playback for smooth preview. */
+  globalFxMute: boolean;
 
   // Actions
   setTracks: (tracks: Track[]) => void;
@@ -102,4 +106,9 @@ export interface TimelineState {
   toggleAudioMeters: () => void;
   toggleMarkersPanel: () => void;
   setAdjustmentDialogOpen: (open: boolean) => void;
+  toggleSafeMargins: () => void;
+  toggleGlobalFxMute: () => void;
+  /** Bulk track-height ops (creator hack: minimize / expand all tracks). */
+  expandAllTracks: () => void;
+  collapseAllTracks: () => void;
 }

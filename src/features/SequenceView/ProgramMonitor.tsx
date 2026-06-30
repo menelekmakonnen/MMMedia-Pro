@@ -1,7 +1,7 @@
 import React, { useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
-    Play, Pause, Volume2, VolumeX, MonitorSmartphone, Maximize2, Ruler
+    Play, Pause, Volume2, VolumeX, MonitorSmartphone, Maximize2, Ruler, Frame, Zap
 } from 'lucide-react';
 import clsx from 'clsx';
 import { ProgramMonitorGuides } from './ProgramMonitorGuides';
@@ -96,6 +96,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
     const isGrid = activeVisualClip?.type === 'grid';
     const isActA = activeBuffer === 'A';
     const showGuides = useTimelineStore((s) => s.showGuides);
+    const showSafeMargins = useTimelineStore((s) => s.showSafeMargins);
     const inOutRange = useTimelineStore((s) => s.inOutRange);
 
     // ── Program-monitor seek bar (scrubber) ──
@@ -359,6 +360,24 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                             <div className="absolute top-1/2 left-0 right-0 h-px bg-white/10 -translate-y-1/2" />
                         </div>
                     </div>
+
+                    {/* Safe-margin overlay (Action safe 93% / Title safe 90%) */}
+                    {showSafeMargins && (
+                        <div className="absolute inset-0 pointer-events-none z-20">
+                            <div
+                                className="absolute border border-yellow-300/40"
+                                style={{ left: '3.5%', top: '3.5%', right: '3.5%', bottom: '3.5%' }}
+                            >
+                                <span className="absolute -top-0.5 left-1 text-[8px] font-mono text-yellow-300/60 leading-none">action safe</span>
+                            </div>
+                            <div
+                                className="absolute border border-cyan-300/40"
+                                style={{ left: '5%', top: '5%', right: '5%', bottom: '5%' }}
+                            >
+                                <span className="absolute -top-0.5 left-1 text-[8px] font-mono text-cyan-300/60 leading-none">title safe</span>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Ruler guide overlay */}
                     <ProgramMonitorGuides containerWidth={0} containerHeight={0} />
