@@ -110,7 +110,7 @@ function VisualFXPreviewSVG({ id }: { id: string }) {
     }
 }
 
-export const VisualFXCard: React.FC<VisualFXCardProps> = ({
+export const VisualFXCard = React.memo<VisualFXCardProps>(({
     id,
     label,
     icon,
@@ -202,6 +202,6 @@ export const VisualFXCard: React.FC<VisualFXCardProps> = ({
             </AnimatePresence>
         </div>
     );
-};
+});
 
 export default VisualFXCard;

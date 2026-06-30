@@ -1,9 +1,11 @@
 import type { TextOverlay } from './lib/textOverlay';
+import type { BlendMode } from './lib/editEffectFilters';
 import type { AudioEffects } from './lib/audioEffects';
 import type {
     MotionBlurConfig,
     GlowConfig,
     DoubleExposureConfig,
+    TripleExposureConfig,
     VibrationFlashConfig,
     RgbSplitConfig,
     HueCycleConfig,
@@ -73,9 +75,12 @@ export type TransitionType =
     | 'smoothleft' | 'smoothright' | 'smoothup' | 'smoothdown'
     | 'diagtl' | 'diagtr' | 'diagbl' | 'diagbr'
     | 'squeezeh' | 'squeezev'
-    | 'flash' | 'glitch' | 'rgb-split' | 'zoom-through'
+    | 'flash' | 'white-flash' | 'glitch' | 'rgb-split' | 'zoom-through'
     | 'spin' | 'film-burn' | 'whip'
-    | 'match-cut' | 'seamless';
+    | 'triple-exposure' | 'subject-mask'
+    | 'match-cut' | 'seamless'
+    | 'boomerang' | 'double-exposure' | 'vhs'
+    | 'pip';
 
 export type ShakeType = 'impact' | 'handheld' | 'earthquake' | 'vibration' | 'whip';
 export type ZoomSpeed = 'instant' | 'fast' | 'slow' | 'smooth';
@@ -112,9 +117,24 @@ export interface AnimatedBlurConfig {
     direction?: number;        // degrees, for directional blur
 }
 
+/** Per-transition option overrides — stored in settings.transitionParams keyed by TransitionType.
+ *  Each field is optional; when absent the global / default value is used. */
+export interface TransitionParams {
+    /** Per-transition duration override in ms (50–1500). Falls back to global transitionDurationMs. */
+    duration?: number;
+    /** Intensity 0–100 — only meaningful for impact transitions
+     *  (flash, glitch, rgb-split, zoom-through, spin, film-burn, whip). */
+    intensity?: number;
+    /** Easing curve override for smooth/directional transitions. */
+    ease?: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';
+}
+
 export interface ClipTransition {
     type: TransitionType;
     durationFrames: number;
+    /** Arbitrary per-transition settings that override global defaults.
+     *  Typed overrides live in TransitionParams; this bag is kept for
+     *  forward-compat with custom / filter-chain params. */
     params?: Record<string, number | string>;
 }
 
@@ -174,6 +194,12 @@ export interface Clip {
     saturationKeyframes?: import('./lib/keyframes').KfPoint[];
     /** Keyframed volume (0..100). */
     volumeKeyframes?: import('./lib/keyframes').KfPoint[];
+    /** Keyframed opacity (0..1) — for white flash, film burn overlays. */
+    opacityKeyframes?: import('./lib/keyframes').KfPoint[];
+    /** Keyframed scale (percentage, 100 = normal) — for zoom transitions. */
+    scaleKeyframes?: import('./lib/keyframes').KfPoint[];
+    /** Keyframed X/Y position (percentage of frame) — for slide transitions. */
+    positionKeyframes?: { x: import('./lib/keyframes').KfPoint[], y: import('./lib/keyframes').KfPoint[] };
 
     // ── Shake system ──
     shake?: ShakeConfig;
@@ -196,11 +222,37 @@ export interface Clip {
     motionBlur?: MotionBlurConfig;         // shutter-style temporal blur
     glow?: GlowConfig;                     // bloom / soft aura
     doubleExposure?: DoubleExposureConfig; // ghosted double-exposure blend
+    tripleExposure?: TripleExposureConfig; // three-layer exposure blend (50% + 25%)
     vibrationFlash?: VibrationFlashConfig; // decaying brightness/saturation punch
     smoothSlowmo?: boolean;                // optical-flow frame interpolation for slow-mo
     rgbSplit?: RgbSplitConfig;             // chromatic / RGB separation (music-video staple)
     hueCycle?: HueCycleConfig;             // continuous hue rotation over time
     vhs?: VhsConfig;                       // retro VHS look (chroma shift + grain)
+
+    // ── Compositing / blend ──
+    /** Per-clip blend mode (overlay, screen, add, etc.) for compositing. */
+    blendMode?: BlendMode;
+    /** Shutter angle (0-360°) for motion blur on transform effects. */
+    motionBlurAngle?: number;
+    /** Subject isolation for masking transitions. */
+    maskIsolation?: {
+        enabled: boolean;
+        mode: 'chromakey' | 'ml-segment';
+        /** Chroma-key mode settings (Option A). */
+        chromakey?: {
+            color: string;        // hex key color (default: '#00ff00')
+            similarity: number;   // 0.01-1.0 (how close to key color)
+            blend: number;        // 0.0-1.0 (edge softness)
+        };
+        /** ML segmentation mode settings (Option C). */
+        mlSegment?: {
+            model: 'u2net' | 'isnet-general' | 'sam';  // segmentation model
+            /** Path to pre-generated alpha matte (filled by IPC). */
+            mattePath?: string;
+            /** Whether to invert the mask (isolate background instead of subject). */
+            invertMask?: boolean;
+        };
+    };
 
     // ── Transition to next clip ──
     transition?: ClipTransition;
@@ -233,6 +285,16 @@ export interface Clip {
 
     // Persistent rotation (0/90/180/270 degrees) — applied in preview AND export
     rotation?: 0 | 90 | 180 | 270;
+
+    // Source-level framing — static crop/reposition inherited from the MediaFile.
+    // Different from zoomStart/zoomEnd (animated zoom effect).
+    sourceZoom?: number;     // 100 = no zoom (default), 150 = 1.5x crop, etc.
+    sourcePanX?: number;     // -100 to 100, horizontal offset from center (default 0)
+    sourcePanY?: number;     // -100 to 100, vertical offset from center (default 0)
+
+    // Usage weight (Edit Engine allocation influence — inherited from MediaFile)
+    usageWeight?: number;    // default 1.0; 2.0 = show more, 0.5 = show less, -1 = show once
+    usageMode?: 'more' | 'normal' | 'less' | 'once';
 
     // Boomerang (damped-bounce forward↔reverse effect)
     boomerang?: boolean;
@@ -281,6 +343,16 @@ export interface Clip {
         smoothing: number;  // 1-60, default 10
     };
 
+    /** Deflicker: temporal averaging via multi-layer blend (removes LED/fluorescent flicker).
+     *  Stacks N copies of the clip at decreasing opacity with 1-frame offsets. */
+    deflicker?: {
+        enabled: boolean;
+        /** Include original audio in deflickered output (default: true) */
+        includeAudio: boolean;
+        /** Number of offset layers: 3 = standard, 5 = heavy flicker (default: 3) */
+        layers: 3 | 5;
+    };
+
     // Linkage
     mediaLibraryId?: string; // ID of the MediaFile this clip was created from
 
@@ -289,7 +361,15 @@ export interface Clip {
 
     // Audio Effects (EQ, compression, noise reduction, etc.)
     audioEffects?: AudioEffects;
+
+    // ── Premiere-aligned Effect Controls (Motion / Opacity / Time Remapping +
+    //    applied video/audio effects, each property keyframeable). Source of truth
+    //    for the Effect Controls panel; legacy transform fields above are kept in
+    //    sync on write so playback/export keep working during migration. ──
+    effectControls?: import('./lib/premiere/effectControls').EffectControlsState;
 }
+
+export type CellOrientation = 'vertical' | 'horizontal' | 'auto';
 
 export interface GridCell {
     id: string; // Internal cell id
@@ -299,6 +379,18 @@ export interface GridCell {
     y: number; // 0-1 percentage
     width: number; // 0-1 percentage
     height: number; // 0-1 percentage
+
+    // ── Grid Edit Engine per-cell ───────────
+    /** Per-cell EGE settings — overrides grid-level gridSettings for this cell only. */
+    cellSettings?: Partial<import('./lib/trailerGenerator').TrailerSettings>;
+    /** Cell content orientation: vertical (9:16), horizontal (16:9), or auto-detect from media. */
+    cellOrientation?: CellOrientation;
+    /** Media pool subset assigned to this cell (media library IDs). */
+    cellMediaIds?: string[];
+    /** True if this cell's clips were generated by the Grid Edit Engine. */
+    isGenerated?: boolean;
+    /** Seed for reproducible EGE generation in this cell. */
+    generationSeed?: number;
 }
 
 export type GridFormat = 'horizontal' | 'vertical' | 'square';
@@ -312,6 +404,18 @@ export interface GridClip extends Clip {
     // Global grid playback sync
     globalShuffle?: boolean;
     globalFlux?: boolean;
+
+    // ── Grid Edit Engine ────────────────────
+    /** Grid-level EGE defaults — inherited by all cells unless overridden. */
+    gridSettings?: Partial<import('./lib/trailerGenerator').TrailerSettings>;
+    /** Synchronization mode: beat-locked = cells share beat timing, independent = free pacing. */
+    syncMode?: 'beat-locked' | 'independent';
+    /** Media library ID of the shared audio guide file for all cells. */
+    masterAudioId?: string;
+    /** Unified target duration in seconds for all cells. */
+    masterDurationSec?: number;
+    /** Auto-detect cell orientation from assigned media dimensions. Default true. */
+    autoOrientation?: boolean;
 }
 
 
@@ -365,4 +469,4 @@ export interface EditDocument {
 }
 
 
-export type TabId = 'dashboard' | 'media' | 'trailer' | 'timeline' | 'grideditor' | 'export' | 'sequence' | 'videoplayer' | 'edits' | 'global-settings';
+export type TabId = 'dashboard' | 'media' | 'import-manager' | 'trailer' | 'timeline' | 'grideditor' | 'export' | 'sequence' | 'videoplayer' | 'edits' | 'global-settings';

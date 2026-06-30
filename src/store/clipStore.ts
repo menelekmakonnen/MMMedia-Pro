@@ -656,6 +656,10 @@ export const useClipStore = create<ClipStore>()(
             gridFormat,
             numCells,
             backgroundMode: 'blur',
+            // Grid Edit Engine defaults
+            syncMode: 'beat-locked',
+            autoOrientation: true,
+            masterDurationSec: 5,
             cells: Array.from({ length: numCells }).map((_, i) => ({
                 id: uuidv4(),
                 clip: i === 0 && initialClip ? initialClip : null,
@@ -663,7 +667,11 @@ export const useClipStore = create<ClipStore>()(
                 x: 0,
                 y: 0,
                 width: 1,
-                height: 1
+                height: 1,
+                // Grid Edit Engine per-cell defaults
+                cellOrientation: 'auto' as const,
+                cellMediaIds: [],
+                isGenerated: false,
             }))
         };
         set((state) => ({ clips: [...state.clips, newGrid] }));

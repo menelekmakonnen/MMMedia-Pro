@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { ChevronRight } from 'lucide-react';
 import { NleQuickPresets } from './NleQuickPresets';
+import { GeneratorModePanel } from './GeneratorModePanel';
 
 // ─── Custom animated SVG icons for each generator mode ──────────────────────
 
@@ -281,6 +282,9 @@ export const EditGeneratorHome: React.FC<EditGeneratorHomeProps> = ({ onSelect, 
 
                 {/* One-click automated NLE presets that operate on the live timeline */}
                 <NleQuickPresets />
+
+                {/* Generator Modes — style templates built from real edits, with toggles + SFX */}
+                <GeneratorModePanel variant="full" />
             </div>
         </div>
         </>

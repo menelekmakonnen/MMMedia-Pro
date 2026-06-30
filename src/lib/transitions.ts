@@ -14,14 +14,14 @@ import { SeededRandom } from './random';
 
 /** All transition types grouped by visual category for UI presentation. */
 export const TRANSITION_CATEGORIES: Record<string, { label: string; transitions: TransitionType[] }> = {
-    basic:       { label: 'Basic',       transitions: ['cut', 'fade', 'fadewhite', 'fadeblack', 'dissolve'] },
+    basic:       { label: 'Basic',       transitions: ['cut', 'fade', 'fadewhite', 'fadeblack', 'dissolve', 'pip'] },
     directional: { label: 'Directional', transitions: ['wipeleft', 'wiperight', 'wipeup', 'wipedown', 'slideleft', 'slideright', 'slideup', 'slidedown'] },
     geometric:   { label: 'Geometric',   transitions: ['circlecrop', 'circleopen', 'circleclose', 'radial', 'pixelize'] },
     smooth:      { label: 'Smooth',      transitions: ['smoothleft', 'smoothright', 'smoothup', 'smoothdown'] },
     diagonal:    { label: 'Diagonal',    transitions: ['diagtl', 'diagtr', 'diagbl', 'diagbr'] },
     squeeze:     { label: 'Squeeze',     transitions: ['squeezeh', 'squeezev'] },
     blur:        { label: 'Blur',        transitions: ['hblur'] },
-    impact:      { label: 'Impact',      transitions: ['flash', 'glitch', 'rgb-split', 'zoom-through', 'spin', 'film-burn', 'whip'] },
+    impact:      { label: 'Impact',      transitions: ['flash', 'glitch', 'rgb-split', 'zoom-through', 'spin', 'film-burn', 'whip', 'boomerang', 'double-exposure', 'triple-exposure', 'vhs'] },
     intelligent: { label: 'Intelligent', transitions: ['match-cut', 'seamless'] },
 };
 
@@ -37,7 +37,7 @@ export const TRANSITION_CATEGORIES: Record<string, { label: string; transitions:
  */
 const CUSTOM_TRANSITIONS: ReadonlySet<TransitionType> = new Set([
     'flash', 'glitch', 'rgb-split', 'zoom-through', 'spin', 'film-burn', 'whip',
-    'match-cut', 'seamless',
+    'match-cut', 'seamless', 'pip', 'boomerang', 'double-exposure', 'triple-exposure', 'vhs',
 ]);
 
 /**
@@ -52,8 +52,8 @@ export const TRANSITION_META: Record<TransitionType, { label: string; icon: stri
     // ── Basic ──
     cut:          { label: 'Cut',            icon: '--',  isCustom: false, description: 'Instant switch between clips' },
     fade:         { label: 'Fade',           icon: '//',  isCustom: false, description: 'Gradual opacity crossfade' },
-    fadewhite:    { label: 'Fade to White',  icon: '/W',  isCustom: false, description: 'Fade through white between clips' },
-    fadeblack:    { label: 'Fade to Black',  icon: '/B',  isCustom: false, description: 'Fade through black between clips' },
+    fadewhite:    { label: 'Fade to White',  icon: '/W',  isCustom: true,  description: 'Dip to solid white overlay between clips' },
+    fadeblack:    { label: 'Fade to Black',  icon: '/B',  isCustom: true,  description: 'Dip to solid black overlay between clips' },
     dissolve:     { label: 'Dissolve',       icon: ':.',  isCustom: false, description: 'Pixel-level random dissolve blend' },
 
     // ── Directional ──
@@ -104,6 +104,19 @@ export const TRANSITION_META: Record<TransitionType, { label: string; icon: stri
     // ── Intelligent (Smart Engine-driven) ──
     'match-cut':  { label: 'Match Cut',       icon: '≈',   isCustom: true, description: 'Cuts at visually similar frames — matched by shape, colour, or composition' },
     seamless:     { label: 'Seamless',        icon: '∞',   isCustom: true, description: 'Imperceptible transition — pattern, colour, and motion direction match so closely the cut is invisible' },
+
+    // ── Picture-in-Picture ──
+    pip:          { label: 'PiP',             icon: '🖼',  isCustom: true, description: 'Picture-in-Picture: outgoing clip shrinks to corner overlay' },
+
+    // ── Effect-as-Transition (mirrors existing effects) ──
+    boomerang:           { label: 'Boomerang',        icon: '↩',   isCustom: true, description: 'Clip A plays forward-reverse then cuts to B' },
+    'double-exposure':   { label: 'Double Exposure',  icon: '⊕',   isCustom: true, description: 'A+B blend in screen/overlay exposure' },
+    'triple-exposure':   { label: 'Triple Exposure',  icon: '⫿',   isCustom: true, description: '3-layer blend transition' },
+    vhs:                 { label: 'VHS',              icon: '▤',   isCustom: true, description: 'Analog VHS tracking distortion between clips' },
+
+    // ── Cinematic Pro Transitions ──
+    'white-flash':       { label: 'White Flash',      icon: '✦',   isCustom: true, description: 'Cinematic white flash with overlay blend mode' },
+    'subject-mask':      { label: 'Subject Mask',     icon: '🎭',  isCustom: true, description: 'Subject isolation mask reveal transition' },
 };
 
 // ═══════════════════════════════════════════════════════
@@ -208,7 +221,7 @@ export const TRANSITION_XFADE_MAP: Record<TransitionType, string | null> = {
     // ── Direct splice ──
     cut: null,
     // ── Basic (native) ──
-    fade: 'fade', fadewhite: 'fadewhite', fadeblack: 'fadeblack', dissolve: 'dissolve',
+    fade: 'fade', fadewhite: 'custom', fadeblack: 'custom', dissolve: 'dissolve',
     // ── Directional (native) ──
     wipeleft: 'wipeleft', wiperight: 'wiperight', wipeup: 'wipeup', wipedown: 'wipedown',
     slideleft: 'slideleft', slideright: 'slideright', slideup: 'slideup', slidedown: 'slidedown',
@@ -234,6 +247,16 @@ export const TRANSITION_XFADE_MAP: Record<TransitionType, string | null> = {
     // ── Intelligent (rendered as near-invisible cuts/dissolves) ──
     'match-cut': null,          // match cuts are hard cuts placed at visually similar frames
     seamless: 'dissolve',       // ultra-short dissolve disguised by visual similarity
+    // ── Picture-in-Picture ──
+    pip: 'custom',              // custom PiP overlay rendering
+    // ── Effect-as-Transition (approximated) ──
+    boomerang: 'fade',          // boomerang reverse-play approximated as fade
+    'double-exposure': 'dissolve', // exposure blend approximated as dissolve
+    'triple-exposure': 'dissolve', // triple exposure blend approximated as dissolve
+    vhs: 'hblur',               // VHS tracking distortion approximated as blur
+    // ── Cinematic Pro Transitions ──
+    'white-flash': 'custom',    // custom white flash with animated opacity overlay
+    'subject-mask': 'circleopen', // subject mask approximated as circle-open reveal
 };
 
 /**
@@ -251,6 +274,37 @@ export function getTransitionFFmpegName(type: TransitionType): string | null {
  */
 export function isApproximatedTransition(type: TransitionType): boolean {
     return CUSTOM_TRANSITIONS.has(type);
+}
+
+/**
+ * Returns a custom FFmpeg xfade expression string for transitions that use
+ * `transition=custom`. Returns `null` for transitions that use a named
+ * built-in xfade. Currently used by `fadeblack` and `fadewhite` to render
+ * a proper **dip-to-color** (solid opaque overlay) instead of FFmpeg's
+ * default linear multiply which darkens/lightens the video content and
+ * makes white elements (teeth, clothes) look grey and ugly.
+ *
+ * The expression uses `clip()` to create a fast ramp where:
+ *   - First 40%: A fades under a solid colour overlay
+ *   - Middle 20%: Solid colour (fully opaque)
+ *   - Last 40%: B fades in from the solid colour
+ *
+ * This ensures the colour COVERS the video rather than blending with it.
+ */
+export function getCustomXfadeExpr(type: TransitionType): string | null {
+    switch (type) {
+        // Dip-to-black: black covers A, then reveals B from black
+        // A * clip(1 - P*2.5, 0, 1) → A visible for first 40%, fades to solid black
+        // B * clip(P*2.5 - 1.5, 0, 1) → B emerges from black in last 40%
+        case 'fadeblack':
+            return "if(lt(P\\,0.5)\\,A*clip(1-P*2.5\\,0\\,1)\\,B*clip(P*2.5-1.5\\,0\\,1))";
+        // Dip-to-white: white covers A, then reveals B from white
+        // Similar but adding (1-factor) * 255 for the white overlay
+        case 'fadewhite':
+            return "if(lt(P\\,0.5)\\,A*clip(1-P*2.5\\,0\\,1)+255*clip(P*2.5\\,0\\,1)\\,B*clip(P*2.5-1.5\\,0\\,1)+255*(1-clip(P*2.5-1.5\\,0\\,1)))";
+        default:
+            return null;
+    }
 }
 
 // ═══════════════════════════════════════════════════════

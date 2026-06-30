@@ -1,0 +1,109 @@
+{
+  "schema_version": "1.0",
+  "mode_id": "social_vertical_hypercut",
+  "name": "Social — Vertical Hyper-Cut",
+  "family": "Short-Form Social",
+  "derived_from": [
+    "dance"
+  ],
+  "summary": "9:16 maximum-energy edit: 100+ cuts/min, grid splits, magnify punches, camera shake, turbulent displace, echo trails and motion blur — built to stop the scroll.",
+  "best_for": "Reels/TikTok/Shorts dance, hype, trend edits.",
+  "canvas": {
+    "resolution": "1080x1920",
+    "aspect": "9:16",
+    "fps": 25
+  },
+  "pacing": {
+    "cuts_per_min": [
+      100,
+      140
+    ],
+    "logic": "beat_sync",
+    "avg_clip_sec": [
+      0.3,
+      0.7
+    ]
+  },
+  "source_layout": {
+    "cameras": "multi-angle / repeated takes",
+    "broll": "minimal"
+  },
+  "reframe": {
+    "method": "AE.ADBE Motion + Magnify",
+    "scale_range_pct": [
+      100,
+      180
+    ],
+    "pattern": "snap punch-ins on every hit"
+  },
+  "effect_stack": [
+    {
+      "match_name": "AE.ADBE AEMask",
+      "role": "split-screen / grid masks"
+    },
+    {
+      "match_name": "AE.ADBE Grid",
+      "role": "grid / multi-panel overlay"
+    },
+    {
+      "match_name": "AE.ADBE Magnify",
+      "role": "punch zoom on beat"
+    },
+    {
+      "match_name": "AE.S_Shake",
+      "role": "camera shake on hits"
+    },
+    {
+      "match_name": "AE.ADBE Turbulent Displace",
+      "role": "warp pulse"
+    },
+    {
+      "match_name": "AE.ADBE Motion Blur",
+      "role": "movement smear"
+    },
+    {
+      "match_name": "AE.ADBE Echo",
+      "role": "trail / strobe trails"
+    },
+    {
+      "match_name": "AE.ADBE Lumetri",
+      "role": "punchy grade"
+    }
+  ],
+  "transitions": {
+    "philosophy": "Choose the transition that fits the moment; never default to a hard cut.",
+    "library": [
+      "shake whip",
+      "magnify/zoom punch",
+      "displace warp",
+      "echo trail",
+      "flash on beat"
+    ],
+    "default": "magnify/zoom punch",
+    "notes": "Transition energy matches the beat; chain shakes, zoom punches and warps. No idle straight changes."
+  },
+  "color": {
+    "approach": "high-contrast vibrant",
+    "lumetri": "saturated punch"
+  },
+  "audio": {
+    "music": "trending track, beat-locked",
+    "dialogue": "optional shouts",
+    "sync": "strict beat grid"
+  },
+  "titles_graphics": {
+    "captions": "kinetic optional",
+    "hook_text": "first 1s hook"
+  },
+  "toggles": [
+    "grid_panels",
+    "shake_intensity",
+    "echo_trails",
+    "hook_text"
+  ],
+  "generator_rules": [
+    "Lock to beat grid; cut/effect on every hit.",
+    "Open with a 1s hook; keep energy maxed.",
+    "Use grid/magnify/shake as both effect and transition."
+  ]
+}

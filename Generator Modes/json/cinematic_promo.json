@@ -1,0 +1,115 @@
+{
+  "schema_version": "1.0",
+  "mode_id": "cinematic_promo",
+  "name": "Cinematic Promo / Branded Story",
+  "family": "Promo / Brand Film",
+  "derived_from": [
+    "Sara Chy - FINAL"
+  ],
+  "summary": "Polished branded story driven by music (no synced dialogue): graphic groups and animated text, layered color grade (RGB curves, levels, tint), masked composites and motion blur — a designed promo, not a talking edit.",
+  "best_for": "Brand films, product/launch promos, event recaps, sizzles.",
+  "canvas": {
+    "resolution": "1920x1080 (4K source)",
+    "aspect": "16:9",
+    "fps": 30
+  },
+  "pacing": {
+    "cuts_per_min": [
+      80,
+      110
+    ],
+    "logic": "music_phrasing + montage",
+    "avg_clip_sec": [
+      0.5,
+      1.0
+    ]
+  },
+  "source_layout": {
+    "cameras": "curated B-roll / hero shots",
+    "broll": "primary content",
+    "dialogue": "none (music-led)"
+  },
+  "reframe": {
+    "method": "AE.ADBE Motion + Geometry",
+    "scale_range_pct": [
+      100,
+      140
+    ],
+    "pattern": "designed push/parallax moves"
+  },
+  "effect_stack": [
+    {
+      "match_name": "AE.ADBE Graphic Group",
+      "role": "designed graphic layers"
+    },
+    {
+      "match_name": "AE.ADBE Text",
+      "role": "animated brand typography"
+    },
+    {
+      "match_name": "AE.ADBE RGB Curves",
+      "role": "primary grade"
+    },
+    {
+      "match_name": "PR.ADBE Levels",
+      "role": "contrast/levels"
+    },
+    {
+      "match_name": "AE.ADBE Tint",
+      "role": "brand tone"
+    },
+    {
+      "match_name": "AE.ADBE AEMask",
+      "role": "masked composites / reveals"
+    },
+    {
+      "match_name": "AE.ADBE Gaussian Blur 2",
+      "role": "depth / transitions"
+    },
+    {
+      "match_name": "AE.ADBE Motion Blur",
+      "role": "movement realism"
+    },
+    {
+      "match_name": "AE.ADBE Offset",
+      "role": "texture/parallax"
+    }
+  ],
+  "transitions": {
+    "philosophy": "Choose the transition that fits the moment; never default to a hard cut.",
+    "library": [
+      "graphic/matte wipe",
+      "blur dissolve on phrase",
+      "match cut",
+      "speed-ramp",
+      "cross dissolve"
+    ],
+    "default": "graphic/matte wipe",
+    "notes": "Transitions are designed moments — graphic wipes, match cuts and ramps cut to the music. Never an idle straight change."
+  },
+  "color": {
+    "approach": "strong cohesive brand grade",
+    "lumetri": "curves + levels + tint stack"
+  },
+  "audio": {
+    "music": "drives the edit, full mix",
+    "dialogue": "none/VO optional",
+    "sync": "cut to phrasing + hits"
+  },
+  "titles_graphics": {
+    "typography": "animated brand type",
+    "graphics": "designed lower-thirds / supers",
+    "logo": "outro lockup"
+  },
+  "toggles": [
+    "kinetic_typography",
+    "logo_outro",
+    "speed_ramps",
+    "texture_overlays"
+  ],
+  "generator_rules": [
+    "Build to music phrasing; place designed transitions on hits.",
+    "Layer graphic groups + animated type to a brand system.",
+    "Grade everything to one cohesive look; end on logo lockup."
+  ]
+}

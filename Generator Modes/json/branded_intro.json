@@ -1,0 +1,99 @@
+{
+  "schema_version": "1.0",
+  "mode_id": "branded_intro",
+  "name": "Branded Intro / Title Open",
+  "family": "Intro / Titles",
+  "derived_from": [
+    "AMOSA intro"
+  ],
+  "summary": "Animated logo/title opener: kinetic text, gradient ramps, mirrored/kaleidoscopic motion, 3D card moves, track-matte reveals and drop shadows — a short branded sting to front any video.",
+  "best_for": "Show/series intros, channel branding, segment openers.",
+  "canvas": {
+    "resolution": "1920x1080 (multi-cam-friendly)",
+    "aspect": "16:9",
+    "fps": 30
+  },
+  "pacing": {
+    "duration_sec": [
+      4,
+      12
+    ],
+    "logic": "beat-synced reveals",
+    "note": "Short, punchy, lands on logo."
+  },
+  "source_layout": {
+    "elements": "logo, title text, brand color fields, optional footage behind matte"
+  },
+  "reframe": {
+    "method": "AE.ADBE Geometry2 / Basic 3D moves",
+    "pattern": "scale/rotate reveals into final lockup"
+  },
+  "effect_stack": [
+    {
+      "match_name": "AE.ADBE Text",
+      "role": "animated title typography"
+    },
+    {
+      "match_name": "AE.ADBE Ramp",
+      "role": "gradient backgrounds / sweeps"
+    },
+    {
+      "match_name": "AE.ADBE Mirror",
+      "role": "kaleidoscopic / mirrored motion"
+    },
+    {
+      "match_name": "AE.ADBE Basic 3D",
+      "role": "3D card rotation"
+    },
+    {
+      "match_name": "AE.ADBE Legacy Key Track Matte",
+      "role": "matte reveal of text/logo"
+    },
+    {
+      "match_name": "AE.ADBE Drop Shadow",
+      "role": "depth on type"
+    },
+    {
+      "match_name": "AE.ADBE Tint",
+      "role": "brand-color unify"
+    },
+    {
+      "match_name": "AE.ADBE Geometry2",
+      "role": "transform moves"
+    }
+  ],
+  "transitions": {
+    "philosophy": "Choose the transition that fits the moment; never default to a hard cut.",
+    "library": [
+      "matte reveal",
+      "ramp/gradient wipe",
+      "3D flip",
+      "dip-to-brand-color"
+    ],
+    "default": "matte reveal",
+    "notes": "Reveals are the transitions; land hard on the final logo lockup."
+  },
+  "color": {
+    "approach": "brand palette enforced via Tint/ramps"
+  },
+  "audio": {
+    "music": "branded sting / riser",
+    "sfx": "whooshes + impact on logo land",
+    "dialogue": "none"
+  },
+  "titles_graphics": {
+    "title": "primary animated typography",
+    "logo": "final lockup"
+  },
+  "toggles": [
+    "footage_behind_matte",
+    "riser_sfx",
+    "kaleidoscope",
+    "color_variant"
+  ],
+  "generator_rules": [
+    "Drive reveals off brand assets (logo, name, colors).",
+    "Sync reveal hits to sting/riser; land on logo lockup.",
+    "Keep total length short; enforce brand palette via tint/ramp."
+  ]
+}

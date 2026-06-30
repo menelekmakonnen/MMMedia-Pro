@@ -5,7 +5,9 @@
  * before the store is wired in.
  */
 
-export type ActiveTool = 'select' | 'trim' | 'razor' | 'hand' | 'slip' | 'slide' | 'rate-stretch';
+export type ActiveTool =
+  | 'select' | 'trim' | 'razor' | 'hand' | 'slip' | 'slide' | 'rate-stretch'
+  | 'ripple' | 'rolling' | 'track-select' | 'pen' | 'zoom';
 
 export interface Track {
   id: number;
@@ -56,6 +58,15 @@ export interface TimelineState {
   prerenderEnabled: boolean;
   prerenderCache: Record<string, string>; // clipId → proxy path
 
+  /** Guide overlay state. */
+  guides: { id: string; axis: 'h' | 'v'; position: number }[];
+  showGuides: boolean;
+
+  /** Track targeting (Premiere: which tracks receive insert/overwrite edits). */
+  targetedTrackIds: Set<number>;
+  /** Source patching (which source track maps onto which timeline track). */
+  syncLockedTrackIds: Set<number>;
+
   // Actions
   setTracks: (tracks: Track[]) => void;
   setPlayheadFrame: (frame: number) => void;
@@ -76,4 +87,10 @@ export interface TimelineState {
   addTrack: (track: Track) => void;
   removeTrack: (id: number) => void;
   reorderTracks: (fromIndex: number, toIndex: number) => void;
+  addGuide: (axis: 'h' | 'v', position: number) => void;
+  removeGuide: (id: string) => void;
+  updateGuidePosition: (id: string, position: number) => void;
+  toggleGuides: () => void;
+  toggleTargetTrack: (id: number) => void;
+  toggleSyncLock: (id: number) => void;
 }

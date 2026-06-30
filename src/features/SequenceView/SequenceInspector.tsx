@@ -207,7 +207,7 @@ export const SequenceInspector: React.FC<SequenceInspectorProps> = ({
     // ═══ NO CLIP SELECTED ═══
     if (!selectedClip) {
         return (
-            <div className="h-full flex flex-col bg-[#0d0d1a]/95 backdrop-blur-sm overflow-hidden">
+            <div className="h-full flex flex-col bg-[#0d0d1a] overflow-hidden">
                 {/* Header */}
                 <div className="h-7 flex items-center px-3 border-b border-white/[0.06] flex-shrink-0 bg-[#111122]/60">
                     <Sliders size={11} className="text-white/25 mr-2" />
@@ -435,7 +435,7 @@ export const SequenceInspector: React.FC<SequenceInspectorProps> = ({
     const temperature = cg?.temperature ?? 0;
 
     return (
-        <div className="h-full flex flex-col bg-[#0d0d1a]/95 backdrop-blur-sm overflow-hidden">
+        <div className="h-full flex flex-col bg-[#0d0d1a] overflow-hidden">
             {/* Header */}
             <div className="h-7 flex items-center justify-between px-3 border-b border-white/[0.06] flex-shrink-0 bg-[#111122]/60">
                 <div className="flex items-center gap-2 min-w-0">

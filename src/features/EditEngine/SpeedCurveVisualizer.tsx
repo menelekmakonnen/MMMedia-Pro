@@ -79,7 +79,7 @@ export function getSpeedCurvePoints(preset: SpeedCurvePreset): number[] {
  * Canvas-based visualizer that renders a speed curve shape
  * with grid lines, reference markers, gradient fill, and axis labels.
  */
-export const SpeedCurveVisualizer: React.FC<SpeedCurveVisualizerProps> = ({
+export const SpeedCurveVisualizer = React.memo<SpeedCurveVisualizerProps>(({
   preset,
   width: w = 120,
   height: h = 60,
@@ -210,4 +210,4 @@ export const SpeedCurveVisualizer: React.FC<SpeedCurveVisualizerProps> = ({
       style={{ borderRadius: 6, display: 'block' }}
     />
   );
-};
+});

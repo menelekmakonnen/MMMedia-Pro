@@ -1,0 +1,85 @@
+{
+  "schema_version": "1.0",
+  "mode_id": "interview_dual_subject",
+  "name": "Interview — Dual Subject",
+  "family": "Interview / Talking-Head",
+  "derived_from": [
+    "AZASI AND DERRICK",
+    "AZASI AND DERRICK final"
+  ],
+  "summary": "Two-person conversation cut at a high tempo, bouncing between speakers with reframes so a single or dual source reads as a multi-cam shoot.",
+  "best_for": "Two-guest interviews, host+guest, debate/dialogue.",
+  "canvas": {
+    "resolution": "1920x1080",
+    "aspect": "16:9",
+    "fps": 29.97
+  },
+  "pacing": {
+    "cuts_per_min": [
+      25,
+      35
+    ],
+    "logic": "speaker_change + silence_removal",
+    "avg_clip_sec": [
+      1.5,
+      3.0
+    ],
+    "note": "Cut to whoever is speaking; add reaction shots of the listener."
+  },
+  "source_layout": {
+    "cameras": "1-2 (or wide containing both)",
+    "shot": "two singles or a wide cropped into singles",
+    "broll": "optional"
+  },
+  "reframe": {
+    "method": "AE.ADBE Motion (crop+scale to isolate each speaker from a wide)",
+    "scale_range_pct": [
+      100,
+      160
+    ],
+    "pattern": "Speaker A single / Speaker B single / occasional two-shot for emphasis.",
+    "purpose": "Manufacture singles + reactions from limited angles."
+  },
+  "effect_stack": [
+    {
+      "match_name": "AE.ADBE Motion",
+      "role": "isolate speaker / reaction reframe"
+    }
+  ],
+  "transitions": {
+    "philosophy": "Choose the transition that fits the moment; never default to a hard cut.",
+    "library": [
+      "reframe-covered cut",
+      "seamless soft cut",
+      "short dissolve on topic change"
+    ],
+    "default": "reframe-covered cut",
+    "notes": "Speaker-to-speaker changes are covered by the framing change; soften with 2-3f dissolve where motion is jarring."
+  },
+  "color": {
+    "approach": "match both subjects to one look",
+    "lumetri": "shot-matching priority"
+  },
+  "audio": {
+    "dialogue": "both mics, balanced; duck cross-talk",
+    "music": "low underscore optional",
+    "use_jl_cuts": true,
+    "note": "Lead picture changes with audio using L-cuts for natural back-and-forth."
+  },
+  "titles_graphics": {
+    "lower_thirds": "name+role for each speaker on first line",
+    "captions": "optional"
+  },
+  "toggles": [
+    "reaction_shots",
+    "two_shot_emphasis",
+    "captions",
+    "underscore_bed"
+  ],
+  "generator_rules": [
+    "Diarize speakers; assign picture to the active speaker.",
+    "Cut in listener reactions on emphatic lines.",
+    "Cover every speaker switch with a distinct frame, not an identical jump.",
+    "Match grade across the two subjects."
+  ]
+}

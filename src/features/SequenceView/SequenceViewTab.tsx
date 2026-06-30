@@ -9,6 +9,10 @@ import { DEFAULT_FPS } from '../../lib/time';
 import { SequenceToolbar, SequenceTool } from './SequenceToolbar';
 import { ProgramMonitor } from './ProgramMonitor';
 import { SequenceInspector } from './SequenceInspector';
+import { EffectControlsPanel } from './inspector/EffectControlsPanel';
+import { ClipSpeedDurationDialog } from './inspector/ClipSpeedDurationDialog';
+import { SequenceMenuBar } from './SequenceMenuBar';
+import { Sliders, SlidersHorizontal } from 'lucide-react';
 
 import clsx from 'clsx';
 import { TimelineCanvas } from './timeline/TimelineCanvas';
@@ -17,12 +21,16 @@ import { useTimelineStore } from './timeline/useTimelineStore';
 import { useSequenceViewStore } from '../../store/sequenceViewStore';
 import { EffectsBrowser } from './effects/EffectsBrowser';
 import { ScopePanel } from './scopes/ScopePanel';
-import { Sparkles, BarChart2, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Sparkles, BarChart2, PanelLeftClose, PanelLeftOpen, Zap, Clapperboard, Wand2 } from 'lucide-react';
+import { EditorialAssist } from './EditorialAssist';
+import { VisualHookPanel } from './VisualHookPanel';
+import { GeneratorModePanel } from '../EditEngine/GeneratorModePanel';
 import {
     splitAtPlayhead,
     deleteSelectedClips,
     rippleDeleteSelectedClips,
     duplicateSelectedClips,
+    toggleClipEnabled,
 } from './actions';
 
 const DEFAULT_SCALE = 0.5; // Pixels per frame
@@ -99,7 +107,10 @@ export const SequenceViewTab: React.FC = () => {
     const [snapEnabled, setSnapEnabled] = useState(true);
 
     // ── Right sidebar width (resizable) ──
-    const [sidebarWidth, setSidebarWidth] = useState(280);
+    const [sidebarWidth, setSidebarWidth] = useState(320);
+
+    // ── Right sidebar tab: Premiere-style Effect Controls vs metadata Inspector ──
+    const [rightTab, setRightTab] = useState<'fx' | 'inspector'>('fx');
 
     // ── Multi-select ──
     const [multiSelectedIds, setMultiSelectedIds] = useState<Set<string>>(new Set());
@@ -179,6 +190,12 @@ export const SequenceViewTab: React.FC = () => {
             if (e.key === 'h' && !e.ctrlKey && !e.metaKey) {
                 setActiveTool('hand');
             }
+            // Premiere tool shortcuts (unbound keys only — B stays "split", C "razor")
+            if (e.key === 'y' && !e.ctrlKey && !e.metaKey) setActiveTool('slip');
+            if (e.key === 'u' && !e.ctrlKey && !e.metaKey) setActiveTool('slide');
+            if (e.key === 'a' && !e.ctrlKey && !e.metaKey) setActiveTool('track-select');
+            if (e.key === 'n' && !e.ctrlKey && !e.metaKey) setActiveTool('rolling');
+            if (e.key === 'p' && !e.ctrlKey && !e.metaKey) setActiveTool('pen');
             // S key = toggle snap
             if (e.key === 's' && !e.ctrlKey && !e.metaKey) {
                 setSnapEnabled(prev => !prev);
@@ -205,6 +222,11 @@ export const SequenceViewTab: React.FC = () => {
             if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
                 e.preventDefault();
                 duplicateSelectedClips();
+            }
+            // Ctrl/Cmd+R = Clip Speed / Duration dialog
+            if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
+                e.preventDefault();
+                useSequenceViewStore.getState().setSpeedDialogOpen(true);
             }
             // M = drop a marker at the playhead
             if (e.key === 'm' && !e.ctrlKey && !e.metaKey) {
@@ -291,6 +313,12 @@ export const SequenceViewTab: React.FC = () => {
             // Ctrl+Shift+Z = redo
             if ((e.ctrlKey || e.metaKey) && e.key === 'z' && e.shiftKey) {
                 try { useHistoryStore?.getState()?.redo?.(); } catch {}
+            }
+            // E = toggle Enable/Disable on selected clips (non-destructive editing)
+            if (e.key === 'e' && !e.ctrlKey && !e.metaKey) {
+                e.preventDefault();
+                const ids = multiSelectedIds.size > 0 ? [...multiSelectedIds] : (selectedClipId ? [selectedClipId] : []);
+                ids.forEach(id => toggleClipEnabled(id));
             }
         };
         window.addEventListener('keydown', handleKeyDown);
@@ -412,7 +440,7 @@ export const SequenceViewTab: React.FC = () => {
 
         return uniqueOrder.map(id => ({
             id,
-            label: id === 1 ? 'V1' : id === 2 ? 'A1' : id === 101 ? 'A2' : id < 100 ? `V${id}` : `A${id - 100 + 1}`,
+            label: id === 1 ? 'V1' : id === 2 ? 'A1' : id === 3 ? 'V3 (PIP)' : id === 101 ? 'A2 (Music)' : id === 102 ? 'SFX-1' : id === 103 ? 'SFX-2' : id < 100 ? `V${id}` : `A${id - 100 + 1}`,
             isAudio: id === 2 || id >= 100,
             clips: grouped[id].sort((a, b) => a.startFrame - b.startFrame)
         }));
@@ -720,6 +748,9 @@ export const SequenceViewTab: React.FC = () => {
     return (
         <div className="flex h-full w-full flex-col bg-[#0d0d1a] text-white overflow-hidden">
 
+            {/* ═══ Premiere-style application menu bar ═══ */}
+            <SequenceMenuBar />
+
             {/* ═══ TOP HALF: Program Monitor + Inspector Sidebar ═══ */}
             <div
                 className="flex min-h-0 border-b border-white/[0.06]"
@@ -758,6 +789,42 @@ export const SequenceViewTab: React.FC = () => {
                                 Scopes
                             </button>
                             <button
+                                onClick={() => setLeftPanelTab('hooks')}
+                                className={clsx(
+                                    'flex-1 flex items-center justify-center gap-1 py-1.5 text-[10px] font-semibold transition-colors',
+                                    leftPanelTab === 'hooks'
+                                        ? 'text-amber-300 border-b-2 border-amber-500 bg-amber-500/5'
+                                        : 'text-white/35 hover:text-white/60'
+                                )}
+                            >
+                                <Zap size={11} />
+                                Hooks
+                            </button>
+                            <button
+                                onClick={() => setLeftPanelTab('editorial')}
+                                className={clsx(
+                                    'flex-1 flex items-center justify-center gap-1 py-1.5 text-[10px] font-semibold transition-colors',
+                                    leftPanelTab === 'editorial'
+                                        ? 'text-pink-300 border-b-2 border-pink-500 bg-pink-500/5'
+                                        : 'text-white/35 hover:text-white/60'
+                                )}
+                            >
+                                <Clapperboard size={11} />
+                                Editorial
+                            </button>
+                            <button
+                                onClick={() => setLeftPanelTab('modes')}
+                                className={clsx(
+                                    'flex-1 flex items-center justify-center gap-1 py-1.5 text-[10px] font-semibold transition-colors',
+                                    leftPanelTab === 'modes'
+                                        ? 'text-cyan-300 border-b-2 border-cyan-500 bg-cyan-500/5'
+                                        : 'text-white/35 hover:text-white/60'
+                                )}
+                            >
+                                <Wand2 size={11} />
+                                Modes
+                            </button>
+                            <button
                                 onClick={toggleLeftPanel}
                                 className="px-2 py-1.5 text-white/25 hover:text-white/60 transition-colors"
                                 title="Close panel"
@@ -767,7 +834,22 @@ export const SequenceViewTab: React.FC = () => {
                         </div>
                         {/* Content */}
                         <div className="flex-1 overflow-hidden">
-                            {leftPanelTab === 'effects' ? <EffectsBrowser /> : <ScopePanel />}
+                            {leftPanelTab === 'effects' && <EffectsBrowser />}
+                            {leftPanelTab === 'editorial' && <EditorialAssist />}
+                            {leftPanelTab === 'modes' && <GeneratorModePanel variant="compact" />}
+                            {leftPanelTab === 'scopes' && <ScopePanel />}
+                            {leftPanelTab === 'hooks' && (
+                                <VisualHookPanel
+                                    onApplyHook={(overlay) => {
+                                        const firstClip = clips.find(c => c.type !== 'audio');
+                                        if (firstClip) {
+                                            const existing = firstClip.textOverlays || [];
+                                            updateClip(firstClip.id, { textOverlays: [...existing, overlay] });
+                                        }
+                                    }}
+                                    onClose={() => setLeftPanelTab('effects')}
+                                />
+                            )}
                         </div>
                         {/* Resize handle (right edge) */}
                         <div
@@ -829,6 +911,8 @@ export const SequenceViewTab: React.FC = () => {
                     bgAudioClips={bgAudioClips}
                     bgAudioRefs={bgAudioRefs}
                     exactProxyAvailable={!!(activeVisualClip && useTimelineStore.getState().prerenderCache[activeVisualClip.id])}
+                    maxFrame={maxFrameId}
+                    onSeek={setCurrentGlobalFrame}
                 />
 
                 {/* ── Right Sidebar: Inspector (always visible) ── */}
@@ -855,12 +939,51 @@ export const SequenceViewTab: React.FC = () => {
                             window.addEventListener('mouseup', handleUp);
                         }}
                     />
-                    <SequenceInspector
-                        selectedClipId={selectedClipId}
-                        currentFrame={currentGlobalFrame}
-                        onJumpToFrame={setCurrentGlobalFrame}
-                        maxFrame={maxFrameId}
-                    />
+                    <div className="flex flex-col h-full overflow-hidden">
+                        {/* Tab switcher: Effect Controls (Premiere) | Inspector (metadata) */}
+                        <div className="flex items-center border-b border-white/[0.06] bg-[#0e0e1c] flex-shrink-0">
+                            <button
+                                onClick={() => setRightTab('fx')}
+                                className={clsx(
+                                    'flex-1 flex items-center justify-center gap-1 py-1.5 text-[10px] font-semibold transition-colors',
+                                    rightTab === 'fx'
+                                        ? 'text-indigo-300 border-b-2 border-indigo-500 bg-indigo-500/5'
+                                        : 'text-white/35 hover:text-white/60'
+                                )}
+                            >
+                                <SlidersHorizontal size={11} />
+                                Effect Controls
+                            </button>
+                            <button
+                                onClick={() => setRightTab('inspector')}
+                                className={clsx(
+                                    'flex-1 flex items-center justify-center gap-1 py-1.5 text-[10px] font-semibold transition-colors',
+                                    rightTab === 'inspector'
+                                        ? 'text-purple-300 border-b-2 border-purple-500 bg-purple-500/5'
+                                        : 'text-white/35 hover:text-white/60'
+                                )}
+                            >
+                                <Sliders size={11} />
+                                Inspector
+                            </button>
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                            {rightTab === 'fx' ? (
+                                <EffectControlsPanel
+                                    selectedClipId={selectedClipId}
+                                    currentFrame={currentGlobalFrame}
+                                    onJumpToFrame={setCurrentGlobalFrame}
+                                />
+                            ) : (
+                                <SequenceInspector
+                                    selectedClipId={selectedClipId}
+                                    currentFrame={currentGlobalFrame}
+                                    onJumpToFrame={setCurrentGlobalFrame}
+                                    maxFrame={maxFrameId}
+                                />
+                            )}
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -908,6 +1031,9 @@ export const SequenceViewTab: React.FC = () => {
                     onClose={() => setIsShortcutsOpen(false)}
                 />
             </div>
+
+            {/* Clip Speed/Duration dialog (⌃R) */}
+            <ClipSpeedDurationDialog />
         </div>
     );
 };

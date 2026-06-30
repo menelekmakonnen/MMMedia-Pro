@@ -14,7 +14,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type SequenceSubTab = 'upload' | 'media' | 'edit';
-export type LeftPanelTab = 'effects' | 'scopes';
+export type LeftPanelTab = 'effects' | 'scopes' | 'hooks' | 'editorial' | 'modes';
 
 export interface SourceMonitorClip {
     id: string;
@@ -56,6 +56,10 @@ export interface SequenceViewState {
     // Resizable media panel
     mediaPanelWidth: number;
     setMediaPanelWidth: (w: number) => void;
+
+    // Clip Speed/Duration dialog (Premiere ⌃R)
+    speedDialogOpen: boolean;
+    setSpeedDialogOpen: (open: boolean) => void;
 }
 
 // ─── Store ───────────────────────────────────────────────────────────────────
@@ -74,6 +78,7 @@ export const useSequenceViewStore = create<SequenceViewState>()(
             showWaveforms: true,
             showFilmstrips: true,
             mediaPanelWidth: 300,
+            speedDialogOpen: false,
 
             // ── Actions ──────────────────────────────────────────────
 
@@ -97,6 +102,8 @@ export const useSequenceViewStore = create<SequenceViewState>()(
             toggleFilmstrips: () => set((s) => ({ showFilmstrips: !s.showFilmstrips })),
 
             setMediaPanelWidth: (w) => set({ mediaPanelWidth: Math.max(200, Math.min(600, w)) }),
+
+            setSpeedDialogOpen: (open) => set({ speedDialogOpen: open }),
         }),
         {
             name: 'mmmedia-sequence-view',

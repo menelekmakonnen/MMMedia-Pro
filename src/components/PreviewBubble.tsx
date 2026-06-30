@@ -5,6 +5,11 @@
  * Uses ReactDOM.createPortal to document.body so it's NEVER hidden under
  * any layer. Zero memory cost when not hovered — content only mounts on
  * mouseEnter and unmounts instantly on mouseLeave.
+ *
+ * MEMORY SAFETY: The `preview` prop is React.ReactNode but is ONLY rendered
+ * when `show` is true. To avoid leaking preview content across rapid
+ * hover/unhover cycles, the portal is fully unmounted on hide with no
+ * lingering timers.
  */
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import ReactDOM from 'react-dom';
@@ -36,10 +41,23 @@ export const PreviewBubble: React.FC<PreviewBubbleProps> = ({
     const [pos, setPos] = useState<BubblePos | null>(null);
     const triggerRef = useRef<HTMLSpanElement>(null);
     const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const isMountedRef = useRef(true);
+
+    // Track mount state to prevent setState after unmount
+    useEffect(() => {
+        isMountedRef.current = true;
+        return () => {
+            isMountedRef.current = false;
+            if (hideTimer.current) {
+                clearTimeout(hideTimer.current);
+                hideTimer.current = null;
+            }
+        };
+    }, []);
 
     const handleEnter = useCallback(() => {
         if (hideTimer.current) { clearTimeout(hideTimer.current); hideTimer.current = null; }
-        if (!triggerRef.current) return;
+        if (!triggerRef.current || !isMountedRef.current) return;
         const rect = triggerRef.current.getBoundingClientRect();
         const bubbleH = 140; // estimated max height
         const gap = 8;
@@ -63,12 +81,16 @@ export const PreviewBubble: React.FC<PreviewBubbleProps> = ({
     }, []);
 
     const handleLeave = useCallback(() => {
-        // Tiny delay to prevent flicker when moving between trigger and bubble
-        hideTimer.current = setTimeout(() => { setShow(false); setPos(null); }, 50);
+        // Clear any pending show timer and hide immediately — no lingering portal
+        if (hideTimer.current) { clearTimeout(hideTimer.current); hideTimer.current = null; }
+        hideTimer.current = setTimeout(() => {
+            if (isMountedRef.current) {
+                setShow(false);
+                setPos(null);
+            }
+            hideTimer.current = null;
+        }, 50);
     }, []);
-
-    // Cleanup timer on unmount
-    useEffect(() => () => { if (hideTimer.current) clearTimeout(hideTimer.current); }, []);
 
     return (
         <>
@@ -103,7 +125,7 @@ export const PreviewBubble: React.FC<PreviewBubbleProps> = ({
                         padding: '10px 12px',
                         boxShadow: '0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04)',
                     }}>
-                        {/* Preview content */}
+                        {/* Preview content — ONLY rendered when visible */}
                         <div style={{
                             display: 'flex',
                             justifyContent: 'center',

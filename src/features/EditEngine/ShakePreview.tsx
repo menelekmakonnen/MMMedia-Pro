@@ -73,7 +73,7 @@ function resolveShakeType(shakeType: string | undefined, beatIndex: number): str
  * 3. Shake application points as colored dots sized by intensity
  * 4. A legend at the bottom
  */
-export const ShakePreview: React.FC<ShakePreviewProps> = ({
+export const ShakePreview = React.memo<ShakePreviewProps>(({
     settings,
     audioAnalysis,
     width: propWidth,
@@ -292,7 +292,7 @@ export const ShakePreview: React.FC<ShakePreviewProps> = ({
             </div>
         </div>
     );
-};
+});
 
 /** Convert a hex color to rgba string. */
 function hexToRgba(hex: string, alpha: number): string {

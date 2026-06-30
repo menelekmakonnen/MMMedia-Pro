@@ -337,7 +337,7 @@ const AdvancedPresetsSection: React.FC<Props> = ({ settings, update }) => {
 
 interface Row { id: string; label: string; desc: string; on: boolean; set: (v: boolean) => void; storeKey?: SmartKey; favCategory?: string; }
 
-export const TrailerSmartPanel: React.FC<Props> = ({ settings, update }) => {
+export const TrailerSmartPanel = React.memo<Props>(({ settings, update }) => {
     const smartActive = useTrailerSmartStore(s => s.active);
     const analyzedCount = useTrailerSmartStore(s => s.analyzedCount);
     const [rescanActive, setRescanActive] = useState<Record<string, boolean>>({});
@@ -443,8 +443,9 @@ export const TrailerSmartPanel: React.FC<Props> = ({ settings, update }) => {
             </div>
             {/* Visual Match Analysis Summary */}
             <VisualMatchSummary />
-            {/* Advanced Editing Patterns — relocated from Effects section */}
+            {/* Advanced Editing Patterns — now auto-applied in the generator pipeline (see resolveSequencePresetIds).
             <AdvancedPresetsSection settings={settings} update={update} />
+            */}
         </div>
     );
-};
+});

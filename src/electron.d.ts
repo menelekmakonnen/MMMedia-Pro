@@ -17,6 +17,7 @@ export interface ElectronAPI {
     exportProjectMonolithic: (args: { filePath: string; clips: any[]; settings: any; isIntermediate?: boolean }) => Promise<{ success: boolean; error?: string }>;
     exportProjectSegment: (args: { filePath: string; clips: any[]; settings: any }) => Promise<{ success: boolean; error?: string }>;
     analyzeRenderParity: (args: { clips: any[]; settings: any }) => Promise<{ ok: boolean; warnings: { level: 'warning' | 'info'; message: string }[] }>;
+    sendToEnder: (job: { name?: string; source?: string; clips: any[]; settings: any; mediaRefs?: string[]; overrides?: any }) => Promise<{ success: boolean; transport?: 'bridge' | 'mailbox'; id?: string; file?: string; error?: string }>;
     cancelExport: () => Promise<{ success: boolean; error?: string }>;
     pauseExport: () => Promise<{ success: boolean; error?: string }>;
     resumeExport: () => Promise<{ success: boolean; error?: string }>;

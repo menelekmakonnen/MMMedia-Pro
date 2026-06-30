@@ -25,24 +25,24 @@ export interface ColorPreset {
 }
 
 export const COLOR_PRESETS: Record<string, ColorPreset> = {
-    // ── Per-section presets ──
-    verse_muted:     { label: 'Verse Muted',     saturation: 0.7,  contrast: 1.0,  brightness: 0,     gamma: 1.0, warmth: 0.1 },
-    chorus_vibrant:  { label: 'Chorus Vibrant',   saturation: 1.2,  contrast: 1.2,  brightness: 0.02,  gamma: 1.0, warmth: 0.0 },
-    drop_flash:      { label: 'Drop Flash',       saturation: 1.4,  contrast: 1.3,  brightness: 0.15,  gamma: 1.0, warmth: 0.0 },
-    buildup_draining:{ label: 'Buildup Draining',  saturation: 0.4,  contrast: 1.1,  brightness: -0.05, gamma: 1.0, warmth: -0.1 },
-    bridge_cold:     { label: 'Bridge Cold',       saturation: 0.8,  contrast: 1.1,  brightness: -0.02, gamma: 1.0, warmth: -0.2 },
-    intro_warm:      { label: 'Intro Warm',        saturation: 0.9,  contrast: 1.0,  brightness: 0,     gamma: 1.0, warmth: 0.15 },
-    outro_fading:    { label: 'Outro Fading',      saturation: 0.6,  contrast: 0.95, brightness: -0.05, gamma: 1.0, warmth: 0.1 },
-    breakdown_muted: { label: 'Breakdown Muted',   saturation: 0.5,  contrast: 1.0,  brightness: -0.02, gamma: 1.0, warmth: -0.05 },
+    // ── Per-section presets (subtle — preserve source look) ──
+    verse_muted:     { label: 'Verse Muted',     saturation: 0.85, contrast: 1.0,  brightness: 0,     gamma: 1.0, warmth: 0.0 },
+    chorus_vibrant:  { label: 'Chorus Vibrant',   saturation: 1.05, contrast: 1.05, brightness: 0.01,  gamma: 1.0, warmth: 0.0 },
+    drop_flash:      { label: 'Drop Flash',       saturation: 1.1,  contrast: 1.1,  brightness: 0.05,  gamma: 1.0, warmth: 0.0 },
+    buildup_draining:{ label: 'Buildup Draining',  saturation: 0.6,  contrast: 1.05, brightness: -0.02, gamma: 1.0, warmth: 0.0 },
+    bridge_cold:     { label: 'Bridge Cold',       saturation: 0.9,  contrast: 1.05, brightness: -0.01, gamma: 1.0, warmth: -0.05 },
+    intro_warm:      { label: 'Intro Warm',        saturation: 0.95, contrast: 1.0,  brightness: 0,     gamma: 1.0, warmth: 0.0 },
+    outro_fading:    { label: 'Outro Fading',      saturation: 0.8,  contrast: 0.98, brightness: -0.02, gamma: 1.0, warmth: 0.0 },
+    breakdown_muted: { label: 'Breakdown Muted',   saturation: 0.7,  contrast: 1.0,  brightness: -0.01, gamma: 1.0, warmth: 0.0 },
 
     // ── Standalone looks ──
-    teal_orange:     { label: 'Teal & Orange',     saturation: 1.1,  contrast: 1.15, brightness: 0,     gamma: 1.0, warmth: 0.0 },
+    teal_orange:     { label: 'Teal & Orange',     saturation: 1.05, contrast: 1.1,  brightness: 0,     gamma: 1.0, warmth: 0.0 },
     bleach_bypass:   { label: 'Bleach Bypass',      saturation: 0.5,  contrast: 1.3,  brightness: 0,     gamma: 1.0, warmth: 0.0 },
-    vintage_warm:    { label: 'Vintage Warm',       saturation: 0.6,  contrast: 1.0,  brightness: 0.03,  gamma: 1.0, warmth: 0.3 },
-    high_contrast:   { label: 'High Contrast',      saturation: 1.1,  contrast: 1.5,  brightness: 0,     gamma: 1.0, warmth: 0.0 },
+    vintage_warm:    { label: 'Vintage Warm',       saturation: 0.6,  contrast: 1.0,  brightness: 0.02,  gamma: 1.0, warmth: 0.1 },
+    high_contrast:   { label: 'High Contrast',      saturation: 1.05, contrast: 1.4,  brightness: 0,     gamma: 1.0, warmth: 0.0 },
     desaturated:     { label: 'Desaturated',         saturation: 0.2,  contrast: 1.0,  brightness: 0,     gamma: 1.0, warmth: 0.0 },
     noir:            { label: 'Film Noir',           saturation: 0,    contrast: 1.4,  brightness: 0,     gamma: 1.0, warmth: 0.0 },
-    neon:            { label: 'Neon',                saturation: 1.6,  contrast: 1.2,  brightness: 0.05,  gamma: 1.0, warmth: -0.1 },
+    neon:            { label: 'Neon',                saturation: 1.3,  contrast: 1.15, brightness: 0.03,  gamma: 1.0, warmth: 0.0 },
 };
 
 // ─── Section → Color Mapping ──────────────────────────────
@@ -139,8 +139,8 @@ export function generateDesaturationRamp(
     // Snap back at drop
     keyframes.push({
         time: dropTime,
-        saturation: 1.3, // Oversaturation for impact
-        brightness: 0.1,  // Brightness pop
+        saturation: 1.05, // Slight boost for impact (subtle, not oversaturated)
+        brightness: 0.03,  // Slight brightness pop
     });
 
     // Ease back to normal over 0.5 seconds after drop

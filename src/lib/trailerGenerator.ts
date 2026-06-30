@@ -2,13 +2,16 @@ import { v4 as uuidv4 } from 'uuid';
 import { DEFAULT_FPS } from './time';
 import { expandClipToBoomerang, BOOMERANG_PRESETS, getBoomerangPreset } from './boomerang';
 import { IMPACT_PRESETS, presetToKeyframes } from './effectsEngine';
+import { DEFAULT_AUDIO_EFFECTS } from './audioEffects';
 import { pickDoubleExposureShape } from './editEffectFilters';
 import { getGradientColors } from './doubleExposureGradients';
+import { resolveKeptRanges } from './mediaSegments';
 import type { SegmentType, AudioAnalysisResult } from './audioAnalysis';
 import { MediaFile } from '../store/mediaStore';
 import { Clip, TransitionType, ShakeType, ShakePolicy, BeatDropIntensity, TransitionStyle, BoomerangPresetId, ZoomSpeed, SpeedCurvePreset, EffectApplyPolicy } from '../types';
 import { RHYTHM_PATTERNS, resolveRhythmDuration, RhythmPatternId } from './rhythmPatterns';
 import { SeededRandom, generateSeed } from './random';
+import { generateGridSequence } from './gridEditEngine';
 import { selectTransition } from './transitions';
 import { applyReturnTransitions } from './returnTransitions';
 import {
@@ -24,6 +27,7 @@ import { findMatchCutPairs, findSeamlessTransitionPairs, hammingDistance, histog
 import { VideoMode, SegmentEditType, getSectionBehavior, DEFAULT_SECTION_BEHAVIORS, SectionBehavior } from './editingModes';
 import { MixedTemplate, mixTemplates, templateToSettings } from './templateMixer';
 import type { TemplateId } from './editingModes';
+import { generateSfxClips } from './sfxIntelligence';
 
 
 export interface TrailerSettings {
@@ -136,6 +140,11 @@ export interface TrailerSettings {
     doubleExposureGradientIds?: string[];
     /** 'cycle' = one gradient per clip (rotating); 'stack' = all selected on each clip. */
     doubleExposureGradientMode?: 'cycle' | 'stack';
+    // Triple Exposure (3 layers instead of 2)
+    tripleExposurePolicy?: EffectApplyPolicy;
+    tripleExposureOpacity?: number;       // 0-100
+    tripleExposureBlend?: 'screen' | 'lighten' | 'overlay' | 'add' | 'softlight' | 'multiply';
+    tripleExposureGradientIds?: string[];
     vibrationFlashPolicy?: EffectApplyPolicy;
     vibrationFlashIntensity?: number;     // 0-100
     smoothSlowmoPolicy?: EffectApplyPolicy;
@@ -147,6 +156,37 @@ export interface TrailerSettings {
     vhsPolicy?: EffectApplyPolicy;
     vhsAmount?: number;            // 0-100              // 0-100 global intensity
 
+    // Picture-in-Picture
+    pipPolicy?: EffectApplyPolicy;
+    pipPosition?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9; // 3x3 grid: 1=TL, 2=TC, 3=TR, 4=ML, 5=MC, 6=MR, 7=BL, 8=BC, 9=BR
+    pipScale?: number; // 20-50, default 30
+    pipBorderRadius?: number; // 0-20, default 8
+    pipShape?: 'square' | 'vertical' | 'horizontal'; // box shape: square (1:1), vertical (9:16 tall), horizontal (16:9 wide)
+    // Moving PIP — PIP moves between grid positions on beat
+    pipMovement?: 'static' | 'horizontal' | 'vertical' | 'diagonal' | 'random';
+    // Movement path: 3 positions on the 3x3 grid that the PIP visits in order (beat-synced)
+    // horizontal: e.g. [1,2,3] or [7,8,9]
+    // vertical: e.g. [1,4,7] or [3,6,9]
+    // diagonal: e.g. [1,5,9] or [3,5,7]
+    // random: picks from all 9 positions randomly per beat
+    pipMovementPath?: (1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9)[];
+
+
+    // Transition-as-Effect (transitions that also exist as on-clip effects)
+    spinPolicy?: EffectApplyPolicy;
+    spinSpeed?: number;           // 0-100 (rotation speed/amount)
+    filmBurnPolicy?: EffectApplyPolicy;
+    filmBurnIntensity?: number;   // 0-100
+    pixelizePolicy?: EffectApplyPolicy;
+    pixelizeAmount?: number;      // 0-100 (mosaic block size)
+    whipBlurPolicy?: EffectApplyPolicy;
+    whipBlurAmount?: number;      // 0-100
+
+    /** Deflicker temporal averaging policy */
+    deflickerPolicy?: EffectApplyPolicy;
+    /** Deflicker layer count (default: 3) */
+    deflickerLayers?: 3 | 5;
+
     // Beat Drop Impact Stack
     beatDropImpact?: BeatDropIntensity;
 
@@ -156,6 +196,9 @@ export interface TrailerSettings {
     transitionDurationMs?: number;        // default transition duration
     returnTransitions?: boolean;          // A→B→A: mirror a transition with its reverse on the next cut
     returnTransitionFrequency?: number;   // 0-100: chance a forward transition gets a return leg
+    returnTransitionMap?: Record<string, { enabled: boolean; frequency: 50 | 100 }>;
+    /** Per-transition option overrides keyed by TransitionType (duration, intensity, ease). */
+    transitionParams?: Record<string, { duration?: number; intensity?: number; ease?: string }>;
 
     // Visual FX globals
     filmGrainAmount?: number;             // 0-25
@@ -167,6 +210,14 @@ export interface TrailerSettings {
     colorPerSection?: boolean;
     desaturationBuildup?: boolean;        // fade to B&W during buildup
     beatFlashEnabled?: boolean;           // white flash on beats
+
+    // Color grading presets
+    tealOrangeGrade?: boolean;            // Cinematic teal & orange look
+    coolShadows?: boolean;                // Blue-tinted shadows
+    warmHighlights?: boolean;             // Golden/amber highlight push
+    highContrast?: boolean;               // Boosted blacks and whites
+    vintageFade?: boolean;                // Lifted blacks, warm tint, reduced sat
+    monochromeGrade?: boolean;            // Full B&W grade
 
     // Visual Effects (applied to all generated clips)
     globalEffects?: Array<{ effectId: string; params: Record<string, number | string | boolean> }>;
@@ -258,6 +309,23 @@ export interface TrailerSettings {
     // ── Project frame rate ────────────────────────────────────────────────
     /** Project FPS for frame calculations. Defaults to 30 if not provided. */
     fps?: number;
+
+    // ── Default structure presets (applied automatically as best practices) ──
+    /** Structure patterns always applied when no explicit presets are user-selected. */
+    defaultStructurePresets?: string[];
+
+    // ── Grid Edit Engine Bridge ──────────────────────────────────────────
+    /** Enable grid generation within single-video EGE (inserts grid segments). */
+    useGridBridges?: boolean;
+    /** Number of cells per grid segment (2-9). */
+    gridBridgeLayout?: number;
+    /** Grid segment format: horizontal/vertical/square. */
+    gridBridgeFormat?: import('../types').GridFormat;
+    /** 0-100: frequency of grid segments vs single clips in the sequence. */
+    gridBridgeFrequency?: number;
+
+    /** Auto-apply 30ms audio crossfade on all cuts to eliminate pops (default: true) */
+    autoCrossfadeAudio?: boolean;
 }
 
 export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
@@ -312,11 +380,15 @@ export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
     glowIntensity: 55,
     glowRadius: 50,
     doubleExposurePolicy: 'off',
-    doubleExposureOpacity: 45,
+    doubleExposureOpacity: 50,
     doubleExposureBlend: 'screen',
     doubleExposureGradientIds: [],
     doubleExposureGradientMode: 'cycle',
-    vibrationFlashPolicy: 'off',
+    tripleExposurePolicy: 'off',
+    tripleExposureOpacity: 50,
+    tripleExposureBlend: 'screen',
+    tripleExposureGradientIds: [],
+    vibrationFlashPolicy: 'sparingly',
     vibrationFlashIntensity: 70,
     smoothSlowmoPolicy: 'off',
     autoFadeInOut: false,
@@ -332,11 +404,30 @@ export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
     hueCycleSpeed: 30,
     vhsPolicy: 'off',
     vhsAmount: 50,
+    pipPolicy: 'off',
+    pipPosition: 9,  // Bottom-right by default
+    pipScale: 30,
+    pipBorderRadius: 8,
+    pipShape: 'square',
+    pipMovement: 'static',
+    pipMovementPath: [],
+    spinPolicy: 'off',
+    spinSpeed: 50,
+    filmBurnPolicy: 'off',
+    filmBurnIntensity: 50,
+    pixelizePolicy: 'off',
+    pixelizeAmount: 50,
+    whipBlurPolicy: 'off',
+    whipBlurAmount: 50,
+    deflickerPolicy: 'off',
+    deflickerLayers: 3,
     beatDropImpact: 'off',
     transitionStyle: 'cuts-only',
     transitionDurationMs: 200,
     returnTransitions: false,
     returnTransitionFrequency: 50,
+    returnTransitionMap: undefined,
+    transitionParams: undefined,
     filmGrainAmount: 0,
     vignetteAmount: 0,
     letterboxEnabled: false,
@@ -344,6 +435,20 @@ export const DEFAULT_TRAILER_SETTINGS: TrailerSettings = {
     colorPerSection: false,
     desaturationBuildup: false,
     beatFlashEnabled: false,
+    tealOrangeGrade: false,
+    coolShadows: false,
+    warmHighlights: false,
+    highContrast: false,
+    vintageFade: false,
+    monochromeGrade: false,
+    // Structure presets applied by default as best practices
+    defaultStructurePresets: ['multi-track-split', 'a-b-roll', 'split-screen-dual', 'triple-layer'],
+    // Grid bridge defaults
+    useGridBridges: false,
+    gridBridgeLayout: 4,
+    gridBridgeFormat: 'horizontal',
+    gridBridgeFrequency: 20,
+    autoCrossfadeAudio: true,
 };
 
 
@@ -423,7 +528,32 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         orientationFilter = 'all',
     } = s;
 
-    // 1. Filter Pool
+    // ── AUDIO DURATION OVERRIDE ──────────────────────────────────────────
+    // When an audio guide is active, the edit MUST match the audio's duration,
+    // not the (often stale) targetDuration slider. This prevents the generator
+    // from stopping early when the audio is longer than the default 30s.
+    if (useAudioGuide) {
+        // Primary: use the audio trim range if provided
+        const trimStart = s.audioTrimStart ?? 0;
+        const trimEnd = s.audioTrimEnd ?? (s.audioAnalysis?.duration ?? 0);
+        if (trimEnd > trimStart) {
+            const audioDuration = trimEnd - trimStart;
+            if (Math.abs(audioDuration - targetDuration) > 0.5) {
+                console.log(`[TrailerGen] Audio duration override: ${targetDuration}s → ${audioDuration.toFixed(1)}s (from audio trim ${trimStart.toFixed(1)}-${trimEnd.toFixed(1)})`);
+                targetDuration = audioDuration;
+            }
+        }
+        // Fallback: if beat timestamps span beyond targetDuration, extend to cover them
+        if (beatTimestamps && beatTimestamps.length > 1) {
+            const lastBeat = beatTimestamps[beatTimestamps.length - 1];
+            if (lastBeat > targetDuration) {
+                console.log(`[TrailerGen] Beat span override: ${targetDuration}s → ${lastBeat.toFixed(1)}s (last beat at ${lastBeat.toFixed(1)}s)`);
+                targetDuration = lastBeat;
+            }
+        }
+    }
+
+
     let validPool: PoolFile[] = pool.filter(f => {
         if (mediaType === 'video') return f.type === 'video';
         if (mediaType === 'image') return f.type === 'image';
@@ -443,11 +573,38 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         const trimOutFrames = f.trimOut != null ? Math.floor(f.trimOut * fps) : fullDurationFrames;
         const _effectiveDuration = trimOutFrames - trimInFrames;
 
+        // ── Include/exclude segments are the SOURCE OF TRUTH ────────────────
+        // When a source carries segment decisions, constrain the pickable window
+        // to its LARGEST kept range so the generator never samples excluded
+        // footage; kept-range boundaries become preferred scene cuts. Only set
+        // when segments exist, so Smart-Engine usable windows are untouched
+        // otherwise.
+        const segmentOverride: Record<string, unknown> = {};
+        if (f.segments && f.segments.length > 0) {
+            const kept = resolveKeptRanges({ duration: f.duration || fullDurationFrames / fps, trimIn: f.trimIn, trimOut: f.trimOut }, f.segments);
+            if (kept.length > 0) {
+                // Store ALL kept ranges so getBestTrimStart can reject excluded zones
+                segmentOverride._keptRanges = kept.map(r => ({
+                    inFrame: Math.floor(r.startSec * fps),
+                    outFrame: Math.floor(r.endSec * fps),
+                }));
+                // Outer bounds for backward compat
+                const allStarts = kept.map(r => Math.floor(r.startSec * fps));
+                const allEnds = kept.map(r => Math.floor(r.endSec * fps));
+                segmentOverride._usableInFrames = Math.min(...allStarts);
+                segmentOverride._usableOutFrames = Math.max(...allEnds);
+                // Scene cuts at every kept-range boundary (except the first)
+                const cuts = kept.slice(1).map(r => Math.floor(r.startSec * fps));
+                if (cuts.length > 0) segmentOverride._sceneCutsFrames = cuts;
+            }
+        }
+
         return {
             ...f,
             sourceDurationFrames: fullDurationFrames,
             effectiveTrimInFrames: trimInFrames,
             effectiveTrimOutFrames: trimOutFrames,
+            ...segmentOverride,
         };
     });
 
@@ -505,8 +662,27 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
     // revisited after a pass through the eligible pool, not random sampling with
     // replacement. This prevents a few lucky files from monopolising an edit.
     const pickCoverageFile = (): PoolFile => {
-        const minimumUse = Math.min(...validPool.map(file => sourceUseCounts.get(file.path) || 0));
-        let candidates = validPool.filter(file => (sourceUseCounts.get(file.path) || 0) === minimumUse);
+        // Filter out 'show once' files that have already been used
+        const eligible = validPool.filter(file => {
+            if ((file as any).usageMode === 'once' && (sourceUseCounts.get(file.path) || 0) > 0) return false;
+            return true;
+        });
+        const pool = eligible.length > 0 ? eligible : validPool;
+
+        const minimumUse = Math.min(...pool.map(file => sourceUseCounts.get(file.path) || 0));
+        let candidates = pool.filter(file => {
+            const uses = sourceUseCounts.get(file.path) || 0;
+            const weight = (file as any).usageWeight ?? 1;
+            // 'show more' files (weight >= 2) stay eligible even at minimumUse + 1
+            // 'show less' files (weight <= 0.5) only eligible at the strict minimum
+            if (weight >= 2) return uses <= minimumUse + 1;
+            if (weight <= 0.5) return uses === minimumUse;
+            return uses === minimumUse;
+        });
+        // Fallback: if no candidates (all weighted out), use minimum-use from pool
+        if (candidates.length === 0) {
+            candidates = pool.filter(file => (sourceUseCounts.get(file.path) || 0) === minimumUse);
+        }
 
         if (candidates.length > 1 && lastSourcePath) {
             const withoutImmediateRepeat = candidates.filter(file => file.path !== lastSourcePath);
@@ -522,7 +698,13 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             if (highQuality.length > 0) candidates = highQuality;
         }
 
-        return candidates[Math.floor(rng.random() * candidates.length)] || validPool[0];
+        // Weighted random selection: 'show more' files get double probability
+        const weighted = candidates.flatMap(file => {
+            const w = (file as any).usageWeight ?? 1;
+            if (w >= 2) return [file, file]; // double representation
+            return [file];
+        });
+        return weighted[Math.floor(rng.random() * weighted.length)] || validPool[0];
     };
 
     let consecutiveFailures = 0;
@@ -632,6 +814,8 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             const uo = typeof f._usableOutFrames === 'number' ? f._usableOutFrames : trimOutLimit;
             if (uo - ui >= sourceReq) { trimInOffset = Math.max(trimInOffset, ui); trimOutLimit = Math.min(trimOutLimit, uo); }
         }
+        // Build excluded zones from gaps between kept ranges
+        const keptRanges: {inFrame: number, outFrame: number}[] = Array.isArray(f._keptRanges) ? f._keptRanges : [];
         const availableRange = trimOutLimit - trimInOffset - sourceReq;
 
         if (availableRange <= 0) {
@@ -677,6 +861,21 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 minSeparation = Math.min(minSeparation, separation);
             }
 
+            // Skip candidates that overlap an excluded zone (gap between kept ranges)
+            if (keptRanges.length > 1) {
+                const candStart = candidate;
+                const candEnd2 = candidate + sourceReq;
+                let overlapsExcluded = false;
+                for (let k = 0; k < keptRanges.length - 1; k++) {
+                    const gapStart = keptRanges[k].outFrame;
+                    const gapEnd = keptRanges[k + 1].inFrame;
+                    if (gapEnd > gapStart && candStart < gapEnd && candEnd2 > gapStart) {
+                        overlapsExcluded = true;
+                        break;
+                    }
+                }
+                if (overlapsExcluded) continue;
+            }
             if (exactReuse && candidates.size > 1) continue;
             const sceneCutBonus = sceneCuts.includes(candidate) ? 0.25 : 0;
             const score = minSeparation + sceneCutBonus + rng.random() * 0.01;
@@ -710,6 +909,12 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         locked: false,
         sourceOrientation: file.orientation || 'horizontal',
         rotation: file.rotation || 0,   // persist upload-page rotation into the render
+        // Source-level framing (zoom + reposition from import page)
+        ...(file.sourceZoom && file.sourceZoom !== 100 ? { sourceZoom: file.sourceZoom } : {}),
+        ...(file.sourcePanX ? { sourcePanX: file.sourcePanX } : {}),
+        ...(file.sourcePanY ? { sourcePanY: file.sourcePanY } : {}),
+        // Usage weight (for per-clip tracking)
+        ...(file.usageWeight && file.usageWeight !== 1 ? { usageWeight: file.usageWeight, usageMode: file.usageMode } : {}),
         ...(s.globalEffects?.length ? { parametricEffects: s.globalEffects } : {}),
         ...((file as any)._autoGrade ? { colorGrading: (file as any)._autoGrade } : (s.globalColorGrading ? { colorGrading: s.globalColorGrading } : {})),
         ...(s.globalFlipH ? { flipH: true } : {}),
@@ -719,6 +924,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         ...(s.globalChromaKey?.enabled ? { chromaKey: s.globalChromaKey } : {}),
         ...(s.globalStabilize?.enabled ? { stabilize: s.globalStabilize } : {}),
         ...(s.globalAudioEffects ? { audioEffects: s.globalAudioEffects } : {}),
+        ...((file as any).deflicker ? { deflicker: { enabled: true, includeAudio: true, layers: 3 as const } } : {}),
     });
 
     // Helper: finalize a clip sequence with orientation-aware zoom + transitions
@@ -770,6 +976,47 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             if (clampedDur < MIN_RENDERABLE_FRAMES) break;
             gapFilled.push({ ...c, startFrame: cursor, endFrame: cursor + clampedDur });
             cursor += clampedDur;
+        }
+
+        // 0d. DURATION BACKFILL: the clamp step (0a) can shrink clips when a source
+        // video is shorter than the requested clip duration.  After re-snapping the
+        // total may fall short of targetFrames. Fill the remainder with fresh clips
+        // from the pool so the edit always honours the user's requested duration.
+        if (cursor < targetFrames && validPool.length > 0) {
+            const deficit = targetFrames - cursor;
+            console.log(`[TrailerGen] BACKFILL: clamped sequence is ${(cursor/fps).toFixed(1)}s / ${(targetFrames/fps).toFixed(1)}s target — filling ${(deficit/fps).toFixed(1)}s`);
+            const fillRng = new SeededRandom(seed + '_backfill');
+            const fillPool = fillRng.shuffle(validPool);
+            let fillIdx = 0;
+            let fillSafety = 0;
+            while (cursor < targetFrames && fillSafety < 500) {
+                fillSafety++;
+                const remaining = targetFrames - cursor;
+                if (remaining < MIN_RENDERABLE_FRAMES) break;
+                const file = fillPool[fillIdx % fillPool.length];
+                fillIdx++;
+                const availFrames = Math.max(0,
+                    (file.effectiveTrimOutFrames ?? file.sourceDurationFrames) - (file.effectiveTrimInFrames ?? 0));
+                if (availFrames < MIN_RENDERABLE_FRAMES) continue;
+                const dur = Math.min(
+                    Math.floor(fillRng.random() * (maxFrames - minFrames + 1)) + minFrames,
+                    remaining,
+                    availFrames,
+                );
+                if (dur < MIN_RENDERABLE_FRAMES) continue;
+                const { speed, volume, isMuted } = getSpeedAndVolume(fillRng);
+                const sourceReq = Math.max(1, Math.ceil(dur * speed));
+                const trimIn = file.effectiveTrimInFrames ?? 0;
+                const trimOut = file.effectiveTrimOutFrames ?? file.sourceDurationFrames;
+                const trimStart = trimIn + Math.min(
+                    Math.floor(fillRng.random() * Math.max(0, trimOut - trimIn - sourceReq)),
+                    Math.max(0, trimOut - trimIn - sourceReq),
+                );
+                const trimEnd = Math.min(trimStart + sourceReq, trimOut);
+                gapFilled.push(createClip(file, cursor, cursor + dur, trimStart, trimEnd, speed, volume, isMuted));
+                cursor += dur;
+            }
+            console.log(`[TrailerGen] BACKFILL complete: ${gapFilled.length} clips, ${(cursor/fps).toFixed(1)}s`);
         }
 
         let finalClips = gapFilled;
@@ -1182,7 +1429,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                     if (chosen.length > 0) {
                         clip.doubleExposure = {
                             blendMode: s.doubleExposureBlend ?? 'screen',
-                            opacity: s.doubleExposureOpacity ?? 45,
+                            opacity: s.doubleExposureOpacity ?? 50,
                             shape: null,
                             gradients: chosen,
                         };
@@ -1208,7 +1455,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                             overlayTrimStart: ovStart,
                             overlayTrimEnd: ovStart + ovLen,
                             blendMode: s.doubleExposureBlend ?? 'screen',
-                            opacity: s.doubleExposureOpacity ?? 45,
+                            opacity: s.doubleExposureOpacity ?? 50,
                             shape,
                         };
                     }
@@ -1233,6 +1480,148 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 if (!clip.vhs && shouldApply(s.vhsPolicy, clip)) {
                     clip.vhs = { amount: s.vhsAmount ?? 50 };
                 }
+                // ── DEFLICKER ──
+                if (s.deflickerPolicy && s.deflickerPolicy !== 'off') {
+                    if (clip.type !== 'audio' && !clip.deflicker?.enabled && shouldApply(s.deflickerPolicy, clip)) {
+                        clip.deflicker = {
+                            enabled: true,
+                            includeAudio: true,
+                            layers: s.deflickerLayers ?? 3,
+                        };
+                    }
+                }
+                // ── Triple Exposure: two overlay clips at 50% and 25% opacity ──
+                if (!clip.tripleExposure && shouldApply(s.tripleExposurePolicy, clip)) {
+                    const teCands = validPool.filter(f => f.path !== clip.path && f.type !== 'audio');
+                    if (teCands.length >= 2) {
+                        // Pick two DIFFERENT overlay clips
+                        const shuffled = [...teCands].sort(() => fxRng.random() - 0.5);
+                        const ov1 = shuffled[0];
+                        const ov2 = shuffled[1];
+                        const makeOverlay = (ov: typeof ov1, opacity: number) => {
+                            const ovIn = ov.effectiveTrimInFrames || 0;
+                            const ovUsable = Math.max(2, (ov.effectiveTrimOutFrames || ov.sourceDurationFrames || 300) - ovIn);
+                            const want = Math.max(2, (clip.endFrame - clip.startFrame) + 4);
+                            const ovLen = Math.min(ovUsable, want);
+                            const ovStart = ovIn + Math.floor(fxRng.random() * Math.max(1, ovUsable - ovLen));
+                            return {
+                                overlayPath: ov.path,
+                                overlayTrimStart: ovStart,
+                                overlayTrimEnd: ovStart + ovLen,
+                                blendMode: (s.tripleExposureBlend ?? 'screen') as any,
+                                opacity,
+                                shape: null,
+                            };
+                        };
+                        clip.tripleExposure = {
+                            layer1: makeOverlay(ov1, s.tripleExposureOpacity ?? 50),
+                            layer2: makeOverlay(ov2, Math.round((s.tripleExposureOpacity ?? 50) / 2)),
+                        };
+                    }
+                }
+            }
+        }
+
+        // ── PIP (Picture-in-Picture) OVERLAY GENERATION ──────────────────────
+        // Creates duplicate clips on track 3 as composited overlays.  Each PIP
+        // clip uses a DIFFERENT source video than the background clip it sits on.
+        // Policy: off / sparingly (~20%) / per-beat (~50%) / every-clip (100%).
+        if (s.pipPolicy && s.pipPolicy !== 'off') {
+            const pipRng = new SeededRandom(s.seed ? s.seed + '_pip' : generateSeed());
+            const pipClips: Clip[] = [];
+
+            // 3×3 grid position → compositeX / compositeY lookup
+            const pipGrid: Record<number, { x: number; y: number }> = {
+                1: { x: 15, y: 15 },  // TL
+                2: { x: 50, y: 15 },  // TC
+                3: { x: 85, y: 15 },  // TR
+                4: { x: 15, y: 50 },  // ML
+                5: { x: 50, y: 50 },  // MC
+                6: { x: 85, y: 50 },  // MR
+                7: { x: 15, y: 85 },  // BL
+                8: { x: 50, y: 85 },  // BC
+                9: { x: 85, y: 85 },  // BR
+            };
+
+            // Policy → probability mapping (mirrors shouldApply pattern)
+            const shouldApplyPip = (policy: EffectApplyPolicy): boolean => {
+                if (policy === 'every-clip') return true;
+                if (policy === 'per-beat') return pipRng.random() < 0.5;
+                // sparingly
+                return pipRng.random() < 0.2;
+            };
+
+            const basePos = pipGrid[s.pipPosition || 9] || pipGrid[9];
+            const videoCandidates = validPool.filter(f => f.type !== 'audio');
+
+            for (const clip of expandedClips) {
+                if (clip.type === 'audio') continue;
+                if (!shouldApplyPip(s.pipPolicy)) continue;
+
+                // Pick a DIFFERENT source than the background clip
+                const altCands = videoCandidates.filter(f => f.path !== clip.path);
+                if (altCands.length === 0) continue;
+                const srcFile = altCands[Math.floor(pipRng.random() * altCands.length)];
+
+                // Compute trim window for the overlay source
+                const srcIn = srcFile.effectiveTrimInFrames || 0;
+                const srcUsable = Math.max(2, (srcFile.effectiveTrimOutFrames || srcFile.sourceDurationFrames || 300) - srcIn);
+                const want = Math.max(2, (clip.endFrame - clip.startFrame) + 4);
+                const srcLen = Math.min(srcUsable, want);
+                const srcStart = srcIn + Math.floor(pipRng.random() * Math.max(1, srcUsable - srcLen));
+
+                // Resolve position (supports movement paths)
+                let posX = basePos.x;
+                let posY = basePos.y;
+                if (s.pipMovement && s.pipMovement !== 'static' && s.pipMovementPath && s.pipMovementPath.length > 0) {
+                    // Pick a position from the path using RNG (beat-synced rotation)
+                    const pathPos = s.pipMovementPath[Math.floor(pipRng.random() * s.pipMovementPath.length)];
+                    const resolved = pipGrid[pathPos] || basePos;
+                    posX = resolved.x;
+                    posY = resolved.y;
+                } else if (s.pipMovement === 'random') {
+                    const allPositions = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
+                    const randPos = allPositions[Math.floor(pipRng.random() * allPositions.length)];
+                    const resolved = pipGrid[randPos];
+                    posX = resolved.x;
+                    posY = resolved.y;
+                }
+
+                const pipClip: Clip = {
+                    id: uuidv4(),
+                    mediaLibraryId: srcFile.id,
+                    type: srcFile.type as 'video' | 'audio' | 'image',
+                    path: srcFile.path,
+                    filename: srcFile.filename,
+                    startFrame: clip.startFrame,
+                    endFrame: clip.endFrame,
+                    sourceDurationFrames: srcFile.sourceDurationFrames,
+                    trimStartFrame: srcStart,
+                    trimEndFrame: srcStart + srcLen,
+                    track: 3,
+                    speed: clip.speed || 1,
+                    volume: 0,          // PIP overlay is silent
+                    reversed: false,
+                    isMuted: true,
+                    isPinned: false,
+                    origin: 'auto' as const,
+                    locked: false,
+                    sourceOrientation: srcFile.orientation || 'horizontal',
+                    rotation: srcFile.rotation || 0,
+                    compositeOverlay: true,
+                    compositeScale: s.pipScale || 30,
+                    compositeX: posX,
+                    compositeY: posY,
+                    compositeOpacity: 100,
+                    compositeBorderRadius: s.pipBorderRadius || 8,
+                };
+
+                pipClips.push(pipClip);
+            }
+
+            if (pipClips.length > 0) {
+                expandedClips.push(...pipClips);
+                console.log(`[TrailerGen] PIP: generated ${pipClips.length} overlay clips on track 3 (policy=${s.pipPolicy})`);
             }
         }
 
@@ -1248,6 +1637,22 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             const last = expandedClips[expandedClips.length - 1];
             const lastDur = last.endFrame - last.startFrame;
             last.brightnessKeyframes = [{ frame: Math.max(0, lastDur - fadeF), value: 0, interp: 'linear' }, { frame: lastDur, value: -1, interp: 'linear' }];
+        }
+
+        // ── AUTO AUDIO CROSSFADE (baked-in best practice) ──
+        if (s.autoCrossfadeAudio !== false) {
+            for (const clip of expandedClips) {
+                if (!clip.audioEffects) {
+                    clip.audioEffects = { ...DEFAULT_AUDIO_EFFECTS };
+                }
+                // Only set micro-crossfade if user hasn't explicitly set fades
+                if (!clip.audioEffects.fadeInDuration || clip.audioEffects.fadeInDuration === 0) {
+                    clip.audioEffects.fadeInDuration = 0.03;
+                }
+                if (!clip.audioEffects.fadeOutDuration || clip.audioEffects.fadeOutDuration === 0) {
+                    clip.audioEffects.fadeOutDuration = 0.03;
+                }
+            }
         }
 
         return expandedClips;
@@ -1995,7 +2400,133 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         }
     }
 
-    return finalizeSequence(sequence);
+    // ── GRID INTEGRATION ──────────────────────────────────────────────────
+    // When includeGrids is set, intersperse auto-generated grid clips.
+    let gridOutputSeq: Clip[] | undefined;
+    if (s.includeGrids && s.includeGrids !== 'off' && validPool.length >= 2) {
+        const gridFormat = s.orientationFilter === 'vertical' ? 'vertical' as const
+                         : s.orientationFilter === 'horizontal' ? 'horizontal' as const
+                         : 'square' as const;
+
+        if (s.includeGrids === 'grids-only') {
+            // Replace entire sequence with grid clips
+            const gridCount = Math.max(1, Math.floor(sequence.length / 4));
+            const gridSeq: Clip[] = [];
+            let gridCursor = 0;
+            for (let g = 0; g < gridCount; g++) {
+                const numCells = 2 + Math.floor(rng.random() * 3); // 2-4 cells
+                const gridDurFrames = Math.min(
+                    targetFrames - gridCursor,
+                    Math.round(fps * (3 + rng.random() * 4)) // 3-7s per grid
+                );
+                if (gridDurFrames < fps) break;
+                const gridClip: any = {
+                    id: uuidv4(),
+                    type: 'grid',
+                    path: '',
+                    filename: `Grid ${numCells}x`,
+                    startFrame: gridCursor,
+                    endFrame: gridCursor + gridDurFrames,
+                    sourceDurationFrames: gridDurFrames,
+                    trimStartFrame: 0,
+                    trimEndFrame: gridDurFrames,
+                    track: 1,
+                    speed: 1,
+                    volume: 100,
+                    reversed: false,
+                    locked: false,
+                    origin: 'auto',
+                    gridFormat,
+                    numCells,
+                    backgroundMode: 'blur',
+                    syncMode: 'beat-locked',
+                    autoOrientation: true,
+                    masterDurationSec: gridDurFrames / fps,
+                    cells: Array.from({ length: numCells }).map(() => ({
+                        id: uuidv4(),
+                        clip: null,
+                        clips: [],
+                        x: 0, y: 0, width: 1, height: 1,
+                        cellOrientation: 'auto' as const,
+                        cellMediaIds: [],
+                        isGenerated: false,
+                    })),
+                };
+                try {
+                    const filled = generateGridSequence(gridClip, pool, s.audioAnalysis ?? null, fps);
+                    gridSeq.push(filled as any);
+                } catch {
+                    gridSeq.push(gridClip);
+                }
+                gridCursor += gridDurFrames;
+            }
+            gridOutputSeq = gridSeq;
+        } else {
+            // 'mixed' — intersperse grid clips every ~8 normal clips
+            const interval = Math.max(4, Math.min(12, Math.round(sequence.length / 4)));
+            const mixed: Clip[] = [];
+            for (let i = 0; i < sequence.length; i++) {
+                mixed.push(sequence[i]);
+                if ((i + 1) % interval === 0 && i < sequence.length - 1) {
+                    const numCells = 2 + Math.floor(rng.random() * 3);
+                    const prevEnd = sequence[i].endFrame;
+                    const gridDurFrames = Math.round(fps * (2 + rng.random() * 3));
+                    const gridClip: any = {
+                        id: uuidv4(),
+                        type: 'grid',
+                        path: '',
+                        filename: `Grid ${numCells}x`,
+                        startFrame: prevEnd,
+                        endFrame: prevEnd + gridDurFrames,
+                        sourceDurationFrames: gridDurFrames,
+                        trimStartFrame: 0,
+                        trimEndFrame: gridDurFrames,
+                        track: 1,
+                        speed: 1,
+                        volume: 100,
+                        reversed: false,
+                        locked: false,
+                        origin: 'auto',
+                        gridFormat,
+                        numCells,
+                        backgroundMode: 'blur',
+                        syncMode: 'beat-locked',
+                        autoOrientation: true,
+                        masterDurationSec: gridDurFrames / fps,
+                        cells: Array.from({ length: numCells }).map(() => ({
+                            id: uuidv4(),
+                            clip: null,
+                            clips: [],
+                            x: 0, y: 0, width: 1, height: 1,
+                            cellOrientation: 'auto' as const,
+                            cellMediaIds: [],
+                            isGenerated: false,
+                        })),
+                    };
+                    try {
+                        const filled = generateGridSequence(gridClip, pool, s.audioAnalysis ?? null, fps);
+                        mixed.push(filled as any);
+                    } catch {
+                        mixed.push(gridClip);
+                    }
+                }
+            }
+            gridOutputSeq = mixed;
+        }
+        console.log(`[TrailerGen] Grid integration (${s.includeGrids}): ${gridOutputSeq.length} total clips`);
+    }
+
+    const finalized = finalizeSequence(gridOutputSeq ?? sequence);
+
+    // ── SFX INTELLIGENCE ─────────────────────────────────────────────
+    // After finalizing the visual sequence (transitions, boomerangs, effects),
+    // generate context-aware SFX clips on dedicated audio tracks 102/103.
+    const sfxClips = generateSfxClips(finalized, fps);
+    if (sfxClips.length > 0) {
+        console.log(`[TrailerGen] SFX Intelligence: placed ${sfxClips.length} SFX clips on tracks 102/103`);
+    }
+
+    return [...finalized, ...sfxClips];
 };
 
 

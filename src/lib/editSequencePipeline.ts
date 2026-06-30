@@ -2,6 +2,8 @@ import type { Clip } from '../types';
 import type { MediaFile } from '../store/mediaStore';
 import { generateTrailerSequence, type TrailerSettings } from './trailerGenerator';
 import { applySequencePresetStack, getPresetById, resolveSequencePresetIds } from '../features/EditEngine/sequencePresets';
+import { scoreEdit, type EditScore } from './ege/editScorer';
+import { classifyPromise, checkPromise, type PromiseCheckResult } from './ege/deliveryPromise';
 
 function activePostProcessPresetIds(settings: TrailerSettings): string[] {
     // Pacing now configures the generator directly through shortest/longest clip
@@ -44,9 +46,10 @@ export function finalizeGeneratedSequence(
     let timelineEnd = clips.length > 0 ? Math.max(...clips.map(clip => clip.endFrame)) : 0;
     let renderedFrames = timelineEnd;
 
-    for (let pass = 1; renderedFrames < targetFrames && pass <= 24; pass++) {
+    for (let pass = 1; renderedFrames < targetFrames && pass <= 50; pass++) {
         const remainingFrames = targetFrames - renderedFrames;
-        if (remainingFrames < 1) break;
+        if (remainingFrames < 6) break; // too few frames to render a valid segment
+        console.log(`[finalizeGenSeq] Continuation pass ${pass}: ${(renderedFrames/fps).toFixed(1)}s / ${(targetFrames/fps).toFixed(1)}s target, filling ${(remainingFrames/fps).toFixed(1)}s`);
 
         const state = continuationState(clips);
         const continuation = generateTrailerSequence(pool, {
@@ -94,5 +97,61 @@ export function finalizeGeneratedSequence(
             clamped.push({ ...clip, endFrame: clip.startFrame + duration, trimEndFrame: trimEnd });
         }
     }
+
+    // ── Post-generation quality scoring ───────────────────────────────────
+    const contractClips = clamped.map(c => ({
+        id: c.id,
+        startFrame: c.startFrame,
+        endFrame: c.endFrame,
+        trimStartFrame: c.trimStartFrame,
+        trimEndFrame: c.trimEndFrame,
+        sourceDurationFrames: c.sourceDurationFrames,
+        track: c.track,
+        mediaLibraryId: (c as any).mediaLibraryId,
+        path: c.path,
+        filename: c.filename,
+        speed: c.speed,
+    }));
+
+    const score = scoreEdit({
+        clips: contractClips,
+        targetDurationFrames: targetFrames,
+        fps,
+        beatTimestamps: settings.beatTimestamps ?? null,
+        maxTrack: Math.max(0, ...clamped.map(c => c.track)),
+    });
+    console.log(
+        `[Pipeline] Edit quality: ${score.verdict} (${score.overall.toFixed(2)})`,
+        `pacing=${score.pacingVariety.toFixed(2)}`,
+        `diversity=${score.visualDiversity.toFixed(2)}`,
+        `sync=${score.syncTightness.toFixed(2)}`,
+        `hook=${score.hookStrength.toFixed(2)}`,
+        `slideshow=${score.slideshowRisk.toFixed(2)}`,
+        `flow=${score.narrativeFlow.toFixed(2)}`,
+    );
+
+    // ── Delivery promise enforcement ─────────────────────────────────────
+    const mode = settings.generatorMode || 'trailer';
+    const sub = (settings.activeSubcategories && settings.activeSubcategories.length > 0)
+        ? settings.activeSubcategories[0]
+        : undefined;
+    const promise = classifyPromise(mode, sub);
+    const promiseResult = checkPromise(contractClips, promise, fps);
+    if (!promiseResult.fulfilled) {
+        console.warn(
+            `[Pipeline] Delivery promise (${promise.promiseType}) NOT fulfilled for mode=${mode}:`,
+            promiseResult.violations.join('; '),
+        );
+        if (promiseResult.suggestions.length > 0) {
+            console.log('[Pipeline] Suggestions:', promiseResult.suggestions.join('; '));
+        }
+    } else {
+        console.log(`[Pipeline] Delivery promise (${promise.promiseType}) fulfilled ✓`);
+    }
+
+    // Attach quality metadata to the returned clips array for upstream consumers
+    (clamped as any).__editScore = score;
+    (clamped as any).__promiseResult = promiseResult;
+
     return clamped;
 }

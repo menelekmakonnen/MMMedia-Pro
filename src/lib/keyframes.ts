@@ -165,3 +165,63 @@ export function buildKeyframeExpr(
     expr = `if(lt(t\\,${T(startF)})\\,${V(samples[0][1])}\\,${expr})`;
     return expr;
 }
+
+// ─── Transition ease presets ────────────────────────────────────────────────
+
+export type TransitionEase = 'linear' | 'ease-out' | 'ease-in' | 'ease-in-out' | 'snap';
+
+/**
+ * Generate a two-point keyframe array with bezier easing between `from` and `to`
+ * over `durationFrames`. Used by cinematic transitions (slide, zoom, white-flash).
+ *
+ * @param from           Start value
+ * @param to             End value
+ * @param durationFrames Total transition duration in frames
+ * @param ease           Easing preset
+ * @returns KfPoint[] array suitable for any keyframeable Clip property
+ */
+export function bezierEaseKeyframes(
+    from: number,
+    to: number,
+    durationFrames: number,
+    ease: TransitionEase = 'ease-out',
+): KfPoint[] {
+    const handles = EASING[ease === 'snap' ? 'ease-out-cubic' : ease] ?? EASING['ease-out'];
+    // Map CSS bezier handles to absolute frame/value space
+    const p0F = 0, p0V = from;
+    const p3F = durationFrames, p3V = to;
+    const rangeF = p3F - p0F;
+    const rangeV = p3V - p0V;
+
+    return [
+        {
+            frame: p0F,
+            value: p0V,
+            interp: 'bezier' as Interp,
+            handleR: [p0F + handles[0] * rangeF, p0V + handles[1] * rangeV],
+        },
+        {
+            frame: p3F,
+            value: p3V,
+            interp: 'constant' as Interp,
+            handleL: [p0F + handles[2] * rangeF, p0V + handles[3] * rangeV],
+        },
+    ];
+}
+
+/**
+ * Generate a three-point keyframe array (0 → peak → 0) for flash/pulse effects.
+ * The peak occurs at the midpoint.
+ */
+export function flashKeyframes(
+    peak: number,
+    durationFrames: number,
+    ease: TransitionEase = 'ease-out',
+): KfPoint[] {
+    const mid = Math.floor(durationFrames / 2);
+    return [
+        { frame: 0, value: 0, interp: 'bezier' as Interp },
+        { frame: mid, value: peak, interp: 'bezier' as Interp },
+        { frame: durationFrames, value: 0, interp: 'constant' as Interp },
+    ];
+}

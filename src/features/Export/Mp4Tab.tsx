@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Film, HardDrive, RectangleHorizontal, Smartphone, Square, RotateCcw, Trash2, Copy, Check, XCircle, Pause, Play, Sparkles, Layers, Music, Zap, Palette } from 'lucide-react';
+import { Film, HardDrive, RectangleHorizontal, Smartphone, Square, RotateCcw, Trash2, Copy, Check, XCircle, Pause, Play, Sparkles, Layers, Music, Zap, Palette, Flame } from 'lucide-react';
 import clsx from 'clsx';
 import { motion } from 'framer-motion';
 import { useClipStore } from '../../store/clipStore';
@@ -40,6 +40,8 @@ interface Props {
     perClipProgress?: number;
     monolithicProgress?: number;
     renderEngine?: RenderEngine;
+    onSendToEnder?: () => void;
+    isSendingEnder?: boolean;
 }
 
 export interface QueueItem {
@@ -52,7 +54,7 @@ export interface QueueItem {
     filePath: string | null;
 }
 
-export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onExport, disabled, exportLog, exportQueue, onAddToQueue, onRemoveFromQueue, onClearQueue, onCancelExport, onPauseExport, onResumeExport, isPaused, perClipProgress = 0, monolithicProgress = 0, renderEngine: renderEngineProp }) => {
+export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onExport, disabled, exportLog, exportQueue, onAddToQueue, onRemoveFromQueue, onClearQueue, onCancelExport, onPauseExport, onResumeExport, isPaused, perClipProgress = 0, monolithicProgress = 0, renderEngine: renderEngineProp, onSendToEnder, isSendingEnder = false }) => {
     const { clips } = useClipStore();
     const [logCopied, setLogCopied] = useState(false);
     const { settings } = useProjectStore();
@@ -156,7 +158,7 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
                 <SpaceFlightBg progress={progress} status={exportStatus} />
 
                 {/* Left: Editing Details Sidebar */}
-                <div className="w-64 flex-shrink-0 border-r border-white/5 bg-black/60 backdrop-blur-sm overflow-y-auto custom-scrollbar z-10 relative">
+                <div className="w-64 flex-shrink-0 border-r border-white/5 bg-[#0a0a12] overflow-y-auto custom-scrollbar z-10 relative">
                     <div className="p-4 space-y-4">
                         <div className="text-[9px] font-black uppercase tracking-widest text-white/30">Project Details</div>
                         {/* Project info */}
@@ -223,7 +225,7 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
 
                     {/* Dual Engine Progress Bars (shown in 'both' mode) */}
                     {activeEngine === 'both' && (
-                        <div className="w-full max-w-2xl mt-3 bg-black/40 backdrop-blur-sm rounded-xl border border-white/5 p-4 space-y-3">
+                        <div className="w-full max-w-2xl mt-3 bg-[#0d0d18] rounded-xl border border-white/5 p-4 space-y-3">
                             <div className="text-[9px] font-black uppercase tracking-widest text-white/30">Engine Progress</div>
                             {/* Combined average bar */}
                             <div>
@@ -270,7 +272,7 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
                     )}
 
                     {/* Live Export Log */}
-                    <div className="w-full max-w-2xl mt-4 flex-1 min-h-0 flex flex-col bg-black/50 backdrop-blur-sm rounded-xl border border-white/5 overflow-hidden">
+                    <div className="w-full max-w-2xl mt-4 flex-1 min-h-0 flex flex-col bg-[#0a0a10] rounded-xl border border-white/5 overflow-hidden">
                         <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5 flex-shrink-0">
                             <div className="text-[9px] font-black uppercase tracking-widest flex items-center gap-2" style={{ color: isPaused ? 'rgba(251,191,36,0.6)' : 'rgba(52,211,153,0.6)' }}>
                                 <span className={clsx("w-1.5 h-1.5 rounded-full", isPaused ? "bg-amber-400" : "bg-emerald-400 animate-pulse")} />
@@ -519,6 +521,13 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
                         className="py-3.5 px-5 rounded-xl text-xs font-black uppercase tracking-wider text-white/70 bg-white/5 border border-white/10 hover:bg-white/10 hover:text-white flex items-center justify-center gap-2 disabled:opacity-40 disabled:grayscale transition-all">
                         + Queue
                     </motion.button>
+                    {onSendToEnder && (
+                        <motion.button onClick={onSendToEnder} disabled={disabled || isSendingEnder} whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}
+                            title="Render in MMMedia Ender — keep editing while it renders in the background"
+                            className="py-3.5 px-5 rounded-xl text-xs font-black uppercase tracking-wider text-white bg-gradient-to-r from-orange-600 to-amber-500 shadow-[0_0_30px_rgba(255,87,34,0.25)] hover:shadow-[0_0_40px_rgba(255,87,34,0.45)] flex items-center justify-center gap-2 disabled:opacity-40 disabled:grayscale transition-all">
+                            <Flame size={16} /> {isSendingEnder ? 'Sending…' : 'Send to Ender'}
+                        </motion.button>
+                    )}
                 </div>
 
                 {/* Export Queue */}

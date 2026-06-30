@@ -42,14 +42,14 @@ export const MediaItem: React.FC<MediaItemProps> = ({ clip, isSelected, isMultiS
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             className={`
-                group relative border rounded-lg overflow-hidden cursor-pointer transition-all duration-200
+                group relative border-2 rounded-lg overflow-hidden cursor-pointer transition-all duration-200
                 ${hasPendingRotation
-                    ? 'border-blue-500/60 ring-1 ring-blue-500/40 bg-blue-500/5'
-                    : isSelected
-                        ? 'border-accent ring-1 ring-accent bg-accent/5'
-                        : isMultiSelected
-                            ? 'border-purple-500/60 ring-1 ring-purple-500/40 bg-purple-500/5'
-                            : 'border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10'}
+                    ? 'border-blue-500/70 ring-2 ring-blue-500/50 bg-blue-500/15 shadow-[0_0_12px_rgba(59,130,246,0.35)]'
+                    : isMultiSelected
+                        ? 'border-purple-500/80 ring-2 ring-purple-500/50 bg-purple-500/15 shadow-[0_0_12px_rgba(168,85,247,0.35)]'
+                        : isSelected
+                            ? 'border-accent ring-2 ring-accent/60 bg-accent/10 shadow-[0_0_12px_rgba(229,164,57,0.3)]'
+                            : 'border-white/10 hover:border-white/25 bg-white/5 hover:bg-white/10'}
                 ${viewMode === 'list' ? 'flex items-center gap-4 p-2' : 'p-3'}
             `}
         >

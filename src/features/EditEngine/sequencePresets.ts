@@ -597,11 +597,27 @@ export function getPresetById(id: string): SequencePreset | undefined {
     return SEQUENCE_PRESETS.find(p => p.id === id);
 }
 
-/** Resolve modern stacked presets while retaining saved legacy selections. */
-export function resolveSequencePresetIds(settings: { sequencePresetIds?: string[]; sequencePresetId?: string }): string[] {
-    const ids = settings.sequencePresetIds?.filter(Boolean) ?? [];
-    if (ids.length > 0) return Array.from(new Set(ids));
-    return settings.sequencePresetId ? [settings.sequencePresetId] : [];
+/** Advanced editing patterns that are always applied in the generator pipeline.
+ *  These were previously user-selectable in the Advanced Editing Patterns UI section. */
+const ALWAYS_ACTIVE_ADVANCED_PRESETS = ['match-cut', 'parallel-edit', 'nested-sequence', 'speed-ramp-drama', 'j-cut', 'audio-ducking'] as const;
+
+/** Resolve modern stacked presets while retaining saved legacy selections.
+ *  Falls back to `defaultStructurePresets` when no explicit presets are selected,
+ *  ensuring best-practice structure patterns are always applied.
+ *  The four advanced editing patterns are always included regardless of user selection. */
+export function resolveSequencePresetIds(settings: { sequencePresetIds?: string[]; sequencePresetId?: string; defaultStructurePresets?: string[] }): string[] {
+    let ids: string[];
+    const explicit = settings.sequencePresetIds?.filter(Boolean) ?? [];
+    if (explicit.length > 0) {
+        ids = explicit;
+    } else if (settings.sequencePresetId) {
+        ids = [settings.sequencePresetId];
+    } else {
+        // Fallback: apply default structure presets as best practices
+        ids = settings.defaultStructurePresets?.filter(Boolean) ?? [];
+    }
+    // Always include advanced editing patterns
+    return Array.from(new Set([...ids, ...ALWAYS_ACTIVE_ADVANCED_PRESETS]));
 }
 
 /** Apply multiple sequence patterns in user-selected order. */

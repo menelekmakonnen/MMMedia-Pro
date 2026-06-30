@@ -1,15 +1,21 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useMediaStore } from '../../store/mediaStore';
-import { TrailerSettings, DEFAULT_TRAILER_SETTINGS } from '../../lib/trailerGenerator';
-import { Wand2, Clock, Zap, Video, Scissors, PlayCircle, Music, Upload, Play, Pause, Trash2, Loader2, Sparkles, Smartphone, Monitor, Square, ArrowLeftRight, Layers, ChevronDown, Eye, Palette, Repeat, Search, Activity, FolderOpen, History, ChevronRight } from 'lucide-react';
+import { useClipStore } from '../../store/clipStore';
+import { TrailerSettings, DEFAULT_TRAILER_SETTINGS, generateTrailerSequence } from '../../lib/trailerGenerator';
+import { Wand2, Clock, Zap, Video, Scissors, PlayCircle, Music, Upload, Play, Pause, Trash2, Loader2, Sparkles, Smartphone, Monitor, Square, ArrowLeftRight, Layers, ChevronDown, Eye, Palette, Repeat, Search, Activity, FolderOpen, History, ChevronRight, AlertTriangle, PictureInPicture2, RotateCw, Flame, Grid3X3, MoveHorizontal } from 'lucide-react';
 import { analyzeAudio, AudioAnalysisResult, SegmentType as _SegmentType } from '../../lib/audioAnalysis';
 import { TRANSITION_CATEGORIES, TRANSITION_META } from '../../lib/transitions';
-import type { TransitionType, SpeedCurvePreset, ShakeType, ShakePolicy, BeatDropIntensity, TransitionStyle, BoomerangPresetId, ZoomSpeed, EffectApplyPolicy } from '../../types';
+import type { TransitionType, SpeedCurvePreset, ShakeType, ShakePolicy, BeatDropIntensity, TransitionStyle, BoomerangPresetId, ZoomSpeed, EffectApplyPolicy, Clip } from '../../types';
 import { TrailerSmartPanel } from './EditSmartPanel';
+import { SmartChoicesStrip } from './SmartChoicesStrip';
+import { runSmartAnalysis } from '../../lib/smartEngine';
 import { TrailerAudioDynamics } from './EditAudioDynamics';
 import { SpeedCurveVisualizer } from './SpeedCurveVisualizer';
 import { ShakePreview } from './ShakePreview';
+// BeatSensitivityGraph and InteractiveWaveform superseded by UnifiedBeatVisualizer
+import { UnifiedBeatVisualizer } from './UnifiedBeatVisualizer';
+import type { UnifiedBeatVisualizerHandle } from './UnifiedBeatVisualizer';
 import { usePresetUsageStore } from '../../store/presetUsageStore';
 import { useAudioAnalysisCache } from '../../store/audioAnalysisCache';
 import { useExportSettingsStore } from '../../store/exportSettingsStore';
@@ -22,9 +28,15 @@ import { analyzeNarration } from '../../lib/narrationAnalysis';
 import type { MergeStrategy } from '../../lib/intelligenceMerger';
 
 import clsx from 'clsx';
+import { EditLogicSidebar } from './EditLogicSidebar';
+import { useEditLogicStore } from '../../store/editLogicStore';
+import { extractDecisions } from '../../types/ClipDecision';
+
+import { useProjectStore } from '../../store/projectStore';
 import { getSubcategories } from '../../lib/generatorModeConfig';
 import { useSavedEditsStore, SavedEdit } from '../../store/savedEditsStore';
 import { useViewStore } from '../../store/viewStore';
+import { useGodModeStore } from '../../store/godModeStore';
 
 import { getPresetById, getPresetsByCategory, resolveSequencePresetIds } from './sequencePresets';
 import type { PresetCategory } from './sequencePresets';
@@ -64,6 +76,7 @@ const EFFECT_POLICIES: { id: EffectApplyPolicy; label: string }[] = [
 /** Canonical ids for the advanced trending effects (used for recommendations). */
 export const ADV_EFFECT_LABELS: Record<string, string> = {
     doubleExposure: 'Double Exposure',
+    tripleExposure: 'Triple Exposure',
     motionBlur: 'Motion Blur',
     glow: 'Glow',
     vibrationFlash: 'Vibration Flash',
@@ -71,11 +84,17 @@ export const ADV_EFFECT_LABELS: Record<string, string> = {
     rgbSplit: 'RGB Split',
     hueCycle: 'Hue Cycle',
     vhs: 'VHS',
+    pip: 'Picture-in-Picture',
+    spin: 'Spin',
+    filmBurn: 'Film Burn',
+    pixelize: 'Pixelize',
+    whipBlur: 'Whip Blur',
 };
 
 /** One-click quick configuration applied when a recommended chip is tapped. */
 const QUICK_EFFECT_PATCH: Record<string, Partial<TrailerSettings>> = {
     doubleExposure: { doubleExposurePolicy: 'sparingly' },
+    tripleExposure: { tripleExposurePolicy: 'sparingly' },
     motionBlur: { motionBlurPolicy: 'per-beat' },
     glow: { glowPolicy: 'sparingly' },
     vibrationFlash: { vibrationFlashPolicy: 'sparingly' },
@@ -83,6 +102,11 @@ const QUICK_EFFECT_PATCH: Record<string, Partial<TrailerSettings>> = {
     rgbSplit: { rgbSplitPolicy: 'sparingly' },
     hueCycle: { hueCyclePolicy: 'sparingly' },
     vhs: { vhsPolicy: 'sparingly' },
+    pip: { pipPolicy: 'sparingly' },
+    spin: { spinPolicy: 'sparingly' },
+    filmBurn: { filmBurnPolicy: 'sparingly' },
+    pixelize: { pixelizePolicy: 'sparingly' },
+    whipBlur: { whipBlurPolicy: 'sparingly' },
 };
 
 const POLICY_DESCS: Record<string, string> = {
@@ -98,8 +122,10 @@ const EffectPolicyControl: React.FC<{
     onPolicy: (p: EffectApplyPolicy) => void;
     /** Render a policy-specific preview for this effect. If omitted, shows label only. */
     renderPreview?: (policy: EffectApplyPolicy) => React.ReactNode;
+    /** When true, children (sub-options) are always visible even when policy is 'off'. */
+    alwaysShowChildren?: boolean;
     children?: React.ReactNode;
-}> = ({ label, policy, onPolicy, renderPreview, children }) => (
+}> = ({ label, policy, onPolicy, renderPreview, alwaysShowChildren, children }) => (
     <div className="space-y-1.5">
         {label && <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">{label}</span>}
         <div className="flex flex-wrap gap-1.5">
@@ -118,7 +144,7 @@ const EffectPolicyControl: React.FC<{
                 </PreviewBubble>
             ))}
         </div>
-        {(policy ?? 'off') !== 'off' && children && <div className="space-y-3 pl-1">{children}</div>}
+        {(alwaysShowChildren || (policy ?? 'off') !== 'off') && children && <div className="space-y-3 pl-1">{children}</div>}
     </div>
 );
 
@@ -269,12 +295,25 @@ interface WizardProps {
 }
 
 export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, activeMode }) => {
-    const { files, orientationFilter, setOrientationFilter, selectedFileIds, preloadedAudioPath, preloadedAudioName, setPreloadedAudio } = useMediaStore();
+    // ── Scoped store selectors (prevents re-renders from unrelated store changes) ──
+    const files = useMediaStore(s => s.files);
+    const orientationFilter = useMediaStore(s => s.orientationFilter);
+    const setOrientationFilter = useMediaStore(s => s.setOrientationFilter);
+    const selectedFileIds = useMediaStore(s => s.selectedFileIds);
+    const preloadedAudioPath = useMediaStore(s => s.preloadedAudioPath);
+    const preloadedAudioName = useMediaStore(s => s.preloadedAudioName);
+    const setPreloadedAudio = useMediaStore(s => s.setPreloadedAudio);
     const isExporting = useExportSettingsStore(s => s.isExporting);
 
-    const audioCache = useAudioAnalysisCache();
+    const audioCacheGetCached = useAudioAnalysisCache(s => s.getCached);
+    const audioCacheStore = useAudioAnalysisCache(s => s.store);
 
-    const narrationStore = useNarrationStore();
+    const narrationFile = useNarrationStore(s => s.narrationFile);
+    const narrationName = useNarrationStore(s => s.narrationName);
+    const narrationUrl = useNarrationStore(s => s.narrationUrl);
+    const narrationTranscript = useNarrationStore(s => s.transcript);
+    const narrationAnalysis = useNarrationStore(s => s.analysis);
+    const narrationIsAnalyzing = useNarrationStore(s => s.isAnalyzing);
 
     // Sync activeMode from router with local generator mode
     useEffect(() => {
@@ -282,6 +321,14 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
             update({ generatorMode: activeMode as any });
         }
     }, [activeMode]);
+
+    // Auto-kick the Smart Engine as soon as the Edit Generator opens with video
+    // sources present, so its choices are ready (and challengeable) without a
+    // manual "analyze" click. runSmartAnalysis no-ops if already running/cached.
+    useEffect(() => {
+        if (files.some((f) => f.type === 'video')) void runSmartAnalysis().catch(() => {});
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // ── Subcategory multi-select state ──
     const [activeSubcats, setActiveSubcats] = useState<string[]>([]);
@@ -346,8 +393,13 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
     const audioHistoryRef = useRef<HTMLDivElement>(null);
 
     const [isDragging, setIsDragging] = useState<'start' | 'end' | 'move' | null>(null);
+    const [focusedLayer, setFocusedLayer] = useState<'waveform' | 'beat-sensitivity' | 'shake' | 'beat-drop' | 'vibration-flash' | null>(null);
     const [dragStartPos, setDragStartPos] = useState<number>(0);
-    const [audioCurrentTime, setAudioCurrentTime] = useState<number>(0);
+    // ── Perf: audioCurrentTime as ref (not state) to avoid 60fps re-renders ──
+    const audioCurrentTimeRef = useRef<number>(0);
+    const [audioDisplayTime, setAudioDisplayTime] = useState<number>(0);
+    const bieVizRef = useRef<UnifiedBeatVisualizerHandle>(null);
+    const displayTimeRafRef = useRef<number>(0);
     const [analysisToast, setAnalysisToast] = useState<boolean>(false);
     const waveformWrapperRef = useRef<HTMLDivElement>(null);
 
@@ -404,7 +456,7 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
 
         // Auto-load cached analysis so graph appears without clicking Analyze
         const sensitivity = settings.beatSensitivity ?? 0.5;
-        const cached = audioCache.getCached(preloadedAudioPath, sensitivity);
+        const cached = audioCacheGetCached(preloadedAudioPath, sensitivity);
         if (cached) {
             setAudioAnalysis(cached);
             update({ audioAnalysis: cached });
@@ -460,7 +512,7 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
 
         // Auto-load cached analysis so graph appears without clicking Analyze
         const sensitivity = settings.beatSensitivity ?? 0.5;
-        const cached = audioCache.getCached(filePath, sensitivity);
+        const cached = audioCacheGetCached(filePath, sensitivity);
         if (cached) {
             setAudioAnalysis(cached);
             update({ audioAnalysis: cached });
@@ -493,6 +545,22 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
         setAudioFile(null); setAudioUrl(null); setAudioAnalysis(null);
         setAudioTrimStart(0); setAudioTrimEnd(30);
         update({ audioUrl: null, audioFile: null, audioFilePath: undefined, useAudioGuide: false, audioAnalysis: null, audioTrimStart: undefined, audioTrimEnd: undefined });
+        // Purge any stale auto-generated audio clips from the timeline so they
+        // don't accidentally survive into the next generation or export.
+        const clipState = useClipStore.getState();
+        const cleaned = clipState.clips.filter(
+            (c: Clip) => !(c.type === 'audio' && c.origin === 'auto' && c.track === 101)
+        );
+        if (cleaned.length !== clipState.clips.length) {
+            clipState.setClips(cleaned);
+        }
+        // Also clear GodMode store audio state so it doesn't persist
+        try {
+            const gmState = useGodModeStore.getState();
+            if (gmState.audioUrl || gmState.useAudioGuide) {
+                gmState.setAudioGuide({ useAudioGuide: false, audioFile: null, audioUrl: null, audioAnalysis: null, audioTrimStart: 0, audioTrimEnd: 30, audioFilePath: undefined });
+            }
+        } catch {}
     };
 
     const handleRandomizeBeat = async (forceRescan = false) => {
@@ -502,7 +570,7 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
         const cacheKey = preloadedAudioPath || settings.audioFilePath || settings.audioUrl || '';
         const sensitivity = settings.beatSensitivity ?? 0.5;
         if (!forceRescan && cacheKey) {
-            const cached = audioCache.getCached(cacheKey, sensitivity);
+            const cached = audioCacheGetCached(cacheKey, sensitivity);
             if (cached) {
                 console.log('[EditWizard] Using cached audio analysis for:', cacheKey);
                 setAudioAnalysis(cached);
@@ -551,7 +619,7 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
 
             // --- Store in cache for future loads ---
             if (cacheKey) {
-                audioCache.store(cacheKey, result, sensitivity);
+                audioCacheStore(cacheKey, result, sensitivity);
             }
             
             const dropSeg = result.segments.find(s => s.type === 'drop');
@@ -586,21 +654,34 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
         if (!audioRef.current) return;
         audioRef.current.pause();
         audioRef.current.currentTime = audioTrimStart;
-        setAudioCurrentTime(audioTrimStart);
+        audioCurrentTimeRef.current = audioTrimStart;
+        setAudioDisplayTime(audioTrimStart);
+        bieVizRef.current?.updatePlayhead(audioTrimStart);
         setAudioPlaying(false);
     };
 
     useEffect(() => {
         if (!audioRef.current || !audioPlaying) return;
         let raf: number;
+        let lastDisplayUpdate = 0;
         const loop = () => {
             if (audioRef.current) {
                 const ct = audioRef.current.currentTime;
-                setAudioCurrentTime(ct);
+                audioCurrentTimeRef.current = ct;
+                // Update BIE playhead via imperative ref (no React re-render)
+                bieVizRef.current?.updatePlayhead(ct);
+                // Throttle display time update to ~4fps for the time label
+                const now = performance.now();
+                if (now - lastDisplayUpdate > 250) {
+                    setAudioDisplayTime(ct);
+                    lastDisplayUpdate = now;
+                }
                 if (ct >= audioTrimEnd) {
                     audioRef.current.pause();
                     audioRef.current.currentTime = audioTrimStart;
-                    setAudioCurrentTime(audioTrimStart);
+                    audioCurrentTimeRef.current = audioTrimStart;
+                    setAudioDisplayTime(audioTrimStart);
+                    bieVizRef.current?.updatePlayhead(audioTrimStart);
                     setAudioPlaying(false);
                 } else {
                     raf = requestAnimationFrame(loop);
@@ -700,7 +781,8 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
             // Glow pass — redraw with blur for bloom effect
             ctx.save();
             ctx.globalAlpha = 0.3;
-            ctx.filter = 'blur(3px)';
+            ctx.shadowBlur = 3;
+            ctx.shadowColor = 'rgba(168, 85, 247, 0.6)';
             for (let i = 0; i < barCount; i++) {
                 const amp = waveformData[i];
                 const barH = Math.max(1, amp * (h * 0.85));
@@ -778,7 +860,8 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
             // Subtle glow for the energy line
             ctx.globalAlpha = 0.15;
             ctx.lineWidth = 5;
-            ctx.filter = 'blur(2px)';
+            ctx.shadowBlur = 2;
+            ctx.shadowColor = 'rgba(52, 211, 153, 0.8)';
             ctx.beginPath();
             for (let i = 0; i < energyContour.length; i++) {
                 const pt = energyContour[i];
@@ -821,76 +904,154 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
         ctx.fillStyle = edgeGlowR;
         ctx.fillRect(trimRightX - 4, 0, 8, h);
 
-    }, [audioAnalysis, audioTrimStart, audioTrimEnd, audioCurrentTime]);
+    }, [audioAnalysis, audioTrimStart, audioTrimEnd]);
 
     const autoSelectBestSegment = (targetDur: number) => {
         if (!audioAnalysis || audioAnalysis.segments.length === 0) return;
         const segs = audioAnalysis.segments;
         const dur = audioAnalysis.duration;
-        const priority: Record<string, number> = { drop: 10, chorus: 9, buildup: 7, bridge: 5, verse: 4, intro: 3, breakdown: 3, outro: 1 };
+        const beats = audioAnalysis.beats || [];
 
-        // Cast a WIDE net of candidate START points across all musical sections.
-        // More candidate types = more variety on repeated clicks.
+        // ── REBALANCED PRIORITIES ──
+        // Choruses are the catchiest, most recognizable part of a song → #1.
+        // Drops are exciting but can be chaotic without melody → #2.
+        // Buildups create anticipation (great lead-ins) → #3.
+        // Verses/bridges carry melody and narrative → solid mid-tier.
+        // Intros can be atmospheric but are often sparse → lower.
+        // Outros are wind-downs → lowest.
+        const priority: Record<string, number> = {
+            chorus: 10, drop: 9, buildup: 8, bridge: 7,
+            verse: 6, breakdown: 5, intro: 4, outro: 2,
+        };
+
+        // ── HELPER: Count how many segments a time window covers ──
+        const countCoveredTypes = (start: number, end: number): Set<string> => {
+            const types = new Set<string>();
+            for (const s of segs) {
+                // Segment overlaps with [start, end] if it starts before end AND ends after start
+                if (s.start < end && s.end > start) types.add(s.type);
+            }
+            return types;
+        };
+
+        // ── HELPER: Score beat alignment (does the start/end land on a beat?) ──
+        const beatAlignScore = (time: number): number => {
+            if (beats.length === 0) return 0;
+            let minDist = Infinity;
+            for (const b of beats) {
+                const d = Math.abs(b.time - time);
+                if (d < minDist) minDist = d;
+                if (d > 2) break; // beats are sorted, no need to check further
+            }
+            // +2 if within 0.1s of a beat, tapering to 0 at 0.5s
+            return minDist < 0.1 ? 2 : minDist < 0.3 ? 1 : minDist < 0.5 ? 0.5 : 0;
+        };
+
+        // ── HELPER: Compute dynamic range within a window ──
+        const windowDynamicRange = (start: number, end: number): number => {
+            let minE = 1, maxE = 0;
+            for (const s of segs) {
+                if (s.start < end && s.end > start) {
+                    if (s.avgEnergy < minE) minE = s.avgEnergy;
+                    if (s.avgEnergy > maxE) maxE = s.avgEnergy;
+                }
+            }
+            return maxE - minE; // 0 to 1 — higher = more dynamic
+        };
+
+        // ── GENERATE CANDIDATES ──
         const candidates: { start: number; score: number; label: string }[] = [];
         segs.forEach((sg, i) => {
             const prev = segs[i - 1];
             const next = segs[i + 1];
             const rise = prev ? Math.max(0, sg.avgEnergy - prev.avgEnergy) : 0;
-            // Energy variance bonus: transitions from low→high energy are more exciting
-            const contrastBonus = prev ? Math.abs(sg.avgEnergy - prev.avgEnergy) * 2 : 0;
-            const base = (priority[sg.type] || 1) * (0.5 + sg.avgEnergy) + (sg.peakEnergy || 0) * 2 + rise * 3 + contrastBonus;
+            const base = (priority[sg.type] || 1) * (0.5 + sg.avgEnergy)
+                       + (sg.peakEnergy || 0) * 1.5
+                       + rise * 2;
 
-            // A) Land right on the section onset
-            candidates.push({ start: sg.start, score: base, label: `${sg.type}@start` });
+            // A) Section onset — the natural starting point
+            candidates.push({ start: sg.start, score: base * 1.0, label: `${sg.type}@start` });
 
-            // B) Lead-in: start ~1.5s early so a hit lands a beat or two in
-            if (['drop', 'chorus', 'buildup'].includes(sg.type) && sg.start > 1.5) {
-                candidates.push({ start: sg.start - 1.5, score: base * 0.96, label: `${sg.type}@lead-in` });
+            // B) Lead-in: start ~2s early for anticipation
+            if (['drop', 'chorus', 'buildup'].includes(sg.type) && sg.start > 2) {
+                candidates.push({ start: sg.start - 2, score: base * 0.95, label: `${sg.type}@lead-in` });
             }
 
-            // C) Long sections get interior + late options
-            const segLen = sg.end - sg.start;
-            if (segLen > targetDur * 1.2) {
-                // Mid-point entry
-                candidates.push({ start: (sg.start + sg.end) / 2 - targetDur / 4, score: base * 0.82, label: `${sg.type}@mid` });
-            }
-            if (segLen > targetDur * 0.8) {
-                // Late entry — catch the tail end which may transition into the next section
-                const lateStart = Math.max(sg.start, sg.end - targetDur * 0.8);
-                candidates.push({ start: lateStart, score: base * 0.7, label: `${sg.type}@late` });
-            }
-
-            // D) Cross-boundary: start in this section, end in the next (captures transitions)
-            if (next && (sg.type !== 'outro')) {
+            // C) Cross-boundary: BOOSTED — musical journeys are the best segments
+            if (next && sg.type !== 'outro') {
                 const boundary = sg.end;
                 const crossStart = Math.max(0, boundary - targetDur * 0.4);
-                const crossScore = (base + (priority[next.type] || 1) * (0.5 + (next.avgEnergy || 0))) / 2;
-                candidates.push({ start: crossStart, score: crossScore * 0.75, label: `${sg.type}→${next.type}` });
+                const nextBase = (priority[next.type] || 1) * (0.5 + (next.avgEnergy || 0));
+                const crossScore = (base + nextBase) / 2;
+                // Boost cross-boundary by 10% — these capture transitions
+                candidates.push({ start: crossStart, score: crossScore * 1.1, label: `${sg.type}→${next.type}` });
             }
 
-            // E) Verse/bridge entries with slight jitter for variety
+            // D) Mid-section entry for long sections
+            const segLen = sg.end - sg.start;
+            if (segLen > targetDur * 1.2) {
+                candidates.push({ start: (sg.start + sg.end) / 2 - targetDur / 4, score: base * 0.85, label: `${sg.type}@mid` });
+            }
+
+            // E) Late entry
+            if (segLen > targetDur * 0.8) {
+                const lateStart = Math.max(sg.start, sg.end - targetDur * 0.8);
+                candidates.push({ start: lateStart, score: base * 0.80, label: `${sg.type}@late` });
+            }
+
+            // F) Verse/bridge with offset for variety
             if (['verse', 'bridge', 'breakdown'].includes(sg.type) && segLen > 4) {
                 const jittered = sg.start + Math.min(segLen * 0.3, 3);
-                candidates.push({ start: jittered, score: base * 0.65, label: `${sg.type}@offset` });
+                candidates.push({ start: jittered, score: base * 0.75, label: `${sg.type}@offset` });
             }
         });
 
+        // G) "Golden section" candidates — ~60-75% of the song is typically
+        // where the climax or chorus reprise sits in pop/R&B structures
+        const goldenStart = dur * 0.6;
+        const goldenEnd = dur * 0.75;
+        if (goldenEnd - goldenStart >= targetDur * 0.5) {
+            // Find the highest-energy segment in the golden zone
+            const goldenSegs = segs.filter(s => s.start >= goldenStart * 0.9 && s.start <= goldenEnd);
+            if (goldenSegs.length > 0) {
+                const best = goldenSegs.reduce((a, b) => (priority[a.type] || 1) * a.avgEnergy > (priority[b.type] || 1) * b.avgEnergy ? a : b);
+                const goldenScore = (priority[best.type] || 1) * (0.5 + best.avgEnergy) + best.peakEnergy * 1.5;
+                candidates.push({ start: best.start, score: goldenScore * 1.05, label: `golden@${best.type}` });
+            }
+        }
+
+        // ── SCORE, FILTER, SORT ──
         const maxStart = Math.max(0, dur - targetDur);
-        // Distance bonus: candidates further from the last selection get boosted
         const lastStart = audioTrimStart;
         const usable = candidates
             .map(c => {
                 const clamped = Math.max(0, Math.min(c.start, maxStart));
+                const windowEnd = Math.min(clamped + targetDur, dur);
+
+                // Window coverage bonus: more segment types = more musical variety
+                const covered = countCoveredTypes(clamped, windowEnd);
+                const varietyBonus = (covered.size - 1) * 2.5; // +2.5 per additional type
+
+                // Beat alignment: prefer landing on beats
+                const beatStart = beatAlignScore(clamped);
+                const beatEnd = beatAlignScore(windowEnd);
+
+                // Dynamic range: windows with contrast are more engaging
+                const dynRange = windowDynamicRange(clamped, windowEnd) * 3;
+
+                // Novelty: multiplicative boost for distant candidates (up to 1.4x)
                 const dist = Math.abs(clamped - lastStart);
-                const novelty = Math.min(dist / dur, 0.5) * 4; // up to +2 bonus for distant candidates
-                return { ...c, start: clamped, score: c.score + novelty };
+                const noveltyMult = 1 + Math.min(dist / dur, 0.5) * 0.8; // 1.0 to 1.4
+
+                const finalScore = (c.score + varietyBonus + beatStart + beatEnd + dynRange) * noveltyMult;
+                return { ...c, start: clamped, score: finalScore };
             })
             .filter((c, i, arr) => arr.findIndex(o => Math.abs(o.start - c.start) < 0.5) === i)
             .sort((a, b) => b.score - a.score);
         if (usable.length === 0) return;
 
-        // Rotate through top 12 candidates (was 6) for much wider variety
-        const top = usable.slice(0, Math.min(usable.length, 12));
+        // Rotate through top 15 candidates for wide variety
+        const top = usable.slice(0, Math.min(usable.length, 15));
         const cycleKey = targetDur;
         const idx = ((bestSegmentCycleRef.current[cycleKey] ?? -1) + 1) % top.length;
         bestSegmentCycleRef.current[cycleKey] = idx;
@@ -940,49 +1101,50 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
 
     const handleNarrationUpload = async (file: File) => {
         const url = URL.createObjectURL(file);
-        narrationStore.setNarrationFile(file.name, file.name);
-        narrationStore.setNarrationUrl(url);
+        useNarrationStore.getState().setNarrationFile(file.name, file.name);
+        useNarrationStore.getState().setNarrationUrl(url);
     };
 
     const handleNarrationAnalyze = async () => {
-        if (!narrationStore.narrationUrl) return;
-        narrationStore.setAnalyzing(true);
+        if (!narrationUrl) return;
+        useNarrationStore.getState().setAnalyzing(true);
         try {
-            const response = await fetch(narrationStore.narrationUrl);
+            const response = await fetch(narrationUrl);
             const arrayBuffer = await response.arrayBuffer();
             const audioCtx = new AudioContext();
             const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-            const result = await analyzeNarration(audioBuffer, narrationStore.transcript ?? undefined);
-            narrationStore.setAnalysis(result);
+            const result = await analyzeNarration(audioBuffer, narrationTranscript ?? undefined);
+            useNarrationStore.getState().setAnalysis(result);
         } catch (err) {
             console.error('[EditWizard] Narration analysis failed:', err);
         } finally {
-            narrationStore.setAnalyzing(false);
+            useNarrationStore.getState().setAnalyzing(false);
         }
     };
 
     const handleNarrationRemove = () => {
-        narrationStore.clear();
+        useNarrationStore.getState().clear();
     };
 
     const handleTranscriptChange = (text: string) => {
-        narrationStore.setTranscript(text);
+        useNarrationStore.getState().setTranscript(text);
     };
 
     const handleGenerate = () => {
         const finalSettings: TrailerSettings = {
             ...settings,
             audioTrimStart, audioTrimEnd,
-            narrationFile: narrationStore.narrationFile,
-            narrationUrl: narrationStore.narrationUrl,
-            narrationAnalysis: narrationStore.analysis,
-            transcript: narrationStore.transcript,
+            narrationFile: narrationFile,
+            narrationUrl: narrationUrl,
+            narrationAnalysis: narrationAnalysis,
+            transcript: narrationTranscript,
             mergeStrategy: mergeStrategy,
         } as any;
 
         // Record which advanced effects were used together for future suggestions.
         const usedEffects: string[] = [];
         if ((settings.doubleExposurePolicy ?? 'off') !== 'off') usedEffects.push('doubleExposure');
+        if ((settings.tripleExposurePolicy ?? 'off') !== 'off') usedEffects.push('tripleExposure');
         if ((settings.motionBlurPolicy ?? 'off') !== 'off') usedEffects.push('motionBlur');
         if ((settings.glowPolicy ?? 'off') !== 'off') usedEffects.push('glow');
         if ((settings.vibrationFlashPolicy ?? 'off') !== 'off') usedEffects.push('vibrationFlash');
@@ -992,10 +1154,68 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
         onGenerate(finalSettings);
     };
 
+    // ── Edit Logic Sidebar: debounced preview generation ─────────────────
+    const sidebarVisible = useEditLogicStore(s => s.sidebarVisible);
+    const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const fps = useProjectStore(s => s.settings?.fps) || 30;
 
+    // Pool for preview (same logic as EditRouter's pool)
+    const previewPool = useMemo(() => {
+        const pool = selectedFileIds.length > 0
+            ? files.filter(f => selectedFileIds.includes(f.id))
+            : files;
+        return pool.filter(f => f.type === 'video');
+    }, [files, selectedFileIds]);
+
+    // Debounced preview: regenerate decisions after settings change
+    // First run is instant (0ms), subsequent runs debounce at 400ms
+    const hasGeneratedOnceRef = useRef(false);
+    useEffect(() => {
+        if (previewPool.length === 0) {
+            useEditLogicStore.getState().setDecisions([]);
+            return;
+        }
+
+        if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
+        useEditLogicStore.getState().setGenerating(true);
+
+        const delay = hasGeneratedOnceRef.current ? 400 : 0;
+        previewTimerRef.current = setTimeout(() => {
+            try {
+                const previewClips = generateTrailerSequence(previewPool, {
+                    ...settings,
+                    fps,
+                    targetDuration: settings.targetDuration || 30,
+                });
+                const decisions = extractDecisions(previewClips, fps);
+                useEditLogicStore.getState().setDecisions(decisions);
+                hasGeneratedOnceRef.current = true;
+            } catch (err) {
+                console.warn('[EditWizard] Preview generation failed:', err);
+                useEditLogicStore.getState().setGenerating(false);
+            }
+        }, delay);
+
+        return () => {
+            if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
+        };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+        settings.targetDuration, settings.shortestClip, settings.longestClip,
+        settings.transitionTypes, settings.transitionDurationMs, settings.transitionStyle,
+        settings.slowmoPolicy, settings.speedCurvePreset,
+        settings.doubleExposurePolicy, settings.motionBlurPolicy, settings.glowPolicy,
+        settings.vibrationFlashPolicy, settings.rgbSplitPolicy,
+        settings.beatDropImpact, settings.shakePolicy,
+        settings.generatorMode, settings.activeSubcategories,
+        settings.boomerangFrequency, settings.zoomEnabled,
+        previewPool.length, fps,
+    ]);
 
     return (
-        <div className="w-full h-full overflow-y-auto custom-scrollbar">
+        <div className="w-full h-full flex">
+        {/* Main settings panel */}
+        <div className={clsx('flex-1 min-w-0 overflow-y-auto custom-scrollbar', sidebarVisible && 'mr-0')}>
             <div className="max-w-4xl mx-auto p-8 flex flex-col gap-8">
                 <div className="flex items-center gap-3">
                     <div className="p-2 bg-gradient-to-br from-purple-500 to-blue-600 rounded-lg shadow-lg">
@@ -1189,15 +1409,31 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                                                                 update({ [k]: v } as any);
                                                             });
                                                         }
+                                                        // Restore clips into the timeline — this is the key missing step
+                                                        if (edit.clips && edit.clips.length > 0) {
+                                                            useClipStore.getState().setClips(edit.clips);
+                                                            // Navigate to the Sequence tab to show the restored timeline
+                                                            useViewStore.getState().setActiveTab('sequence');
+                                                        }
                                                         setShowProjectsDropdown(false);
                                                         useSavedEditsStore.getState().updateEditLastOpened(edit.id);
                                                     }}
                                                     className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 transition-colors border-b border-white/5 last:border-b-0 text-left"
                                                 >
-                                                    {/* Thumbnail */}
+                                                    {/* Thumbnail — uses <video> since thumbnailPath is a video file */}
                                                     <div className="w-12 h-8 rounded bg-gradient-to-br from-purple-900/40 to-blue-900/40 border border-white/10 flex items-center justify-center shrink-0 overflow-hidden">
                                                         {edit.thumbnailPath ? (
-                                                            <img src={`file://${edit.thumbnailPath}`} alt="" className="w-full h-full object-cover rounded" />
+                                                            <video
+                                                                src={`file://${edit.thumbnailPath}`}
+                                                                preload="metadata"
+                                                                muted
+                                                                className="w-full h-full object-cover rounded"
+                                                                onLoadedData={(e) => {
+                                                                    // Seek to 1s for a meaningful poster frame
+                                                                    const v = e.target as HTMLVideoElement;
+                                                                    v.currentTime = Math.min(1, v.duration * 0.1);
+                                                                }}
+                                                            />
                                                         ) : (
                                                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="2" y="4" width="20" height="16" rx="2" stroke="currentColor" strokeWidth="1.5" opacity="0.3"/><polygon points="10,9 10,15 14,12" fill="currentColor" opacity="0.3"/></svg>
                                                         )}
@@ -1310,8 +1546,29 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                         </div>
                     )}
 
-                    {videoCount > 0 && <SequencePresetPicker category="structure" settings={settings} update={update} stackable />}
 
+                </div>
+
+                <div className="space-y-3 border border-white/5 rounded-xl bg-black/20 p-4">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
+                        <Layers size={12} className="text-teal-400" /> Include Grids
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                        {([
+                            { id: 'off' as const, label: 'Off', desc: 'No grid layouts' },
+                            { id: 'mixed' as const, label: 'Mixed', desc: 'Grids sprinkled in' },
+                            { id: 'grids-only' as const, label: 'Grids Only', desc: 'All clips use grids' },
+                        ]).map(opt => (
+                            <button key={opt.id} onClick={() => update({ includeGrids: opt.id } as any)}
+                                className={clsx("p-2.5 rounded-lg border text-left transition-all",
+                                    (settings.includeGrids || 'off') === opt.id
+                                        ? "bg-teal-600/20 border-teal-500/40 shadow-[0_0_10px_rgba(20,184,166,0.15)]"
+                                        : "bg-white/5 border-white/5 hover:bg-white/10")}>
+                                <div className={clsx("text-[10px] font-black uppercase", (settings.includeGrids || 'off') === opt.id ? "text-teal-200" : "text-white/70")}>{opt.label}</div>
+                                <div className="text-[9px] text-white/30">{opt.desc}</div>
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 <div className="border border-white/5 rounded-xl bg-black/20 p-5 space-y-4">
@@ -1363,7 +1620,7 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                                                         setShowAudioHistory(false);
                                                         // Auto-load cached analysis
                                                         const sensitivity = settings.beatSensitivity ?? 0.5;
-                                                        const cached = audioCache.getCached(h.path, sensitivity);
+                                                        const cached = audioCacheGetCached(h.path, sensitivity);
                                                         if (cached) {
                                                             setAudioAnalysis(cached);
                                                             update({ audioAnalysis: cached });
@@ -1416,11 +1673,11 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                                     </button>
                                     <div className="flex flex-col truncate">
                                         <span className="text-xs font-bold text-white truncate">{settings.audioFile}</span>
-                                        <span className="text-[10px] text-white/40 font-mono">{audioCurrentTime.toFixed(1)}s / {audioAnalysis?.duration.toFixed(1) || '0.0'}s</span>
+                                        <span className="text-[10px] text-white/40 font-mono">{audioDisplayTime.toFixed(1)}s / {audioAnalysis?.duration.toFixed(1) || '0.0'}s</span>
                                     </div>
                                 </div>
                                 <div className="flex gap-2 z-0">
-                                    <button onClick={() => { setAudioTrimStart(0); setAudioTrimEnd(audioAnalysis ? audioAnalysis.duration : 0); update({ audioTrimStart: 0, audioTrimEnd: audioAnalysis ? audioAnalysis.duration : 0}); }}
+                                    <button onClick={() => { const dur = audioAnalysis ? audioAnalysis.duration : 0; setAudioTrimStart(0); setAudioTrimEnd(dur); update({ audioTrimStart: 0, audioTrimEnd: dur, targetDuration: Math.round(dur) || 30 }); }}
                                         className="p-2 bg-blue-500/20 hover:bg-blue-500/40 rounded transition-colors text-blue-300 flex items-center gap-1 text-[10px] font-bold">
                                         <ArrowLeftRight size={14} /> Full Audio
                                     </button>
@@ -1441,52 +1698,37 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                                 </div>
                             </div>
 
+                            {/* ── Unified Beat Visualizer ── */}
                             {audioAnalysis && (
-                                <div ref={waveformWrapperRef} className="relative group cursor-crosshair select-none"
-                                     onMouseDown={(e) => {
-                                         const rect = waveformWrapperRef.current!.getBoundingClientRect();
-                                         const x = e.clientX - rect.left;
-                                         const time = (x / rect.width) * audioAnalysis.duration;
-                                         const timeTolerance = (10 / rect.width) * audioAnalysis.duration;
-                                         if (Math.abs(time - audioTrimStart) < timeTolerance) setIsDragging('start');
-                                         else if (Math.abs(time - audioTrimEnd) < timeTolerance) setIsDragging('end');
-                                         else if (time > audioTrimStart && time < audioTrimEnd) { setIsDragging('move'); setDragStartPos(time - audioTrimStart); }
-                                         else if (time < audioTrimStart) { setIsDragging('start'); setAudioTrimStart(time); update({ audioTrimStart: time }); }
-                                         else { setIsDragging('end'); setAudioTrimEnd(time); update({ audioTrimEnd: time }); }
-                                     }}>
-                                    <canvas ref={waveformRef} width={800} height={80}
-                                        className="w-full h-20 rounded-lg bg-black/40 border border-white/5 pointer-events-none" />
-                                    <div className="absolute inset-0 flex pointer-events-none opacity-40 group-hover:opacity-100 transition-opacity">
-                                        {audioAnalysis.segments.map((seg, i) => {
-                                            const left = (seg.start / audioAnalysis.duration) * 100;
-                                            const width = ((seg.end - seg.start) / audioAnalysis.duration) * 100;
-                                            const colors: Record<string, string> = {
-                                                intro: 'bg-blue-500/20', buildup: 'bg-yellow-500/30', drop: 'bg-red-500/30',
-                                                breakdown: 'bg-cyan-500/20', chorus: 'bg-pink-500/25', verse: 'bg-white/10',
-                                                outro: 'bg-indigo-500/20', bridge: 'bg-emerald-500/20'
-                                            };
-                                            return (
-                                                <div key={i} className={clsx("h-full relative transition-all border-r border-white/10", colors[seg.type] || 'bg-white/5')}
-                                                    style={{ left: `${left}%`, width: `${width}%`, position: 'absolute' }}>
-                                                    <span className="absolute bottom-0.5 left-1 text-[8px] font-black uppercase text-white/40 tracking-wider">{seg.type}</span>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                    
-                                    <div className="absolute top-0 bottom-0 bg-blue-500/30 border-l-2 border-r-2 border-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.5)] pointer-events-none flex items-center justify-between"
-                                         style={{ left: `${(audioTrimStart / audioAnalysis.duration) * 100}%`, width: `${((audioTrimEnd - audioTrimStart) / audioAnalysis.duration) * 100}%` }}>
-                                         <div className="w-1.5 h-6 bg-white rounded-r-sm -ml-0.5 shadow-md" />
-                                         <div className="w-1.5 h-6 bg-white rounded-l-sm -mr-0.5 shadow-md" />
-                                    </div>
-
-                                    <div className="absolute top-0 bottom-0 w-px bg-red-500 shadow-[0_0_8px_rgba(239,68,68,1)] pointer-events-none z-20"
-                                         style={{ left: `${(audioCurrentTime / audioAnalysis.duration) * 100}%` }}>
-                                         <div className="w-2 h-2 bg-red-500 rounded-full -ml-1 -top-1 absolute" />
-                                    </div>
-                                </div>
+                                <UnifiedBeatVisualizer
+                                    ref={bieVizRef}
+                                    audioAnalysis={audioAnalysis}
+                                    audioTrimStart={audioTrimStart}
+                                    audioTrimEnd={audioTrimEnd}
+                                    onTrimChange={(start, end) => {
+                                        setAudioTrimStart(start);
+                                        setAudioTrimEnd(end);
+                                        update({ audioTrimStart: start, audioTrimEnd: end });
+                                    }}
+                                    onSeek={(time) => {
+                                        if (audioRef.current) {
+                                            audioRef.current.currentTime = time;
+                                            audioCurrentTimeRef.current = time;
+                                            setAudioDisplayTime(time);
+                                            bieVizRef.current?.updatePlayhead(time);
+                                        }
+                                    }}
+                                    beatSensitivity={settings.beatSensitivity || 0.5}
+                                    shakePolicy={settings.shakePolicy ?? 'off'}
+                                    shakeType={settings.shakeType ?? 'impact'}
+                                    shakeIntensity={settings.shakeIntensity ?? 50}
+                                    beatDropImpact={settings.beatDropImpact ?? 'off'}
+                                    vibrationFlashPolicy={settings.vibrationFlashPolicy ?? 'sparingly'}
+                                    focusedLayer={focusedLayer}
+                                />
                             )}
 
+                            {/* ── Stats strip ── */}
                             {audioAnalysis && (
                                 <div className="grid grid-cols-4 gap-2">
                                     {[
@@ -1504,6 +1746,7 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                                 </div>
                             )}
 
+                            {/* ── Trim inputs ── */}
                             {audioAnalysis && (
                                 <div className="flex gap-4">
                                     <div className="flex-1 space-y-1">
@@ -1521,6 +1764,7 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                                 </div>
                             )}
 
+                            {/* ── Segment selector ── */}
                             {audioAnalysis && audioAnalysis.segments.length > 0 && (
                                 <div className="space-y-2">
                                     <div className="flex items-center justify-between">
@@ -1569,23 +1813,264 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                                 </div>
                             )}
 
-                            <SliderControl label="Beat Sensitivity" icon={Zap} value={settings.beatSensitivity || 0.5}
-                                min={0} max={1} step={0.1} unit="" onChange={(v) => update({ beatSensitivity: v })} />
+                            {/* ── Two-Column: Beat Sensitivity | Beat Drop Impact ── */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-white/5"
+                                 >
+                                {/* Column 1: Beat Sensitivity */}
+                                <div className="space-y-2"
+                                     onMouseEnter={() => setFocusedLayer('beat-sensitivity')}
+                                     onMouseLeave={() => setFocusedLayer(null)}>
+                                    <SliderControl label="Beat Sensitivity" icon={Zap} value={settings.beatSensitivity || 0.5}
+                                        min={0} max={1} step={0.1} unit="" onChange={(v) => update({ beatSensitivity: v })} />
+                                    {audioAnalysis && (() => {
+                                        const threshold = 1 - (settings.beatSensitivity || 0.5);
+                                        const activeCount = audioAnalysis.beats.filter(b => b.energy >= threshold).length;
+                                        return (
+                                            <div className="flex items-center gap-2 text-[9px] text-white/30">
+                                                <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                                                <span>{activeCount} / {audioAnalysis.beats.length} beats active</span>
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+
+                                {/* Column 2: Beat Drop Impact */}
+                                <div className="space-y-1.5"
+                                     onMouseEnter={() => setFocusedLayer('beat-drop')}
+                                     onMouseLeave={() => setFocusedLayer(null)}>
+                                    <span className="text-[11px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-2">
+                                        <Zap size={14} /> Beat Drop Impact
+                                    </span>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {([
+                                            { id: 'off' as BeatDropIntensity, label: 'Off', desc: 'No impact effects on drops' },
+                                            { id: 'subtle' as BeatDropIntensity, label: 'Subtle', desc: 'Gentle pulse on heavy drops' },
+                                            { id: 'medium' as BeatDropIntensity, label: 'Medium', desc: 'Noticeable flash + zoom hit' },
+                                            { id: 'heavy' as BeatDropIntensity, label: 'Heavy', desc: 'Strong multi-layer impact' },
+                                            { id: 'maximum' as BeatDropIntensity, label: 'Maximum', desc: 'Full aggression — flash, shake, zoom' },
+                                        ]).map(opt => (
+                                            <PreviewBubble key={opt.id}
+                                                preview={<BeatDropPreview intensity={opt.id} />}
+                                                description={opt.desc}
+                                                width={170}>
+                                                <button onClick={() => update({ beatDropImpact: opt.id })}
+                                                    className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border capitalize",
+                                                        (settings.beatDropImpact ?? 'off') === opt.id
+                                                            ? "bg-orange-600/20 border-orange-500/40 text-orange-200 shadow-[0_0_8px_rgba(249,115,22,0.15)]"
+                                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                                    {opt.label}
+                                                </button>
+                                            </PreviewBubble>
+                                        ))}
+                                    </div>
+                                    {(settings.beatDropImpact ?? 'off') !== 'off' && audioAnalysis && (
+                                        (() => {
+                                            const hasDropOrChorus = audioAnalysis.segments.some((s: any) => s.type === 'drop' || s.type === 'chorus');
+                                            return !hasDropOrChorus ? (
+                                                <div className="flex items-start gap-2 mt-1.5 px-2 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                                                    <AlertTriangle size={12} className="text-amber-400 mt-0.5 shrink-0" />
+                                                    <span className="text-[9px] text-amber-300/80 leading-relaxed">
+                                                        No <strong>drop</strong> or <strong>chorus</strong> segments detected — beat drop effects only fire on those sections.
+                                                    </span>
+                                                </div>
+                                            ) : (
+                                                <span className="text-[8px] text-emerald-400/50 flex items-center gap-1 mt-0.5">
+                                                    <Zap size={9} /> {audioAnalysis.segments.filter((s: any) => s.type === 'drop' || s.type === 'chorus').length} drop/chorus segments — effects will apply
+                                                </span>
+                                            );
+                                        })()
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* ── Shake ── */}
+                            <div className="space-y-2 pt-3 border-t border-white/5"
+                                 onMouseEnter={() => setFocusedLayer('shake')}
+                                 onMouseLeave={() => setFocusedLayer(null)}>
+                                <span className="text-[11px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-2">
+                                    <Activity size={14} /> Shake
+                                </span>
+                                <div className="space-y-1">
+                                    <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Shake Policy</span>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {([
+                                            { id: 'off' as ShakePolicy, label: 'Off', desc: 'No camera shake applied' },
+                                            { id: 'sparingly' as ShakePolicy, label: 'Sparingly', desc: 'Only on high-impact moments' },
+                                            { id: 'heavy-beats-only' as ShakePolicy, label: 'Heavy Beats', desc: 'Targets the hardest drops' },
+                                            { id: 'on-every-beat' as ShakePolicy, label: 'Every Beat', desc: 'Shake on every detected beat' },
+                                        ]).map(opt => (
+                                            <PreviewBubble key={opt.id}
+                                                preview={<ShakePolicyPreview policy={opt.id} />}
+                                                description={opt.desc}
+                                                width={180}>
+                                                <button onClick={() => update({ shakePolicy: opt.id })}
+                                                    className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
+                                                        (settings.shakePolicy ?? 'off') === opt.id
+                                                            ? "bg-red-600/20 border-red-500/40 text-red-200 shadow-[0_0_8px_rgba(239,68,68,0.15)]"
+                                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                                    {opt.label}
+                                                </button>
+                                            </PreviewBubble>
+                                        ))}
+                                    </div>
+                                </div>
+                                {(settings.shakePolicy ?? 'off') !== 'off' && (
+                                    <div className="space-y-3 pl-5">
+                                        <div className="space-y-1">
+                                            <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Shake Type</span>
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {([
+                                                    { id: 'impact', label: 'Impact', desc: 'Single sharp directional jolt' },
+                                                    { id: 'handheld', label: 'Handheld', desc: 'Subtle organic camera wobble' },
+                                                    { id: 'earthquake', label: 'Earthquake', desc: 'Aggressive multi-axis shaking' },
+                                                    { id: 'vibration', label: 'Vibration', desc: 'Rapid small-amplitude oscillation' },
+                                                    { id: 'whip', label: 'Whip', desc: 'Fast horizontal snap and recoil' },
+                                                    { id: 'all', label: 'All', desc: 'Randomly cycles through all types' },
+                                                ] as { id: ShakeType | 'all'; label: string; desc: string }[]).map(opt => (
+                                                    <PreviewBubble key={opt.id}
+                                                        preview={<ShakeTypePreview type={opt.id} />}
+                                                        description={opt.desc}
+                                                        width={180}>
+                                                        <button onClick={() => update({ shakeType: opt.id })}
+                                                            className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
+                                                                (settings.shakeType ?? 'impact') === opt.id
+                                                                    ? "bg-red-600/20 border-red-500/40 text-red-200"
+                                                                    : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                                            {opt.label}
+                                                        </button>
+                                                    </PreviewBubble>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        <SliderControl label="Intensity" icon={Zap} value={settings.shakeIntensity ?? 50}
+                                            min={0} max={100} step={5} unit="%" onChange={(v) => update({ shakeIntensity: v })} />
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* ── Vibration Flash ── */}
+                            <div className="space-y-2 pt-3 border-t border-white/5"
+                                 onMouseEnter={() => setFocusedLayer('vibration-flash')}
+                                 onMouseLeave={() => setFocusedLayer(null)}>
+                                <span className="text-[11px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-2">
+                                    <Zap size={14} className="text-rose-300" /> Vibration Flash
+                                    <span className="text-[9px] text-white/30 font-normal">Punchy beat-synced jolt</span>
+                                </span>
+                                <EffectPolicyControl label=""
+                                    policy={settings.vibrationFlashPolicy ?? 'sparingly'}
+                                    onPolicy={(p) => update({ vibrationFlashPolicy: p })}
+                                    renderPreview={(p) => <VibrationFlashPolicyPreview policy={p} />}>
+                                    <SliderControl label="Intensity" icon={Zap} value={settings.vibrationFlashIntensity ?? 70}
+                                        min={0} max={100} step={5} unit="%" onChange={(v) => update({ vibrationFlashIntensity: v })} />
+                                </EffectPolicyControl>
+                            </div>
+
+                            <TrailerAudioDynamics settings={settings} update={update} />
                         </div>
                     )}
+                </div>
 
-                    <TrailerAudioDynamics settings={settings} update={update} />
-                    <SequencePresetPicker category="audio" settings={settings} update={update} stackable />
+                <div className="bg-black/20 p-5 rounded-xl border border-white/5 mt-6 space-y-5">
+                    {/* Two-column layout: Duration + Clip Range */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                        {/* Column 1: Target Duration + Presets */}
+                        <div className="space-y-3">
+                            <SliderControl label="Target Duration" icon={Clock} value={settings.targetDuration}
+                                min={5} max={Math.max(300, Math.ceil(audioAnalysis?.duration || 0))} step={settings.targetDuration > 180 ? 1 : 5} unit="s" onChange={(v) => {
+                                    update({ targetDuration: v });
+                                    if (settings.useAudioGuide && audioAnalysis) {
+                                        autoSelectBestSegment(v);
+                                    }
+                                }} />
+                            <div className="flex flex-wrap gap-2">
+                                {settings.useAudioGuide && audioAnalysis && (
+                                    <>
+                                        <button onClick={() => update({ targetDuration: Math.round(audioTrimEnd - audioTrimStart) })}
+                                            className={clsx("px-2 py-1.5 rounded-md text-[10px] font-bold transition-all border whitespace-nowrap",
+                                                settings.targetDuration === Math.round(audioTrimEnd - audioTrimStart)
+                                                    ? "bg-primary text-white border-primary shadow-lg"
+                                                    : "bg-purple-500/20 text-purple-200 border-purple-500/30 hover:bg-purple-500/30")}>
+                                            Selected Segment
+                                        </button>
+                                        <button onClick={() => {
+                                            const dur = Math.round(audioAnalysis.duration);
+                                            setAudioTrimStart(0);
+                                            setAudioTrimEnd(audioAnalysis.duration);
+                                            update({ targetDuration: dur, audioTrimStart: 0, audioTrimEnd: audioAnalysis.duration });
+                                        }}
+                                            className={clsx("px-2 py-1.5 rounded-md text-[10px] font-bold transition-all border whitespace-nowrap",
+                                                settings.targetDuration === Math.round(audioAnalysis.duration)
+                                                    ? "bg-primary text-white border-primary shadow-lg"
+                                                    : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10")}>
+                                            Full Audio
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                            {/* Presets */}
+                            <div className="space-y-1.5">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Presets</span>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {[
+                                        { label: 'Dynamic', shortest: 0.1, longest: 2.0, rhythm: 'random-walk', desc: 'Full spectrum — hype to hold' },
+                                        { label: 'Montage', shortest: 0.2, longest: 0.5, rhythm: 'staccato-legato', desc: 'Fast travel / recap' },
+                                        { label: 'Beat Sync', shortest: 0.2, longest: 0.8, rhythm: 'pulse-2-1-2', desc: 'Locked to rhythm' },
+                                        { label: 'Action', shortest: 0.3, longest: 1.0, rhythm: 'heartbeat', desc: 'Fight / chase' },
+                                        { label: 'Music Video', shortest: 0.3, longest: 1.2, rhythm: 'wave', desc: 'Performance cuts' },
+                                        { label: 'Standard', shortest: 0.5, longest: 2.0, rhythm: 'breathing', desc: 'General editing' },
+                                        { label: 'Drama', shortest: 1.0, longest: 3.0, rhythm: 'call-response', desc: 'Dialogue / tension' },
+                                        { label: 'Cinematic', shortest: 1.5, longest: 4.0, rhythm: 'fibonacci', desc: 'Slow reveals' },
+                                        { label: 'Wide Mix', shortest: 0.2, longest: 5.0, rhythm: 'random', desc: 'Maximum range — everything goes' },
+                                        { label: 'Showreel', shortest: 0.8, longest: 2.5, rhythm: 'climax-arc', desc: 'Portfolio highlights' },
+                                        { label: 'Rapid Montage', shortest: 0.3, longest: 0.8, rhythm: 'staccato-legato', desc: 'Rapid cuts' },
+                                        { label: 'Slow Build', shortest: 0.5, longest: 5.0, rhythm: 'accelerando', desc: 'Long to tight' },
+                                        { label: 'Crescendo', shortest: 0.3, longest: 4.0, rhythm: 'climax-arc', desc: 'Build to hero hold' },
+                                        { label: 'Breathing', shortest: 0.5, longest: 3.0, rhythm: 'breathing', desc: 'Expand / compact' },
+                                    ].map(p => (
+                                        <PreviewBubble key={p.label}
+                                            preview={<DurationPresetPreview shortest={p.shortest} longest={p.longest} />}
+                                            description={p.desc}
+                                            width={180}>
+                                            <button
+                                                onClick={() => update({ shortestClip: p.shortest, longestClip: p.longest, rhythmPattern: p.rhythm as any })}
+                                                className={clsx("px-2 py-1 rounded-full text-[10px] font-bold transition-all border",
+                                                    settings.shortestClip === p.shortest && settings.longestClip === p.longest && settings.rhythmPattern === p.rhythm
+                                                        ? "bg-purple-600/20 border-purple-500/40 text-purple-200 shadow-[0_0_8px_rgba(168,85,247,0.15)]"
+                                                        : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60")}>
+                                                {p.label}
+                                            </button>
+                                        </PreviewBubble>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Column 2: Clip Range dual-handle slider */}
+                        <div className="space-y-3">
+                            <DualRangeSlider label="Clip Range" icon={Scissors}
+                                min={0.1} max={10} step={0.1} unit="s"
+                                value={[settings.shortestClip, settings.longestClip]}
+                                onChange={([shortest, longest]) => update({ shortestClip: shortest, longestClip: longest })} />
+                            <div className="flex gap-3 text-[9px] text-white/30">
+                                <span className="flex items-center gap-1">
+                                    <span className="w-2 h-2 rounded-full bg-purple-400" /> Shortest
+                                </span>
+                                <span className="flex items-center gap-1">
+                                    <span className="w-2 h-2 rounded-full bg-blue-400" /> Longest
+                                </span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 {/* ── Narration Intelligence (folded by default; opens on upload) ─── */}
                 <NarrationIntelligence
-                    narrationFile={narrationStore.narrationFile}
-                    narrationName={narrationStore.narrationName}
-                    narrationUrl={narrationStore.narrationUrl}
-                    transcript={narrationStore.transcript}
-                    analysis={narrationStore.analysis}
-                    isAnalyzing={narrationStore.isAnalyzing}
+                    narrationFile={narrationFile}
+                    narrationName={narrationName}
+                    narrationUrl={narrationUrl}
+                    transcript={narrationTranscript}
+                    analysis={narrationAnalysis}
+                    isAnalyzing={narrationIsAnalyzing}
                     onUpload={handleNarrationUpload}
                     onTranscriptChange={handleTranscriptChange}
                     onAnalyze={handleNarrationAnalyze}
@@ -1593,113 +2078,17 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                     mergeStrategy={mergeStrategy}
                     onMergeStrategyChange={setMergeStrategy}
                     hasBeatIntelligence={!!settings.audioAnalysis}
+                    settings={settings}
+                    update={update}
                 />
 
                 <TrailerSmartPanel settings={settings} update={update} />
 
+                <SmartChoicesStrip />
 
 
 
 
-
-                <div className="space-y-3 border border-white/5 rounded-xl bg-black/20 p-4">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 flex items-center gap-2">
-                        <Layers size={12} className="text-teal-400" /> Include Grids
-                    </label>
-                    <div className="grid grid-cols-3 gap-2">
-                        {([
-                            { id: 'off' as const, label: 'Off', desc: 'No grid layouts' },
-                            { id: 'mixed' as const, label: 'Mixed', desc: 'Grids sprinkled in' },
-                            { id: 'grids-only' as const, label: 'Grids Only', desc: 'All clips use grids' },
-                        ]).map(opt => (
-                            <button key={opt.id} onClick={() => update({ includeGrids: opt.id } as any)}
-                                className={clsx("p-2.5 rounded-lg border text-left transition-all",
-                                    (settings.includeGrids || 'off') === opt.id
-                                        ? "bg-teal-600/20 border-teal-500/40 shadow-[0_0_10px_rgba(20,184,166,0.15)]"
-                                        : "bg-white/5 border-white/5 hover:bg-white/10")}>
-                                <div className={clsx("text-[10px] font-black uppercase", (settings.includeGrids || 'off') === opt.id ? "text-teal-200" : "text-white/70")}>{opt.label}</div>
-                                <div className="text-[9px] text-white/30">{opt.desc}</div>
-                            </button>
-                        ))}
-                    </div>
-                </div>
-
-                <div className="grid sm:grid-cols-2 gap-8 bg-black/20 p-5 rounded-xl border border-white/5 mt-6">
-                    <div className="space-y-4">
-                        <SliderControl label="Target Duration" icon={Clock} value={settings.targetDuration}
-                            min={5} max={180} step={5} unit="s" onChange={(v) => {
-                                update({ targetDuration: v });
-                                if (settings.useAudioGuide && audioAnalysis) {
-                                    autoSelectBestSegment(v);
-                                }
-                            }} />
-                        <div className="flex flex-wrap gap-2">
-                            {settings.useAudioGuide && audioAnalysis && (
-                                <>
-                                    <button onClick={() => update({ targetDuration: Math.round(audioTrimEnd - audioTrimStart) })}
-                                        className={clsx("px-2 py-1.5 rounded-md text-[10px] font-bold transition-all border whitespace-nowrap",
-                                            settings.targetDuration === Math.round(audioTrimEnd - audioTrimStart)
-                                                ? "bg-primary text-white border-primary shadow-lg"
-                                                : "bg-purple-500/20 text-purple-200 border-purple-500/30 hover:bg-purple-500/30")}>
-                                        Selected Segment
-                                    </button>
-                                    <button onClick={() => update({ targetDuration: Math.round(audioAnalysis.duration) })}
-                                        className={clsx("px-2 py-1.5 rounded-md text-[10px] font-bold transition-all border whitespace-nowrap",
-                                            settings.targetDuration === Math.round(audioAnalysis.duration)
-                                                ? "bg-primary text-white border-primary shadow-lg"
-                                                : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10")}>
-                                        Full Audio
-                                    </button>
-                                </>
-                            )}
-
-                        </div>
-                    </div>
-                    <div className="space-y-6">
-                        {/* Duration Presets */}
-                        <div className="space-y-1.5">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-white/40">Presets</span>
-                            <div className="flex flex-wrap gap-1.5">
-                                {[
-                                    { label: 'Dynamic', shortest: 0.1, longest: 2.0, rhythm: 'random-walk', desc: 'Full spectrum — hype to hold' },
-                                    { label: 'Montage', shortest: 0.2, longest: 0.5, rhythm: 'staccato-legato', desc: 'Fast travel / recap' },
-                                    { label: 'Beat Sync', shortest: 0.2, longest: 0.8, rhythm: 'pulse-2-1-2', desc: 'Locked to rhythm' },
-                                    { label: 'Action', shortest: 0.3, longest: 1.0, rhythm: 'heartbeat', desc: 'Fight / chase' },
-                                    { label: 'Music Video', shortest: 0.3, longest: 1.2, rhythm: 'wave', desc: 'Performance cuts' },
-                                    { label: 'Standard', shortest: 0.5, longest: 2.0, rhythm: 'breathing', desc: 'General editing' },
-                                    { label: 'Drama', shortest: 1.0, longest: 3.0, rhythm: 'call-response', desc: 'Dialogue / tension' },
-                                    { label: 'Cinematic', shortest: 1.5, longest: 4.0, rhythm: 'fibonacci', desc: 'Slow reveals' },
-                                    { label: 'Wide Mix', shortest: 0.2, longest: 5.0, rhythm: 'random', desc: 'Maximum range — everything goes' },
-                                    { label: 'Showreel', shortest: 0.8, longest: 2.5, rhythm: 'climax-arc', desc: 'Portfolio highlights' },
-                                    { label: 'Rapid Montage', shortest: 0.3, longest: 0.8, rhythm: 'staccato-legato', desc: 'Rapid cuts with alternating punch and release' },
-                                    { label: 'Slow Build', shortest: 0.5, longest: 5.0, rhythm: 'accelerando', desc: 'Long opening shots that tighten toward the finish' },
-                                    { label: 'Crescendo Cut', shortest: 0.3, longest: 4.0, rhythm: 'climax-arc', desc: 'Builds toward rapid cuts and a final hero hold' },
-                                    { label: 'Breathing Rhythm', shortest: 0.5, longest: 3.0, rhythm: 'breathing', desc: 'Alternates expansive and compact shots' },
-                                ].map(p => (
-                                    <PreviewBubble key={p.label}
-                                        preview={<DurationPresetPreview shortest={p.shortest} longest={p.longest} />}
-                                        description={p.desc}
-                                        width={180}>
-                                        <button
-                                            onClick={() => update({ shortestClip: p.shortest, longestClip: p.longest, rhythmPattern: p.rhythm as any })}
-                                            className={clsx("px-2 py-1 rounded-full text-[10px] font-bold transition-all border",
-                                                settings.shortestClip === p.shortest && settings.longestClip === p.longest && settings.rhythmPattern === p.rhythm
-                                                    ? "bg-purple-600/20 border-purple-500/40 text-purple-200 shadow-[0_0_8px_rgba(168,85,247,0.15)]"
-                                                    : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10 hover:text-white/60")}>
-                                            {p.label}
-                                        </button>
-                                    </PreviewBubble>
-                                ))}
-                            </div>
-                        </div>
-                        <SliderControl label="Shortest Clip" icon={Scissors} value={settings.shortestClip}
-                            min={0.1} max={5} step={0.1} unit="s"
-                            onChange={(v) => update({ shortestClip: v, longestClip: Math.max(v, settings.longestClip) })} />
-                        <SliderControl label="Longest Clip" icon={Scissors} value={settings.longestClip}
-                            min={0.5} max={10} step={0.1} unit="s"
-                            onChange={(v) => update({ longestClip: v, shortestClip: Math.min(v, settings.shortestClip) })} />
-                    </div>
-                </div>
 
                 <div className="flex flex-col sm:flex-row gap-4">
                     <label className="flex flex-1 items-center justify-between p-4 rounded-xl border border-white/5 bg-white/5 cursor-pointer hover:bg-white/10 transition-colors">
@@ -1846,10 +2235,9 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
 
                 {/* ═══════════════════════════ EFFECTS ═══════════════════════════ */}
                 <CollapsibleSection title="Effects" icon={Sparkles} iconColor="text-cyan-400" isOpen={effectsOpen} onToggle={() => setEffectsOpen(!effectsOpen)}
-                    badge={[settings.boomerangAll && 'Boom', settings.zoomEnabled && 'Zoom', settings.shakePolicy !== 'off' && 'Shake', settings.beatDropImpact !== 'off' && 'Drop'].filter(Boolean).join(' · ') || undefined}
+                    badge={[settings.boomerangAll && 'Boom', settings.zoomEnabled && 'Zoom'].filter(Boolean).join(' · ') || undefined}
                     badgeColor="bg-cyan-500/20 text-cyan-300">
 
-                    <SequencePresetPicker category="effects" settings={settings} update={update} stackable embedded />
 
                     {/* ── Boomerang ── */}
                     <div className="space-y-2.5">
@@ -2001,117 +2389,8 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                         )}
                     </div>
 
-                    <div className="border-t border-white/5" />
-
-                    {/* ── Beat Drop Impact ── */}
-                    <div className="space-y-1.5">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-2">
-                            <Zap size={14} /> Beat Drop Impact
-                        </span>
-                        <div className="flex flex-wrap gap-1.5">
-                            {([
-                                { id: 'off' as BeatDropIntensity, label: 'Off', desc: 'No impact effects on drops' },
-                                { id: 'subtle' as BeatDropIntensity, label: 'Subtle', desc: 'Gentle pulse on heavy drops' },
-                                { id: 'medium' as BeatDropIntensity, label: 'Medium', desc: 'Noticeable flash + zoom hit' },
-                                { id: 'heavy' as BeatDropIntensity, label: 'Heavy', desc: 'Strong multi-layer impact' },
-                                { id: 'maximum' as BeatDropIntensity, label: 'Maximum', desc: 'Full aggression — flash, shake, zoom' },
-                            ]).map(opt => (
-                                <PreviewBubble key={opt.id}
-                                    preview={<BeatDropPreview intensity={opt.id} />}
-                                    description={opt.desc}
-                                    width={170}>
-                                    <button onClick={() => update({ beatDropImpact: opt.id })}
-                                        className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border capitalize",
-                                            (settings.beatDropImpact ?? 'off') === opt.id
-                                                ? "bg-orange-600/20 border-orange-500/40 text-orange-200 shadow-[0_0_8px_rgba(249,115,22,0.15)]"
-                                                : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
-                                        {opt.label}
-                                    </button>
-                                </PreviewBubble>
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="border-t border-white/5" />
-
-                    {/* ── Shake ── */}
-                    <div className="space-y-2">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-2">
-                            <Activity size={14} /> Shake
-                        </span>
-                        <div className="space-y-1">
-                            <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Shake Policy</span>
-                            <div className="flex flex-wrap gap-1.5">
-                                {([
-                                    { id: 'off' as ShakePolicy, label: 'Off', desc: 'No camera shake applied' },
-                                    { id: 'sparingly' as ShakePolicy, label: 'Sparingly', desc: 'Only on high-impact moments' },
-                                    { id: 'heavy-beats-only' as ShakePolicy, label: 'Heavy Beats', desc: 'Targets the hardest drops' },
-                                    { id: 'on-every-beat' as ShakePolicy, label: 'Every Beat', desc: 'Shake on every detected beat' },
-                                ]).map(opt => (
-                                    <PreviewBubble key={opt.id}
-                                        preview={<ShakePolicyPreview policy={opt.id} />}
-                                        description={opt.desc}
-                                        width={180}>
-                                        <button onClick={() => update({ shakePolicy: opt.id })}
-                                            className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
-                                                (settings.shakePolicy ?? 'off') === opt.id
-                                                    ? "bg-red-600/20 border-red-500/40 text-red-200 shadow-[0_0_8px_rgba(239,68,68,0.15)]"
-                                                    : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
-                                            {opt.label}
-                                        </button>
-                                    </PreviewBubble>
-                                ))}
-                            </div>
-                        </div>
-                        {(settings.shakePolicy ?? 'off') !== 'off' && (
-                            <div className="space-y-3 pl-5">
-                                {/* Shake Type */}
-                                <div className="space-y-1">
-                                    <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Shake Type</span>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {([
-                                            { id: 'impact', label: 'Impact', desc: 'Single sharp directional jolt' },
-                                            { id: 'handheld', label: 'Handheld', desc: 'Subtle organic camera wobble' },
-                                            { id: 'earthquake', label: 'Earthquake', desc: 'Aggressive multi-axis shaking' },
-                                            { id: 'vibration', label: 'Vibration', desc: 'Rapid small-amplitude oscillation' },
-                                            { id: 'whip', label: 'Whip', desc: 'Fast horizontal snap and recoil' },
-                                            { id: 'all', label: 'All', desc: 'Randomly cycles through all types' },
-                                        ] as { id: ShakeType | 'all'; label: string; desc: string }[]).map(opt => (
-                                            <PreviewBubble key={opt.id}
-                                                preview={<ShakeTypePreview type={opt.id} />}
-                                                description={opt.desc}
-                                                width={180}>
-                                                <button onClick={() => update({ shakeType: opt.id })}
-                                                    className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
-                                                        (settings.shakeType ?? 'impact') === opt.id
-                                                            ? "bg-red-600/20 border-red-500/40 text-red-200"
-                                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
-                                                    {opt.label}
-                                                </button>
-                                            </PreviewBubble>
-                                        ))}
-                                    </div>
-                                </div>
-                                {/* Intensity slider */}
-                                <SliderControl label="Intensity" icon={Zap} value={settings.shakeIntensity ?? 50}
-                                    min={0} max={100} step={5} unit="%" onChange={(v) => update({ shakeIntensity: v })} />
-                                {/* Shake Placement Preview */}
-                                {audioAnalysis && (
-                                    <ShakePreview settings={settings} audioAnalysis={audioAnalysis} />
-                                )}
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="border-t border-white/5" />
-
-                    {/* ── Trending Effects (premium card grid) ── */}
-                    <div className="space-y-3">
-                        <span className="text-[11px] font-bold uppercase tracking-wider text-white/70 flex items-center gap-2">
-                            <Sparkles size={13} className="text-indigo-400" /> Trending Effects
-                        </span>
-
-                        <motion.div layout className="flex flex-wrap gap-2.5">
+                    {/* ── All Effects (individual cards) ── */}
+                    <motion.div layout className="flex flex-wrap gap-2.5">
                             {/* Double Exposure */}
                             <motion.div layout transition={{ layout: { duration: 0.3 } }} className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-indigo-600/10 via-white/5 to-purple-600/10",
                                 (settings.doubleExposurePolicy ?? 'off') !== 'off' ? "w-full border-indigo-400/40 shadow-[0_0_18px_rgba(99,102,241,0.2)]" : "w-full sm:w-[calc(50%-5px)] border-white/10")}>
@@ -2153,37 +2432,24 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                                             ))}
                                         </div>
                                     </div>
-                                    {/* Gradient colours — pick one or many; they cycle per clip or stack */}
+                                    {/* Gradient overlay — pick one */}
                                     <div className="space-y-1.5">
-                                        <div className="flex items-center justify-between">
-                                            <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Gradient Colours</span>
-                                            <div className="flex gap-1">
-                                                {(['cycle', 'stack'] as const).map((m) => (
-                                                    <button key={m} onClick={() => update({ doubleExposureGradientMode: m })}
-                                                        title={m === 'cycle' ? 'Rotate one gradient per clip' : 'Stack all selected gradients on every clip'}
-                                                        className={clsx('px-2 py-0.5 rounded-full text-[9px] font-bold uppercase transition-all border',
-                                                            (settings.doubleExposureGradientMode ?? 'cycle') === m
-                                                                ? 'bg-indigo-600/20 border-indigo-500/40 text-indigo-200'
-                                                                : 'bg-white/5 border-white/5 text-white/40 hover:bg-white/10')}>
-                                                        {m}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        </div>
-                                        <div className="flex flex-wrap gap-1.5">
+                                        <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Gradient Overlay</span>
+                                        <div className="flex gap-2">
                                             {DOUBLE_EXPOSURE_GRADIENTS.map((g) => {
                                                 const sel = (settings.doubleExposureGradientIds ?? []).includes(g.id);
                                                 return (
                                                     <button key={g.id}
                                                         onClick={() => {
-                                                            const cur = settings.doubleExposureGradientIds ?? [];
-                                                            update({ doubleExposureGradientIds: cur.includes(g.id) ? cur.filter(x => x !== g.id) : [...cur, g.id] });
+                                                            // Single-select: toggle this one, deselect others
+                                                            update({ doubleExposureGradientIds: sel ? [] : [g.id] });
                                                         }}
-                                                        title={g.name}
-                                                        className={clsx('h-6 w-9 rounded-md border transition-all relative overflow-hidden',
-                                                            sel ? 'border-white ring-1 ring-white/60 scale-105' : 'border-white/10 hover:border-white/30 opacity-80 hover:opacity-100')}
-                                                        style={{ background: gradientToCss(g.colors) }}>
-                                                        {sel && <span className="absolute inset-0 flex items-center justify-center text-[8px] font-black text-white drop-shadow">✓</span>}
+                                                        className={clsx('flex-1 flex flex-col items-center gap-1.5 py-2 px-2 rounded-lg border transition-all',
+                                                            sel ? 'border-white/40 ring-1 ring-white/30 bg-white/5' : 'border-white/10 hover:border-white/25 bg-black/20 hover:bg-white/5')}>
+                                                        <div className="w-full h-8 rounded-md overflow-hidden"
+                                                            style={{ background: gradientToCss(g.colors) }} />
+                                                        <span className={clsx('text-[9px] font-bold uppercase tracking-wider',
+                                                            sel ? 'text-white/80' : 'text-white/35')}>{g.name}</span>
                                                     </button>
                                                 );
                                             })}
@@ -2191,7 +2457,67 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                                         <span className="text-[8px] text-white/30">
                                             {(settings.doubleExposureGradientIds ?? []).length === 0
                                                 ? 'None selected — uses a second clip as the overlay.'
-                                                : `${(settings.doubleExposureGradientIds ?? []).length} selected · ${(settings.doubleExposureGradientMode ?? 'cycle') === 'cycle' ? 'cycling one per clip' : 'stacked on every clip'}`}
+                                                : `${DOUBLE_EXPOSURE_GRADIENTS.find(g => g.id === (settings.doubleExposureGradientIds ?? [])[0])?.name ?? 'Gradient'} overlay active`}
+                                        </span>
+                                    </div>
+                                </EffectPolicyControl>
+                            </motion.div>
+
+                            {/* Triple Exposure */}
+                            <motion.div layout transition={{ layout: { duration: 0.3 } }} className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-amber-600/10 via-white/5 to-yellow-600/10",
+                                (settings.tripleExposurePolicy ?? 'off') !== 'off' ? "w-full border-amber-400/40 shadow-[0_0_18px_rgba(245,158,11,0.2)]" : "w-full sm:w-[calc(50%-5px)] border-white/10")}>
+                                <div className="absolute -top-8 -right-8 w-24 h-24 bg-amber-500/20 blur-[40px] pointer-events-none rounded-full" />
+                                <div className="flex items-center gap-2 relative">
+                                    <Layers size={14} className="text-amber-300" />
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-black text-white leading-none">Triple Exposure</span>
+                                        <span className="text-[9px] text-white/40">3-layer blend for richer, denser composites</span>
+                                    </div>
+                                </div>
+                                <EffectPolicyControl label=""
+                                    policy={settings.tripleExposurePolicy ?? 'off'}
+                                    onPolicy={(p) => update({ tripleExposurePolicy: p })}>
+                                    <SliderControl label="Opacity" icon={Layers} value={settings.tripleExposureOpacity ?? 35}
+                                        min={0} max={100} step={5} unit="%" onChange={(v) => update({ tripleExposureOpacity: v })} />
+                                    <div className="space-y-1">
+                                        <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Blend Mode</span>
+                                        <div className="flex gap-1.5 flex-wrap">
+                                            {(['screen', 'lighten', 'overlay', 'add', 'softlight', 'multiply'] as const).map((mode) => (
+                                                <button key={mode} onClick={() => update({ tripleExposureBlend: mode })}
+                                                    className={clsx("px-2 py-1 rounded-full text-[10px] font-bold uppercase transition-all border",
+                                                        (settings.tripleExposureBlend ?? 'screen') === mode
+                                                            ? "bg-amber-600/20 border-amber-500/40 text-amber-200"
+                                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                                    {mode}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    {/* Gradient overlay — pick one */}
+                                    <div className="space-y-1.5">
+                                        <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Gradient Overlay</span>
+                                        <div className="flex gap-2">
+                                            {DOUBLE_EXPOSURE_GRADIENTS.map((g) => {
+                                                const sel = (settings.tripleExposureGradientIds ?? []).includes(g.id);
+                                                return (
+                                                    <button key={g.id}
+                                                        onClick={() => {
+                                                            update({ tripleExposureGradientIds: sel ? [] : [g.id] });
+                                                        }}
+                                                        className={clsx('flex-1 flex flex-col items-center gap-1.5 py-2 px-2 rounded-lg border transition-all',
+                                                            sel ? 'border-white/40 ring-1 ring-white/30 bg-white/5' : 'border-white/10 hover:border-white/25 bg-black/20 hover:bg-white/5')}>
+                                                        <div className="w-full h-8 rounded-md overflow-hidden"
+                                                            style={{ background: gradientToCss(g.colors) }} />
+                                                        <span className={clsx('text-[9px] font-bold uppercase tracking-wider',
+                                                            sel ? 'text-white/80' : 'text-white/35')}>{g.name}</span>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                        <span className="text-[8px] text-white/30">
+                                            {(settings.tripleExposureGradientIds ?? []).length === 0
+                                                ? 'None selected — uses clips as all three layers.'
+                                                : `${DOUBLE_EXPOSURE_GRADIENTS.find(g => g.id === (settings.tripleExposureGradientIds ?? [])[0])?.name ?? 'Gradient'} overlay active`}
                                         </span>
                                     </div>
                                 </EffectPolicyControl>
@@ -2251,31 +2577,7 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                                 </EffectPolicyControl>
                             </motion.div>
 
-                            {/* Vibration Flash */}
-                            <motion.div layout transition={{ layout: { duration: 0.3 } }} className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-rose-600/10 via-white/5 to-red-600/10",
-                                "w-full sm:w-[calc(50%-5px)]",
-                                (settings.vibrationFlashPolicy ?? 'off') !== 'off' ? "border-rose-400/40 shadow-[0_0_18px_rgba(244,63,94,0.2)]" : "border-white/10")}>
-                                <div className="absolute -top-8 -right-8 w-24 h-24 bg-rose-500/20 blur-[40px] pointer-events-none rounded-full" />
-                                <PreviewBubble
-                                    preview={<VibrationFlashPreview />}
-                                    description="Brightness flash with camera jolt on beat impacts"
-                                    width={200}>
-                                    <div className="flex items-center gap-2 relative">
-                                        <Zap size={14} className="text-rose-300" />
-                                        <div className="flex flex-col">
-                                            <span className="text-xs font-black text-white leading-none">Vibration Flash</span>
-                                            <span className="text-[9px] text-white/40">Punchy beat-synced jolt</span>
-                                        </div>
-                                    </div>
-                                </PreviewBubble>
-                                <EffectPolicyControl label=""
-                                    policy={settings.vibrationFlashPolicy ?? 'off'}
-                                    onPolicy={(p) => update({ vibrationFlashPolicy: p })}
-                                    renderPreview={(p) => <VibrationFlashPolicyPreview policy={p} />}>
-                                    <SliderControl label="Intensity" icon={Zap} value={settings.vibrationFlashIntensity ?? 70}
-                                        min={0} max={100} step={5} unit="%" onChange={(v) => update({ vibrationFlashIntensity: v })} />
-                                </EffectPolicyControl>
-                            </motion.div>
+                            {/* Vibration Flash — moved to Beat Intelligence Engine section */}
 
                             {/* Optical-Flow Slow-Mo */}
                             <motion.div layout transition={{ layout: { duration: 0.3 } }} className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-teal-600/10 via-white/5 to-emerald-600/10",
@@ -2375,8 +2677,236 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                                         min={0} max={100} step={5} unit="%" onChange={(v) => update({ vhsAmount: v })} />
                                 </EffectPolicyControl>
                             </motion.div>
+
+                            {/* Picture-in-Picture */}
+                            <motion.div layout transition={{ layout: { duration: 0.3 } }} className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-cyan-600/10 via-white/5 to-teal-600/10",
+                                (settings.pipPolicy ?? 'off') !== 'off' ? "w-full border-cyan-400/40 shadow-[0_0_18px_rgba(6,182,212,0.2)]" : "w-full sm:w-[calc(50%-5px)] border-white/10")}>
+                                <div className="absolute -top-8 -right-8 w-24 h-24 bg-cyan-500/20 blur-[40px] pointer-events-none rounded-full" />
+                                <div className="flex items-center gap-2 relative">
+                                    <PictureInPicture2 size={14} className="text-cyan-300" />
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-black text-white leading-none">Picture-in-Picture</span>
+                                        <span className="text-[9px] text-white/40">Shrink clip to corner overlay</span>
+                                    </div>
+                                </div>
+                                <EffectPolicyControl label=""
+                                    policy={settings.pipPolicy ?? 'off'}
+                                    onPolicy={(p) => update({ pipPolicy: p })}
+                                    alwaysShowChildren>
+
+                                    {/* Shape Selector */}
+                                    <div className="space-y-1">
+                                        <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Shape</span>
+                                        <div className="flex gap-1.5">
+                                            {([
+                                                { id: 'square' as const, label: '■', desc: 'Square (1:1)' },
+                                                { id: 'vertical' as const, label: '▮', desc: 'Vertical (9:16)' },
+                                                { id: 'horizontal' as const, label: '▬', desc: 'Horizontal (16:9)' },
+                                            ]).map(s => (
+                                                <button key={s.id} onClick={() => update({ pipShape: s.id })}
+                                                    title={s.desc}
+                                                    className={clsx("flex-1 py-1.5 rounded-lg text-sm font-bold border transition-all",
+                                                        (settings.pipShape ?? 'square') === s.id
+                                                            ? "bg-cyan-600/30 border-cyan-400/50 text-cyan-200"
+                                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                                    {s.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* 3×3 Position Grid */}
+                                    <div className="space-y-1">
+                                        <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">
+                                            {(settings.pipMovement ?? 'static') === 'static' ? 'Position' : 'Start Position'}
+                                        </span>
+                                        <div className="grid grid-cols-3 gap-1 w-fit">
+                                            {([{p:1,l:'TL'},{p:2,l:'TC'},{p:3,l:'TR'},{p:4,l:'ML'},{p:5,l:'MC'},{p:6,l:'MR'},{p:7,l:'BL'},{p:8,l:'BC'},{p:9,l:'BR'}] as const).map(({p,l}) => {
+                                                const movement = settings.pipMovement ?? 'static';
+                                                const currentPath = settings.pipMovementPath ?? [];
+                                                const isStart = (settings.pipPosition ?? 9) === p;
+                                                const isOnPath = movement !== 'static' && currentPath.includes(p);
+                                                return (
+                                                    <button key={p} onClick={() => {
+                                                        const upd: Partial<TrailerSettings> = { pipPosition: p as TrailerSettings['pipPosition'] };
+                                                        // Auto-compute movement path when position changes
+                                                        if (movement !== 'static') {
+                                                            const paths: Record<string, Record<number, number[]>> = {
+                                                                horizontal: { 1:[1,2,3], 2:[1,2,3], 3:[1,2,3], 4:[4,5,6], 5:[4,5,6], 6:[4,5,6], 7:[7,8,9], 8:[7,8,9], 9:[7,8,9] },
+                                                                vertical:   { 1:[1,4,7], 2:[2,5,8], 3:[3,6,9], 4:[1,4,7], 5:[2,5,8], 6:[3,6,9], 7:[1,4,7], 8:[2,5,8], 9:[3,6,9] },
+                                                                diagonal:   { 1:[1,5,9], 2:[1,5,9], 3:[3,5,7], 4:[1,5,9], 5:[1,5,9], 6:[3,5,7], 7:[3,5,7], 8:[3,5,7], 9:[1,5,9] },
+                                                                random:     {},
+                                                            };
+                                                            const pathMap = paths[movement] || {};
+                                                            upd.pipMovementPath = (pathMap[p] || [p]) as TrailerSettings['pipMovementPath'];
+                                                        }
+                                                        update(upd);
+                                                    }}
+                                                        className={clsx("w-7 h-7 rounded text-[8px] font-bold uppercase transition-all border",
+                                                            isStart
+                                                                ? "bg-cyan-600/30 border-cyan-400/50 text-cyan-200 shadow-[0_0_6px_rgba(6,182,212,0.3)]"
+                                                                : isOnPath
+                                                                    ? "bg-cyan-600/15 border-cyan-400/25 text-cyan-300/60"
+                                                                    : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                                        {isOnPath && !isStart ? '•' : l}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    {/* Movement Mode */}
+                                    <div className="space-y-1">
+                                        <span className="text-[9px] font-bold uppercase text-white/30 tracking-wider">Movement (beat-synced)</span>
+                                        <div className="flex flex-wrap gap-1">
+                                            {([
+                                                { id: 'static' as const, label: 'Static', icon: '▪' },
+                                                { id: 'horizontal' as const, label: 'H-Line', icon: '↔' },
+                                                { id: 'vertical' as const, label: 'V-Line', icon: '↕' },
+                                                { id: 'diagonal' as const, label: 'Diagonal', icon: '⤢' },
+                                                { id: 'random' as const, label: 'Random', icon: '⁕' },
+                                            ]).map(m => (
+                                                <button key={m.id} onClick={() => {
+                                                    const pos = settings.pipPosition ?? 9;
+                                                    const paths: Record<string, Record<number, number[]>> = {
+                                                        horizontal: { 1:[1,2,3], 2:[1,2,3], 3:[1,2,3], 4:[4,5,6], 5:[4,5,6], 6:[4,5,6], 7:[7,8,9], 8:[7,8,9], 9:[7,8,9] },
+                                                        vertical:   { 1:[1,4,7], 2:[2,5,8], 3:[3,6,9], 4:[1,4,7], 5:[2,5,8], 6:[3,6,9], 7:[1,4,7], 8:[2,5,8], 9:[3,6,9] },
+                                                        diagonal:   { 1:[1,5,9], 2:[1,5,9], 3:[3,5,7], 4:[1,5,9], 5:[1,5,9], 6:[3,5,7], 7:[3,5,7], 8:[3,5,7], 9:[1,5,9] },
+                                                    };
+                                                    const pathMap = paths[m.id] || {};
+                                                    update({
+                                                        pipMovement: m.id,
+                                                        pipMovementPath: m.id === 'static' ? [] : (pathMap[pos] || []) as TrailerSettings['pipMovementPath'],
+                                                    });
+                                                }}
+                                                    className={clsx("px-2 py-1 rounded-lg text-[9px] font-bold border transition-all flex items-center gap-1",
+                                                        (settings.pipMovement ?? 'static') === m.id
+                                                            ? "bg-cyan-600/30 border-cyan-400/50 text-cyan-200"
+                                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
+                                                    <span>{m.icon}</span> {m.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        {(settings.pipMovement ?? 'static') !== 'static' && (
+                                            <p className="text-[9px] text-cyan-300/50 italic">
+                                                PIP moves along {settings.pipMovement === 'random' ? 'random positions' : `a ${settings.pipMovement} line`} on each beat
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    <SliderControl label="Scale" icon={Layers} value={settings.pipScale ?? 30}
+                                        min={20} max={50} step={1} unit="%" onChange={(v) => update({ pipScale: v })} />
+                                    <SliderControl label="Border Radius" icon={Square} value={settings.pipBorderRadius ?? 8}
+                                        min={0} max={20} step={1} unit="px" onChange={(v) => update({ pipBorderRadius: v })} />
+                                </EffectPolicyControl>
+                            </motion.div>
+
+                            {/* Spin Effect */}
+                            <motion.div layout transition={{ layout: { duration: 0.3 } }} className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-pink-600/10 via-white/5 to-rose-600/10",
+                                (settings.spinPolicy ?? 'off') !== 'off' ? "w-full border-pink-400/40 shadow-[0_0_18px_rgba(236,72,153,0.2)]" : "w-full sm:w-[calc(50%-5px)] border-white/10")}>
+                                <div className="absolute -top-8 -right-8 w-24 h-24 bg-pink-500/20 blur-[40px] pointer-events-none rounded-full" />
+                                <div className="flex items-center gap-2 relative">
+                                    <RotateCw size={14} className="text-pink-300" />
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-black text-white leading-none">Spin</span>
+                                        <span className="text-[9px] text-white/40">Rotational motion on clip</span>
+                                    </div>
+                                </div>
+                                <EffectPolicyControl label=""
+                                    policy={settings.spinPolicy ?? 'off'}
+                                    onPolicy={(p) => update({ spinPolicy: p })}>
+                                    <SliderControl label="Speed" icon={RotateCw} value={settings.spinSpeed ?? 50}
+                                        min={0} max={100} step={5} unit="%" onChange={(v) => update({ spinSpeed: v })} />
+                                </EffectPolicyControl>
+                            </motion.div>
+
+                            {/* Film Burn Effect */}
+                            <motion.div layout transition={{ layout: { duration: 0.3 } }} className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-red-600/10 via-white/5 to-orange-600/10",
+                                (settings.filmBurnPolicy ?? 'off') !== 'off' ? "w-full border-red-400/40 shadow-[0_0_18px_rgba(239,68,68,0.2)]" : "w-full sm:w-[calc(50%-5px)] border-white/10")}>
+                                <div className="absolute -top-8 -right-8 w-24 h-24 bg-red-500/20 blur-[40px] pointer-events-none rounded-full" />
+                                <div className="flex items-center gap-2 relative">
+                                    <Flame size={14} className="text-red-300" />
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-black text-white leading-none">Film Burn</span>
+                                        <span className="text-[9px] text-white/40">Analog light leak overlay</span>
+                                    </div>
+                                </div>
+                                <EffectPolicyControl label=""
+                                    policy={settings.filmBurnPolicy ?? 'off'}
+                                    onPolicy={(p) => update({ filmBurnPolicy: p })}>
+                                    <SliderControl label="Intensity" icon={Flame} value={settings.filmBurnIntensity ?? 50}
+                                        min={0} max={100} step={5} unit="%" onChange={(v) => update({ filmBurnIntensity: v })} />
+                                </EffectPolicyControl>
+                            </motion.div>
+
+                            {/* Pixelize Effect */}
+                            <motion.div layout transition={{ layout: { duration: 0.3 } }} className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-lime-600/10 via-white/5 to-green-600/10",
+                                (settings.pixelizePolicy ?? 'off') !== 'off' ? "w-full border-lime-400/40 shadow-[0_0_18px_rgba(132,204,22,0.2)]" : "w-full sm:w-[calc(50%-5px)] border-white/10")}>
+                                <div className="absolute -top-8 -right-8 w-24 h-24 bg-lime-500/20 blur-[40px] pointer-events-none rounded-full" />
+                                <div className="flex items-center gap-2 relative">
+                                    <Grid3X3 size={14} className="text-lime-300" />
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-black text-white leading-none">Pixelize</span>
+                                        <span className="text-[9px] text-white/40">Mosaic block pixelation</span>
+                                    </div>
+                                </div>
+                                <EffectPolicyControl label=""
+                                    policy={settings.pixelizePolicy ?? 'off'}
+                                    onPolicy={(p) => update({ pixelizePolicy: p })}>
+                                    <SliderControl label="Amount" icon={Grid3X3} value={settings.pixelizeAmount ?? 50}
+                                        min={0} max={100} step={5} unit="%" onChange={(v) => update({ pixelizeAmount: v })} />
+                                </EffectPolicyControl>
+                            </motion.div>
+
+                            {/* Whip Blur Effect */}
+                            <motion.div layout transition={{ layout: { duration: 0.3 } }} className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-sky-600/10 via-white/5 to-blue-600/10",
+                                (settings.whipBlurPolicy ?? 'off') !== 'off' ? "w-full border-sky-400/40 shadow-[0_0_18px_rgba(14,165,233,0.2)]" : "w-full sm:w-[calc(50%-5px)] border-white/10")}>
+                                <div className="absolute -top-8 -right-8 w-24 h-24 bg-sky-500/20 blur-[40px] pointer-events-none rounded-full" />
+                                <div className="flex items-center gap-2 relative">
+                                    <MoveHorizontal size={14} className="text-sky-300" />
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-black text-white leading-none">Whip Blur</span>
+                                        <span className="text-[9px] text-white/40">Directional motion streak</span>
+                                    </div>
+                                </div>
+                                <EffectPolicyControl label=""
+                                    policy={settings.whipBlurPolicy ?? 'off'}
+                                    onPolicy={(p) => update({ whipBlurPolicy: p })}>
+                                    <SliderControl label="Amount" icon={MoveHorizontal} value={settings.whipBlurAmount ?? 50}
+                                        min={0} max={100} step={5} unit="%" onChange={(v) => update({ whipBlurAmount: v })} />
+                                </EffectPolicyControl>
+                            </motion.div>
+
+                            {/* Deflicker Effect */}
+                            <motion.div layout transition={{ layout: { duration: 0.3 } }} className={clsx("relative overflow-hidden rounded-xl border p-3.5 space-y-2.5 transition-all bg-gradient-to-br from-yellow-600/10 via-white/5 to-amber-600/10",
+                                (settings.deflickerPolicy ?? 'off') !== 'off' ? "w-full border-yellow-400/40 shadow-[0_0_18px_rgba(234,179,8,0.2)]" : "w-full sm:w-[calc(50%-5px)] border-white/10")}>
+                                <div className="absolute -top-8 -right-8 w-24 h-24 bg-yellow-500/20 blur-[40px] pointer-events-none rounded-full" />
+                                <div className="flex items-center gap-2 relative">
+                                    <Zap size={14} className="text-yellow-300" />
+                                    <div className="flex flex-col">
+                                        <span className="text-xs font-black text-white leading-none">Deflicker</span>
+                                        <span className="text-[9px] text-white/40">Remove LED/fluorescent flicker</span>
+                                    </div>
+                                </div>
+                                <EffectPolicyControl label=""
+                                    policy={settings.deflickerPolicy ?? 'off'}
+                                    onPolicy={(p) => update({ deflickerPolicy: p })}>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] text-white/50">Layers</span>
+                                        <div className="flex gap-1">
+                                            {([3, 5] as const).map((v) => (
+                                                <button key={v}
+                                                    className={clsx("px-2 py-0.5 rounded text-[10px] font-bold transition-all",
+                                                        (settings.deflickerLayers ?? 3) === v
+                                                            ? "bg-yellow-500/30 text-yellow-200 border border-yellow-400/40"
+                                                            : "bg-white/5 text-white/40 border border-white/10 hover:bg-white/10")}
+                                                    onClick={() => update({ deflickerLayers: v })}>{v}</button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </EffectPolicyControl>
+                            </motion.div>
                         </motion.div>
-                    </div>
 
 
                 </CollapsibleSection>
@@ -2412,28 +2942,12 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                             <SliderControl label="Transition Duration" icon={Clock} value={settings.transitionDurationMs ?? 200}
                                 min={50} max={1000} step={25} unit="ms" onChange={(v) => update({ transitionDurationMs: v })} />
 
-                            {/* Return Transitions (A → B → A) */}
-                            <div className="space-y-2 rounded-lg border border-white/5 bg-black/30 p-3">
-                                <button
-                                    onClick={() => update({ returnTransitions: !settings.returnTransitions })}
-                                    className="flex w-full items-center justify-between text-left">
-                                    <span className="flex items-center gap-2">
-                                        <Repeat className="h-3.5 w-3.5 text-amber-400" />
-                                        <span className="text-[11px] font-bold uppercase tracking-wider text-white/70">Return Transitions</span>
-                                    </span>
-                                    <span className={clsx("relative h-4 w-7 rounded-full transition-colors",
-                                        settings.returnTransitions ? "bg-amber-500/70" : "bg-white/10")}>
-                                        <span className={clsx("absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all",
-                                            settings.returnTransitions ? "left-3.5" : "left-0.5")} />
-                                    </span>
-                                </button>
-                                <p className="text-[9px] leading-relaxed text-white/30">
-                                    Mirrors a transition with its reverse on the next cut — the edit moves out and comes back (e.g. slide-left then slide-right).
-                                </p>
-                                {settings.returnTransitions && (
-                                    <SliderControl label="Return Frequency" icon={Repeat} value={settings.returnTransitionFrequency ?? 50}
-                                        min={0} max={100} step={5} unit="%" onChange={(v) => update({ returnTransitionFrequency: v })} />
-                                )}
+                            {/* Per-transition return info */}
+                            <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-amber-500/5 border border-amber-500/10">
+                                <Repeat className="h-3 w-3 text-amber-400/60" />
+                                <span className="text-[9px] text-white/40">
+                                    Use the <strong className="text-amber-300/60">↩</strong> toggle on each transition card to enable return transitions (A → B → A) per type.
+                                </span>
                             </div>
 
                             {/* Transition Type Grid by Category */}
@@ -2462,6 +2976,8 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                                                 <div className="grid grid-cols-4 gap-2">
                                                     {cat.transitions.map(t => {
                                                         const isActive = (settings.transitionTypes ?? []).includes(t);
+                                                        const returnMap = settings.returnTransitionMap ?? {};
+                                                        const returnEntry = returnMap[t];
                                                         return (
                                                             <TransitionCard
                                                                 key={t}
@@ -2471,6 +2987,28 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                                                                     const current = settings.transitionTypes ?? [];
                                                                     const next = isActive ? current.filter(x => x !== t) : [...current, t];
                                                                     update({ transitionTypes: next });
+                                                                }}
+                                                                returnEnabled={isActive ? (returnEntry?.enabled ?? false) : undefined}
+                                                                returnFrequency={returnEntry?.frequency ?? 100}
+                                                                onReturnToggle={() => {
+                                                                    const map = { ...(settings.returnTransitionMap ?? {}) };
+                                                                    const current = map[t];
+                                                                    map[t] = { enabled: !(current?.enabled ?? false), frequency: current?.frequency ?? 100 };
+                                                                    update({ returnTransitionMap: map });
+                                                                }}
+                                                                onReturnFrequency={(freq) => {
+                                                                    const map = { ...(settings.returnTransitionMap ?? {}) };
+                                                                    map[t] = { enabled: map[t]?.enabled ?? true, frequency: freq };
+                                                                    update({ returnTransitionMap: map });
+                                                                }}
+                                                                transitionParams={settings.transitionParams?.[t]}
+                                                                onParamsChange={(newParams) => {
+                                                                    update({
+                                                                        transitionParams: {
+                                                                            ...(settings.transitionParams ?? {}),
+                                                                            [t]: newParams,
+                                                                        },
+                                                                    });
                                                                 }}
                                                             />
                                                         );
@@ -2493,7 +3031,11 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
 
                 {/* ═══════════════════════════ COLOR ═══════════════════════════ */}
                 <CollapsibleSection title="Color" icon={Palette} iconColor="text-pink-400" isOpen={colorOpen} onToggle={() => setColorOpen(!colorOpen)}
-                    badge={[settings.colorPerSection && 'Per-Section', settings.desaturationBuildup && 'Desat', settings.beatFlashEnabled && 'Flash'].filter(Boolean).join(' · ') || undefined}
+                    badge={(() => {
+                        const active = ['colorPerSection', 'desaturationBuildup', 'beatFlashEnabled', 'tealOrangeGrade', 'coolShadows', 'warmHighlights', 'highContrast', 'vintageFade', 'monochromeGrade']
+                            .filter(k => !!(settings as any)[k]);
+                        return active.length > 0 ? `${active.length} active` : undefined;
+                    })()}
                     badgeColor="bg-pink-500/20 text-pink-300">
 
                     <div className="grid grid-cols-3 gap-2">
@@ -2501,6 +3043,12 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                             { id: 'colorPerSection', label: 'Auto Grade', description: 'Different color grading per audio segment', gradient: 'linear-gradient(135deg, #3b82f6, #8b5cf6, #ec4899)' },
                             { id: 'desaturationBuildup', label: 'Desat Build', description: 'Fade to B&W during buildup sections', gradient: 'linear-gradient(135deg, #888, #333)' },
                             { id: 'beatFlashEnabled', label: 'Beat Flash', description: 'White flash on beat impacts', gradient: 'linear-gradient(135deg, #fbbf24, #fff, #fbbf24)' },
+                            { id: 'tealOrangeGrade', label: 'Teal & Orange', description: 'Classic cinematic — warm skin tones, cool shadows', gradient: 'linear-gradient(135deg, #0d9488, #f97316)' },
+                            { id: 'coolShadows', label: 'Cool Shadows', description: 'Blue-tinted shadows for moody/night feel', gradient: 'linear-gradient(135deg, #1e3a5f, #3b82f6, #111)' },
+                            { id: 'warmHighlights', label: 'Warm Highlights', description: 'Golden/amber highlight push', gradient: 'linear-gradient(135deg, #78350f, #f59e0b, #fde68a)' },
+                            { id: 'highContrast', label: 'High Contrast', description: 'Boosted blacks and whites — punchy look', gradient: 'linear-gradient(135deg, #000, #fff, #000)' },
+                            { id: 'vintageFade', label: 'Vintage Fade', description: 'Lifted blacks, warm tint, reduced saturation', gradient: 'linear-gradient(135deg, #92714f, #c4a882, #8b7355)' },
+                            { id: 'monochromeGrade', label: 'Monochrome', description: 'Full black & white grade', gradient: 'linear-gradient(135deg, #222, #999, #444)' },
                         ] as const).map(opt => (
                             <ColorPresetCard
                                 key={opt.id}
@@ -2575,6 +3123,9 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                     </motion.button>
                 </div>
             </div>
+        </div>
+        {/* Edit Logic Sidebar */}
+        <EditLogicSidebar mode="settings" />
         </div>
     );
 };

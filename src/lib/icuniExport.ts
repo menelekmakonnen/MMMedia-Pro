@@ -6,9 +6,11 @@
  * manifestBridge (a small whitelist), this carries EVERY clip property — including
  * speed curves, transitions, zoom, shake, beat effects, and the advanced looks —
  * and attaches a degradation report describing what Premiere can/can't reproduce.
+ *
+ * Grid clips are expanded into their constituent cell clips for multi-track export.
  */
 
-import type { Clip } from '../types';
+import type { Clip, GridClip, GridCell } from '../types';
 import {
     type IcuniEdit,
     type IcuniClip,
@@ -112,17 +114,81 @@ export function clipToIcuni(clip: Clip): IcuniClip {
 }
 
 /**
+ * Expand a GridClip into individual IcuniClips for each cell's sub-clips.
+ * Each cell becomes a separate track lane in the export, allowing Premiere Pro
+ * to reconstruct the multi-cell layout as stacked video tracks with position/scale.
+ */
+function expandGridClip(grid: GridClip): IcuniClip[] {
+    const result: IcuniClip[] = [];
+    const gridStart = grid.startFrame;
+
+    grid.cells.forEach((cell: GridCell, cellIdx: number) => {
+        const cellClips = cell.clips || (cell.clip ? [cell.clip] : []);
+        if (cellClips.length === 0) return;
+
+        // Each cell's clips go on a separate track (V2, V3, V4, etc.)
+        const trackNum = cellIdx + 2; // V2+ (V1 is primary spine)
+
+        cellClips.forEach((subClip) => {
+            const ic = clipToIcuni(subClip);
+            // Override timeline position to align with grid's position in the sequence
+            ic.timelineStart = gridStart + (subClip.startFrame || 0);
+            ic.timelineEnd = gridStart + (subClip.endFrame || subClip.startFrame || 0);
+            ic.track = trackNum;
+            // Attach grid cell layout metadata for position/scale reconstruction
+            ic.name = `[Grid Cell ${cellIdx + 1}] ${ic.name}`;
+            // Store position as custom metadata (x, y, width, height as 0-1 fractions)
+            (ic as any).gridCellLayout = {
+                x: cell.x, y: cell.y,
+                width: cell.width, height: cell.height,
+                cellIndex: cellIdx,
+                gridFormat: grid.gridFormat,
+                orientation: cell.cellOrientation || 'auto',
+            };
+            result.push(ic);
+        });
+    });
+
+    return result;
+}
+
+/**
  * Build a full, lossless ICUNI Edit from a project's clips. Disabled clips are
  * dropped; everything else is carried with a degradation report for Premiere.
+ * Grid clips are expanded into their constituent cell clips for multi-track export.
  */
 export function clipsToIcuniEdit(
     clips: Clip[],
     project: IcuniProjectInfo,
     createdBy: IcuniSource = 'mmmedia',
 ): IcuniEdit {
-    const icuniClips = clips.filter(c => !c.disabled).map(clipToIcuni);
+    const icuniClips: IcuniClip[] = [];
+
+    for (const c of clips) {
+        if ((c as any).disabled) continue;
+
+        if (c.type === 'grid') {
+            // Expand grid into individual cell clips on separate tracks
+            const gridClips = expandGridClip(c as GridClip);
+            icuniClips.push(...gridClips);
+        } else {
+            icuniClips.push(clipToIcuni(c));
+        }
+    }
+
     const report: IcuniReportEntry[] = [];
     for (const ic of icuniClips) report.push(...classifyClipFeatures(ic));
+
+    // Add a degradation note about grid compositing
+    const hasGrids = clips.some(c => c.type === 'grid');
+    if (hasGrids) {
+        report.push({
+            clipId: '__grid__',
+            feature: 'grid-composite: cells exported as separate track lanes, manual position/scale adjustment in Premiere may be needed',
+            level: 'approx',
+        });
+    }
+
     return {
         schema: ICUNI_EDIT_SCHEMA,
         version: ICUNI_EDIT_VERSION,
@@ -132,7 +198,7 @@ export function clipsToIcuniEdit(
         project,
         clips: icuniClips,
         report,
-        markers: [], // Will be populated from markerStore in Phase 1
-        regions: [], // Will be populated from markerStore in Phase 1
+        markers: [],
+        regions: [],
     };
 }

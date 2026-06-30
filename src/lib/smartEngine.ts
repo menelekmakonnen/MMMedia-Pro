@@ -27,13 +27,13 @@ export function classifyEnergy(score: number): 'static' | 'low' | 'moderate' | '
 
 /** Clip-aware cinematic auto-grade from average luma + saturation (signalstats). */
 function computeAutoGrade(yavg: number, satavg: number): any {
-    const exposure = Math.max(-0.6, Math.min(0.6, ((118 - yavg) / 118) * 0.7));
-    const vibrance = satavg < 60 ? 1.35 : satavg > 130 ? 1.0 : 1.15;
+    const exposure = Math.max(-0.4, Math.min(0.4, ((118 - yavg) / 118) * 0.5));
+    const vibrance = satavg < 60 ? 1.1 : satavg > 130 ? 1.0 : 1.05;
     return {
-        temperature: 0, tint: 0, exposure, contrast: 1.08,
+        temperature: 0, tint: 0, exposure, contrast: 1.03,
         highlights: 0, shadows: 0, saturation: 1.0, vibrance,
-        lift: [-0.02, 0, 0.03] as [number, number, number],
-        gain: [0.04, 0.0, -0.03] as [number, number, number],
+        lift: [0, 0, 0] as [number, number, number],
+        gain: [0, 0, 0] as [number, number, number],
         gamma: [1, 1, 1] as [number, number, number],
     };
 }

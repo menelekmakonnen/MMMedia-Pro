@@ -17,6 +17,7 @@ import { reorderClips } from '../../lib/clipOrdering';
 import { validateEdit, autoRepairEdit, type PoolSource } from '../../lib/ege/generationContract';
 import { resolveSubcategories } from '../../lib/subcategoryResolver';
 import { deClusterShotTypes } from '../../lib/ege/shotDiversity';
+import { shotGrammarKey } from '../../lib/ege/editorialRules';
 import { useExportSettingsStore } from '../../store/exportSettingsStore';
 import type { QueuedEdit } from '../../store/exportSettingsStore';
 import { SmartEngineConfirmModal } from './SmartEngineConfirmModal';
@@ -32,6 +33,13 @@ import type { SceneDefinition, ActStructure } from '../../lib/shortFilmAssistant
 import { mergeIntelligence } from '../../lib/intelligenceMerger';
 import { useNarrationStore } from '../../store/narrationStore';
 import { toast } from '../../components/Toast';
+import { generateSocialMediaEdit, type SocialStyle } from '../../lib/socialMediaGenerator';
+import { generateBtsEdit } from '../../lib/btsGenerator';
+import { generateGridSequence, distributeMediaToCells } from '../../lib/gridEditEngine';
+import type { GridClip, GridCell } from '../../types';
+import { v4 as uuidv4 } from 'uuid';
+import { useEditLogicStore } from '../../store/editLogicStore';
+import { extractDecisions } from '../../types/ClipDecision';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // EditRouter — 3-state router: home → wizard → player
@@ -289,6 +297,12 @@ export const EditRouter: React.FC = () => {
         }
 
         setPreGeneratedClips(clips);
+
+        // Populate Edit Logic Sidebar with actual generated decisions
+        const projFps = useProjectStore.getState().settings.fps || 30;
+        const decisions = extractDecisions(clips, projFps);
+        useEditLogicStore.getState().setDecisions(decisions);
+
         if (clips.length > 0) {
             // Snapshot the current timeline BEFORE we overwrite it, so Discard
             // can restore it (draft semantics).
@@ -353,7 +367,7 @@ export const EditRouter: React.FC = () => {
         if (newSettings.useAudioGuide && newSettings.audioUrl && !beatTimestamps) {
             if (newSettings.audioAnalysis && newSettings.audioAnalysis.beats?.length > 0) {
                 const trimStart = newSettings.audioTrimStart || 0;
-                const trimEnd = newSettings.audioTrimEnd || 30;
+                const trimEnd = newSettings.audioTrimEnd || newSettings.audioAnalysis.duration;
                 const safeTrimEnd = Math.min(trimEnd, newSettings.audioAnalysis.duration);
                 beatTimestamps = newSettings.audioAnalysis.beats
                     .filter(b => b.time >= trimStart && b.time <= safeTrimEnd)
@@ -366,9 +380,24 @@ export const EditRouter: React.FC = () => {
                 beatTimestamps = await extractBeatTimestamps(
                     newSettings.audioUrl,
                     newSettings.audioTrimStart || 0,
-                    newSettings.audioTrimEnd || 30,
+                    newSettings.audioTrimEnd || newSettings.audioAnalysis?.duration || newSettings.targetDuration,
                     newSettings.audioAnalysis,
                 );
+            }
+        }
+
+        // ── Sync targetDuration to audio trim range ──────────────────────
+        // When an audio guide is active, the edit's target duration MUST match
+        // the audio's duration — not the (often stale) duration slider.
+        if (newSettings.useAudioGuide) {
+            const trimStart = newSettings.audioTrimStart || 0;
+            const trimEnd = newSettings.audioTrimEnd || newSettings.audioAnalysis?.duration || 0;
+            if (trimEnd > trimStart) {
+                const audioDuration = trimEnd - trimStart;
+                if (Math.abs(audioDuration - (newSettings.targetDuration || 30)) > 0.5) {
+                    console.log(`[EditRouter] Syncing targetDuration: ${newSettings.targetDuration}s → ${audioDuration.toFixed(1)}s (audio trim range)`);
+                    newSettings.targetDuration = audioDuration;
+                }
             }
         }
 
@@ -382,8 +411,10 @@ export const EditRouter: React.FC = () => {
         }
 
         // ── Generate clips ───────────────────────────────────────────────
+
         let clips: any[];
-        if (newSettings.generatorMode === 'music-video' && newSettings.audioAnalysis) {
+        const currentMode = newSettings.generatorMode || activeMode;
+        if (currentMode === 'music-video' && newSettings.audioAnalysis) {
             const projFps = useProjectStore.getState().settings.fps || 30;
             const seedNum = typeof newSettings.seed === 'number'
                 ? newSettings.seed
@@ -399,6 +430,50 @@ export const EditRouter: React.FC = () => {
             });
             clips = mv.clips;
             console.log('[EditRouter] Music-video mode:', mv.report);
+        } else if (currentMode === 'social-media') {
+            // ── Dedicated social media generator ─────────────────────────
+            const projFps = useProjectStore.getState().settings.fps || 30;
+            // Map social subcategories to SocialStyle
+            const subIds = newSettings.activeSubcategories || [];
+            const styleMap: Record<string, SocialStyle> = {
+                'meme-edit': 'velocity-edit',
+                'viral-hook': 'beat-sync-cut',
+                'transition-trend': 'beat-sync-cut',
+                'cinematic-reel': 'aura-sigma',
+                'day-in-life': 'reframe-montage',
+                'talking-head': 'quote-list',
+                'tutorial-short': 'quote-list',
+                'before-after': 'reframe-montage',
+            };
+            let socialStyle: SocialStyle = 'beat-sync-cut'; // default
+            for (const sid of subIds) {
+                if (styleMap[sid]) { socialStyle = styleMap[sid]; break; }
+            }
+            const sm = generateSocialMediaEdit(workingPool, {
+                style: socialStyle,
+                targetDuration: newSettings.targetDuration || 30,
+                fps: projFps,
+                seed: newSettings.seed,
+                beatTimestamps: beatTimestamps ?? null,
+                hookDuration: 0.5,
+                loopFriendly: true,
+            });
+            clips = sm.clips;
+            console.log(`[EditRouter] Social-media mode (${sm.style}):`, sm.report);
+        } else if (currentMode === 'bts') {
+            // ── Dedicated BTS generator ──────────────────────────────────
+            const projFps = useProjectStore.getState().settings.fps || 30;
+            const subIds = newSettings.activeSubcategories || [];
+            const bts = generateBtsEdit(workingPool, {
+                targetDuration: newSettings.targetDuration || 30,
+                fps: projFps,
+                seed: newSettings.seed,
+                beatTimestamps: beatTimestamps ?? null,
+                subcategory: subIds[0],
+                enableTimelapse: true,
+            });
+            clips = bts.clips;
+            console.log('[EditRouter] BTS mode:', bts.report);
         } else {
             const projFps = useProjectStore.getState().settings.fps || 30;
             clips = generateTrailerSequence(workingPool, { ...newSettings, beatTimestamps, fps: projFps });
@@ -422,21 +497,95 @@ export const EditRouter: React.FC = () => {
             console.log('[EditRouter] Clip-order mode:', newSettings.clipOrderMode, newSettings.sequentialBy);
         }
 
-        // ── Shot-diversity de-clustering (slot-preserving) ───────────────
+        // ── Shot-diversity de-clustering (slot-preserving) — the 30° rule ──
         // When the active subcategory asks for shot variety (e.g. showreels),
-        // avoid two same shot-types back-to-back by swapping slot CONTENT only —
-        // cut times never move. Uses shot types produced by the Smart Engine.
+        // avoid two jump-cut-adjacent shots by swapping slot CONTENT only — cut
+        // times never move. The de-cluster key is the editorial "shot grammar":
+        // shot scale + camera movement + a 30° angle bucket. Two neighbours that
+        // match on ALL of these changed neither focal length nor angle → a jump
+        // cut, so they get separated. Degrades to shot-type-only when the richer
+        // signals are absent (backward compatible with the old behaviour).
         if (newSettings.shotDiversityEnabled) {
             const smart = useTrailerSmartStore.getState();
             const shotMap = new Map<string, string>();
             for (const f of workingPool as any[]) {
-                const st = smart.getResult(f.id)?.shotType;
-                if (st) shotMap.set(f.id, st);
+                const r = smart.getResult(f.id);
+                if (!r?.shotType) continue;
+                const dirBucket =
+                    typeof r.dominantMotionDirection === 'number'
+                        ? Math.round(r.dominantMotionDirection / 30) % 12 // 30° angle buckets
+                        : '';
+                const grammar = shotGrammarKey({ shotScale: r.shotType, cameraMotion: r.cameraMovement }) ?? r.shotType;
+                shotMap.set(f.id, `${grammar}|${dirBucket}`);
             }
             if (shotMap.size > 0) {
                 clips = deClusterShotTypes(clips as any, shotMap) as any;
-                console.log('[EditRouter] Shot-diversity de-cluster applied across', shotMap.size, 'classified sources');
+                console.log('[EditRouter] Shot-grammar (30°-rule) de-cluster applied across', shotMap.size, 'classified sources');
             }
+        }
+
+        // ── Grid Bridge insertion ────────────────────────────────────────
+        // When grid bridges are enabled, insert GridClip segments at intervals
+        // into the generated clip sequence. This creates split-screen moments
+        // interleaved with regular single-clip segments.
+        if (newSettings.useGridBridges && clips.length > 4) {
+            const bridgeFreq = newSettings.gridBridgeFrequency ?? 20;
+            const bridgeLayout = newSettings.gridBridgeLayout ?? 4;
+            const bridgeFormat = newSettings.gridBridgeFormat ?? 'horizontal';
+            const interval = Math.max(2, Math.round(clips.length * (100 - bridgeFreq) / 100));
+
+            const bridgedClips: any[] = [];
+            for (let i = 0; i < clips.length; i++) {
+                bridgedClips.push(clips[i]);
+
+                // Insert a grid segment at regular intervals
+                if ((i + 1) % interval === 0 && i + bridgeLayout < clips.length) {
+                    const gridCellClips = clips.slice(i + 1, i + 1 + bridgeLayout);
+                    const gridCells: GridCell[] = gridCellClips.map((c: any, ci: number) => ({
+                        id: uuidv4(),
+                        clip: c,
+                        clips: [c],
+                        x: 0, y: 0, width: 1, height: 1,
+                        cellOrientation: 'auto' as const,
+                        cellMediaIds: [],
+                        isGenerated: true,
+                    }));
+
+                    const gridDurationFrames = gridCellClips.reduce(
+                        (max: number, c: any) => Math.max(max, (c.endFrame || 0) - (c.startFrame || 0)), 0
+                    );
+
+                    const gridClip: GridClip = {
+                        id: uuidv4(),
+                        type: 'grid',
+                        path: '',
+                        filename: `Grid Bridge ${bridgeLayout}x`,
+                        startFrame: 0,
+                        endFrame: gridDurationFrames,
+                        sourceDurationFrames: gridDurationFrames,
+                        trimStartFrame: 0,
+                        trimEndFrame: gridDurationFrames,
+                        track: 1,
+                        speed: 1,
+                        volume: 100,
+                        reversed: false,
+                        locked: false,
+                        origin: 'auto',
+                        gridFormat: bridgeFormat,
+                        numCells: bridgeLayout,
+                        cells: gridCells,
+                        backgroundMode: 'blur',
+                        syncMode: 'beat-locked',
+                        autoOrientation: true,
+                        masterDurationSec: gridDurationFrames / projFps,
+                    };
+
+                    bridgedClips.push(gridClip);
+                    i += bridgeLayout; // Skip the clips we consumed into the grid
+                }
+            }
+            clips = bridgedClips;
+            console.log(`[EditRouter] Grid bridges: inserted ${bridgedClips.filter((c: any) => c.type === 'grid').length} grid segments`);
         }
 
         commitClips(clips, workingPool);

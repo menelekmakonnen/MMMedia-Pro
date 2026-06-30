@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Copy, Trash2, Shuffle, Pin, PinOff, Volume2, VolumeX, Sparkles, ArrowRightLeft, Palette, Lock, Unlock, ArrowUpCircle, ArrowDownCircle, Repeat2, ChevronDown, ChevronRight, Layers, Paintbrush, Type, Music, Wrench } from 'lucide-react';
+import { Copy, Trash2, Shuffle, Pin, PinOff, Volume2, VolumeX, Sparkles, ArrowRightLeft, Palette, Lock, Unlock, ArrowUpCircle, ArrowDownCircle, Repeat2, ChevronDown, ChevronRight, Layers, Paintbrush, Type, Music, Wrench, Zap, Blend } from 'lucide-react';
 import { useClipStore } from '../../store/clipStore';
 import { SpeedControl } from '../../components/SpeedControl';
 import { AssetPicker } from '../../components/AssetPicker';
@@ -8,8 +8,10 @@ import { ColorGradingPanel } from './ColorGradingPanel';
 import { ColorLabPanel } from './ColorLabPanel';
 import { TextOverlayPanel } from './TextOverlayPanel';
 import { AudioEffectsPanel } from './AudioEffectsPanel';
+import { DEFAULT_AUDIO_EFFECTS } from '../../lib/audioEffects';
 import { toast } from '../../components/Toast';
 import { useProjectStore } from '../../store/projectStore';
+import { useViewStore } from '../../store/viewStore';
 import { KeyframeEditor } from '../../components/KeyframeEditor';
 import type { KfPoint } from '../../lib/keyframes';
 
@@ -325,6 +327,30 @@ export const ClipControls: React.FC<ClipControlsProps> = ({ clipId, variant = 's
                 {expandedSections.audioEffects && (
                     <div className="px-3 pb-3">
                         <AudioEffectsPanel clipId={clip.id} />
+                        {/* Pitch Shift */}
+                        <div className="flex items-center gap-2 mt-2">
+                            <span className="text-[10px] text-white/40 w-14">Pitch</span>
+                            <input
+                                type="range"
+                                min={-12}
+                                max={12}
+                                step={1}
+                                value={clip.audioEffects?.pitchShift ?? 0}
+                                onChange={(e) => {
+                                    const val = parseInt(e.target.value);
+                                    updateClip({
+                                        audioEffects: {
+                                            ...(clip.audioEffects || DEFAULT_AUDIO_EFFECTS),
+                                            pitchShift: val,
+                                        }
+                                    });
+                                }}
+                                className="flex-1 h-1 accent-purple-500"
+                            />
+                            <span className="text-[10px] font-mono text-white/60 w-8 text-right">
+                                {(clip.audioEffects?.pitchShift ?? 0) > 0 ? '+' : ''}{clip.audioEffects?.pitchShift ?? 0}st
+                            </span>
+                        </div>
                     </div>
                 )}
             </div>
@@ -516,6 +542,430 @@ export const ClipControls: React.FC<ClipControlsProps> = ({ clipId, variant = 's
                                 );
                             })()}
                         </div>
+                    </div>
+                )}
+            </div>
+
+            {/* Deflicker */}
+            <div className="border-t border-white/5">
+                <button
+                    onClick={() => toggleSection('deflicker')}
+                    className="flex items-center gap-2 w-full px-3 py-2 hover:bg-white/5 transition-colors"
+                >
+                    {expandedSections.deflicker
+                        ? <ChevronDown size={12} className="text-white/30" />
+                        : <ChevronRight size={12} className="text-white/30" />
+                    }
+                    <Zap size={13} className="text-amber-400/70" />
+                    <span className="text-xs font-medium text-white/60">Deflicker</span>
+                    {clip.deflicker?.enabled && (
+                        <span className="ml-auto text-[10px] bg-amber-500/20 text-amber-300 px-1.5 rounded-full">
+                            ON
+                        </span>
+                    )}
+                </button>
+                {expandedSections.deflicker && (
+                    <div className="px-3 pb-3 space-y-2">
+                        {/* Enable Toggle */}
+                        <button
+                            onClick={() => updateClip({
+                                deflicker: {
+                                    enabled: !clip.deflicker?.enabled,
+                                    includeAudio: clip.deflicker?.includeAudio ?? true,
+                                    layers: clip.deflicker?.layers ?? 3,
+                                }
+                            })}
+                            className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg border transition-all ${
+                                clip.deflicker?.enabled
+                                    ? 'bg-amber-500/20 border-amber-500/30 text-amber-300'
+                                    : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
+                            }`}
+                        >
+                            <span className="text-xs font-medium">Remove Flicker</span>
+                            <span className="text-[10px]">{clip.deflicker?.enabled ? '✓ Active' : 'Off'}</span>
+                        </button>
+
+                        {clip.deflicker?.enabled && (
+                            <>
+                                {/* Audio Toggle */}
+                                <button
+                                    onClick={() => updateClip({ deflicker: { ...clip.deflicker!, includeAudio: !clip.deflicker!.includeAudio } })}
+                                    className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg border transition-all ${
+                                        clip.deflicker?.includeAudio
+                                            ? 'bg-amber-500/15 border-amber-500/20 text-amber-300'
+                                            : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
+                                    }`}
+                                >
+                                    <span className="text-xs">Include Audio</span>
+                                    <span className="text-[10px]">{clip.deflicker?.includeAudio ? 'On' : 'Off'}</span>
+                                </button>
+
+                                {/* Layers Selector */}
+                                <div className="flex gap-1">
+                                    <button
+                                        onClick={() => updateClip({ deflicker: { ...clip.deflicker!, layers: 3 } })}
+                                        className={`flex-1 text-[10px] py-1.5 rounded-lg border transition-all ${
+                                            clip.deflicker?.layers === 3
+                                                ? 'bg-amber-500/20 border-amber-500/30 text-amber-300'
+                                                : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
+                                        }`}
+                                    >
+                                        3 Layers (Standard)
+                                    </button>
+                                    <button
+                                        onClick={() => updateClip({ deflicker: { ...clip.deflicker!, layers: 5 } })}
+                                        className={`flex-1 text-[10px] py-1.5 rounded-lg border transition-all ${
+                                            clip.deflicker?.layers === 5
+                                                ? 'bg-amber-500/20 border-amber-500/30 text-amber-300'
+                                                : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
+                                        }`}
+                                    >
+                                        5 Layers (Heavy)
+                                    </button>
+                                </div>
+
+                                {/* View in Player */}
+                                <button
+                                    onClick={() => useViewStore.getState().setActiveTab('videoplayer')}
+                                    className="w-full py-1.5 bg-sky-500/20 text-sky-300 rounded-lg text-xs hover:bg-sky-500/30 transition-colors"
+                                >
+                                    ▶ View in Player
+                                </button>
+
+                                {/* Render Deflickered */}
+                                <button
+                                    onClick={async () => {
+                                        if (!clip.path) return;
+                                        const outPath = clip.path.replace(/\.(mp4|mov|avi|mkv)$/i, '_deflickered.mp4');
+                                        try {
+                                            toast.info('Rendering deflickered video...');
+                                            const res = await (window as any).ipcRenderer.invoke('render-deflickered', {
+                                                inputPath: clip.path,
+                                                outputPath: outPath,
+                                                layers: clip.deflicker?.layers ?? 3,
+                                                includeAudio: clip.deflicker?.includeAudio ?? true,
+                                                fps: useProjectStore.getState().settings.fps || 30,
+                                            });
+                                            if (res?.success) toast.success('Deflickered video saved!');
+                                            else toast.error(res?.error || 'Deflicker render failed');
+                                        } catch (e: any) {
+                                            toast.error(e?.message || 'Deflicker render failed');
+                                        }
+                                    }}
+                                    className="w-full py-1.5 bg-amber-500/20 text-amber-300 rounded-lg text-xs hover:bg-amber-500/30 transition-colors"
+                                >
+                                    ⚡ Render Deflickered Video
+                                </button>
+                            </>
+                        )}
+                    </div>
+                )}
+            </div>
+
+            {/* Transition to Next Clip */}
+            <div className="border-t border-white/5">
+                <button
+                    onClick={() => toggleSection('transition')}
+                    className="flex items-center gap-2 w-full px-3 py-2 hover:bg-white/5 transition-colors"
+                >
+                    {expandedSections.transition
+                        ? <ChevronDown size={12} className="text-white/30" />
+                        : <ChevronRight size={12} className="text-white/30" />
+                    }
+                    <Blend size={13} className="text-cyan-400/70" />
+                    <span className="text-xs font-medium text-white/60">Transition</span>
+                    {clip.transition && clip.transition.type !== 'cut' && (
+                        <span className="ml-auto text-[10px] bg-cyan-500/20 text-cyan-300 px-1.5 rounded-full">
+                            {clip.transition.type}
+                        </span>
+                    )}
+                </button>
+                {expandedSections.transition && (
+                    <div className="px-3 pb-3 space-y-3">
+                        {/* Transition Type */}
+                        <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-white/40 uppercase tracking-wider">Type</label>
+                            <select
+                                value={clip.transition?.type || 'cut'}
+                                onChange={(e) => {
+                                    const type = e.target.value as import('../../types').TransitionType;
+                                    if (type === 'cut') {
+                                        updateClip({ transition: undefined });
+                                    } else {
+                                        updateClip({ transition: { type, durationFrames: clip.transition?.durationFrames || 15, params: clip.transition?.params } });
+                                    }
+                                }}
+                                className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white"
+                            >
+                                <optgroup label="None">
+                                    <option value="cut">Cut (No Transition)</option>
+                                </optgroup>
+                                <optgroup label="Cinematic">
+                                    <option value="white-flash">✦ White Flash</option>
+                                    <option value="film-burn">✦ Film Burn</option>
+                                    <option value="zoom-through">✦ Zoom In/Out</option>
+                                    <option value="subject-mask">✦ Subject Mask</option>
+                                </optgroup>
+                                <optgroup label="Fades">
+                                    <option value="fade">Fade</option>
+                                    <option value="fadewhite">Fade to White</option>
+                                    <option value="fadeblack">Fade to Black</option>
+                                    <option value="dissolve">Dissolve</option>
+                                </optgroup>
+                                <optgroup label="Slides">
+                                    <option value="slideleft">Slide Left</option>
+                                    <option value="slideright">Slide Right</option>
+                                    <option value="slideup">Slide Up</option>
+                                    <option value="slidedown">Slide Down</option>
+                                </optgroup>
+                                <optgroup label="Wipes">
+                                    <option value="wipeleft">Wipe Left</option>
+                                    <option value="wiperight">Wipe Right</option>
+                                    <option value="circlecrop">Circle Crop</option>
+                                    <option value="circleopen">Circle Open</option>
+                                    <option value="circleclose">Circle Close</option>
+                                    <option value="radial">Radial</option>
+                                </optgroup>
+                                <optgroup label="Impact">
+                                    <option value="flash">Flash</option>
+                                    <option value="glitch">Glitch</option>
+                                    <option value="rgb-split">RGB Split</option>
+                                    <option value="spin">Spin</option>
+                                    <option value="whip">Whip Pan</option>
+                                </optgroup>
+                                <optgroup label="Stylized">
+                                    <option value="double-exposure">Double Exposure</option>
+                                    <option value="triple-exposure">Triple Exposure</option>
+                                    <option value="vhs">VHS</option>
+                                    <option value="boomerang">Boomerang</option>
+                                    <option value="pixelize">Pixelize</option>
+                                </optgroup>
+                            </select>
+                        </div>
+
+                        {/* Duration */}
+                        {clip.transition && clip.transition.type !== 'cut' && (
+                            <>
+                                <div className="space-y-1">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-[10px] font-bold text-white/40 uppercase tracking-wider">Duration</label>
+                                        <span className="text-[10px] text-white/50">{clip.transition.durationFrames}f</span>
+                                    </div>
+                                    <input
+                                        type="range" min={2} max={60} step={1}
+                                        value={clip.transition.durationFrames}
+                                        onChange={(e) => updateClip({ transition: { ...clip.transition!, durationFrames: parseInt(e.target.value) } })}
+                                        className="w-full accent-cyan-500 h-1"
+                                    />
+                                </div>
+
+                                {/* Blend Mode (for applicable transitions) */}
+                                {['white-flash', 'film-burn', 'double-exposure', 'triple-exposure'].includes(clip.transition.type) && (
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-bold text-white/40 uppercase tracking-wider">Blend Mode</label>
+                                        <select
+                                            value={clip.blendMode || 'normal'}
+                                            onChange={(e) => updateClip({ blendMode: e.target.value })}
+                                            className="w-full bg-black/40 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white"
+                                        >
+                                            <option value="normal">Normal</option>
+                                            <option value="overlay">Overlay</option>
+                                            <option value="screen">Screen</option>
+                                            <option value="add">Add</option>
+                                            <option value="multiply">Multiply</option>
+                                            <option value="softlight">Soft Light</option>
+                                            <option value="lighten">Lighten</option>
+                                        </select>
+                                    </div>
+                                )}
+
+                                {/* Motion Blur Angle (for slides & zooms) */}
+                                {['slideleft', 'slideright', 'slideup', 'slidedown', 'zoom-through', 'whip'].includes(clip.transition.type) && (
+                                    <div className="space-y-1">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-[10px] font-bold text-white/40 uppercase tracking-wider">Motion Blur</label>
+                                            <span className="text-[10px] text-white/50">{clip.motionBlurAngle ?? 360}°</span>
+                                        </div>
+                                        <input
+                                            type="range" min={0} max={360} step={45}
+                                            value={clip.motionBlurAngle ?? 360}
+                                            onChange={(e) => updateClip({ motionBlurAngle: parseInt(e.target.value) })}
+                                            className="w-full accent-cyan-500 h-1"
+                                        />
+                                    </div>
+                                )}
+
+                                {/* Subject Mask Controls */}
+                                {clip.transition.type === 'subject-mask' && (
+                                    <div className="space-y-2 border-t border-white/5 pt-2">
+                                        <label className="text-[10px] font-bold text-white/40 uppercase tracking-wider">Mask Mode</label>
+                                        <select
+                                            value={clip.maskIsolation?.mode ?? 'chromakey'}
+                                            onChange={(e) => updateClip({
+                                                maskIsolation: {
+                                                    enabled: true,
+                                                    mode: e.target.value as 'chromakey' | 'ml-segment',
+                                                    chromakey: clip.maskIsolation?.chromakey ?? { color: '#00ff00', similarity: 0.3, blend: 0.1 },
+                                                    mlSegment: clip.maskIsolation?.mlSegment ?? { model: 'u2net' },
+                                                },
+                                            })}
+                                            className="w-full bg-white/5 border border-white/10 rounded text-[11px] text-white/80 py-1 px-2"
+                                        >
+                                            <option value="chromakey">Chroma Key (Green Screen)</option>
+                                            <option value="ml-segment">ML Segmentation (AI)</option>
+                                        </select>
+
+                                        {/* Chroma-key controls */}
+                                        {(clip.maskIsolation?.mode ?? 'chromakey') === 'chromakey' && (
+                                            <div className="space-y-1.5 pl-1">
+                                                <div className="flex items-center gap-2">
+                                                    <label className="text-[10px] text-white/40 w-12">Color</label>
+                                                    <input
+                                                        type="color"
+                                                        value={clip.maskIsolation?.chromakey?.color ?? '#00ff00'}
+                                                        onChange={(e) => updateClip({
+                                                            maskIsolation: {
+                                                                ...clip.maskIsolation!,
+                                                                enabled: true,
+                                                                mode: 'chromakey',
+                                                                chromakey: {
+                                                                    ...clip.maskIsolation?.chromakey ?? { similarity: 0.3, blend: 0.1 },
+                                                                    color: e.target.value,
+                                                                },
+                                                            },
+                                                        })}
+                                                        className="w-6 h-6 rounded border border-white/10 cursor-pointer"
+                                                    />
+                                                    <span className="text-[10px] text-white/50 font-mono">
+                                                        {clip.maskIsolation?.chromakey?.color ?? '#00ff00'}
+                                                    </span>
+                                                </div>
+                                                <div className="space-y-0.5">
+                                                    <div className="flex justify-between">
+                                                        <label className="text-[10px] text-white/40">Similarity</label>
+                                                        <span className="text-[10px] text-white/50">{(clip.maskIsolation?.chromakey?.similarity ?? 0.3).toFixed(2)}</span>
+                                                    </div>
+                                                    <input type="range" min={0.01} max={1} step={0.01}
+                                                        value={clip.maskIsolation?.chromakey?.similarity ?? 0.3}
+                                                        onChange={(e) => updateClip({
+                                                            maskIsolation: {
+                                                                ...clip.maskIsolation!,
+                                                                enabled: true,
+                                                                mode: 'chromakey',
+                                                                chromakey: {
+                                                                    ...clip.maskIsolation?.chromakey ?? { color: '#00ff00', blend: 0.1 },
+                                                                    similarity: parseFloat(e.target.value),
+                                                                },
+                                                            },
+                                                        })}
+                                                        className="w-full accent-emerald-500 h-1"
+                                                    />
+                                                </div>
+                                                <div className="space-y-0.5">
+                                                    <div className="flex justify-between">
+                                                        <label className="text-[10px] text-white/40">Blend</label>
+                                                        <span className="text-[10px] text-white/50">{(clip.maskIsolation?.chromakey?.blend ?? 0.1).toFixed(2)}</span>
+                                                    </div>
+                                                    <input type="range" min={0} max={1} step={0.01}
+                                                        value={clip.maskIsolation?.chromakey?.blend ?? 0.1}
+                                                        onChange={(e) => updateClip({
+                                                            maskIsolation: {
+                                                                ...clip.maskIsolation!,
+                                                                enabled: true,
+                                                                mode: 'chromakey',
+                                                                chromakey: {
+                                                                    ...clip.maskIsolation?.chromakey ?? { color: '#00ff00', similarity: 0.3 },
+                                                                    blend: parseFloat(e.target.value),
+                                                                },
+                                                            },
+                                                        })}
+                                                        className="w-full accent-emerald-500 h-1"
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* ML Segmentation controls */}
+                                        {clip.maskIsolation?.mode === 'ml-segment' && (
+                                            <div className="space-y-1.5 pl-1">
+                                                <div className="space-y-0.5">
+                                                    <label className="text-[10px] text-white/40">Model</label>
+                                                    <select
+                                                        value={clip.maskIsolation?.mlSegment?.model ?? 'u2net'}
+                                                        onChange={(e) => updateClip({
+                                                            maskIsolation: {
+                                                                ...clip.maskIsolation!,
+                                                                mlSegment: {
+                                                                    ...clip.maskIsolation?.mlSegment,
+                                                                    model: e.target.value as 'u2net' | 'isnet-general' | 'sam',
+                                                                },
+                                                            },
+                                                        })}
+                                                        className="w-full bg-white/5 border border-white/10 rounded text-[11px] text-white/80 py-1 px-2"
+                                                    >
+                                                        <option value="u2net">U²-Net (Fast)</option>
+                                                        <option value="isnet-general">IS-Net (Balanced)</option>
+                                                        <option value="sam">SAM (Precise)</option>
+                                                    </select>
+                                                </div>
+                                                {clip.maskIsolation?.mlSegment?.mattePath ? (
+                                                    <div className="flex items-center gap-1.5 text-[10px] text-emerald-400/70">
+                                                        <span>✓ Matte ready</span>
+                                                        <span className="text-white/30 truncate max-w-[120px]">{clip.maskIsolation.mlSegment.mattePath.split(/[/\\]/).pop()}</span>
+                                                    </div>
+                                                ) : (
+                                                    <button
+                                                        onClick={async () => {
+                                                            try {
+                                                                const api = (window as any).api;
+                                                                if (!api?.segmentSubject) return;
+                                                                const result = await api.segmentSubject({
+                                                                    path: clip.path,
+                                                                    model: clip.maskIsolation?.mlSegment?.model ?? 'u2net',
+                                                                });
+                                                                if (result?.success && result.mattePath) {
+                                                                    updateClip({
+                                                                        maskIsolation: {
+                                                                            ...clip.maskIsolation!,
+                                                                            mlSegment: {
+                                                                                ...clip.maskIsolation?.mlSegment,
+                                                                                model: clip.maskIsolation?.mlSegment?.model ?? 'u2net',
+                                                                                mattePath: result.mattePath,
+                                                                            },
+                                                                        },
+                                                                    });
+                                                                }
+                                                            } catch {}
+                                                        }}
+                                                        className="w-full py-1.5 rounded text-[10px] font-semibold bg-violet-500/20 text-violet-300 hover:bg-violet-500/30 transition-colors border border-violet-500/20"
+                                                    >
+                                                        Generate Matte
+                                                    </button>
+                                                )}
+                                                <label className="flex items-center gap-1.5 text-[10px] text-white/40 cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={clip.maskIsolation?.mlSegment?.invertMask ?? false}
+                                                        onChange={(e) => updateClip({
+                                                            maskIsolation: {
+                                                                ...clip.maskIsolation!,
+                                                                mlSegment: {
+                                                                    ...clip.maskIsolation?.mlSegment,
+                                                                    model: clip.maskIsolation?.mlSegment?.model ?? 'u2net',
+                                                                    invertMask: e.target.checked,
+                                                                },
+                                                            },
+                                                        })}
+                                                        className="accent-violet-500"
+                                                    />
+                                                    Invert mask (isolate background)
+                                                </label>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </>
+                        )}
                     </div>
                 )}
             </div>

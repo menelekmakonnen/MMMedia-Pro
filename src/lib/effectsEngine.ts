@@ -327,7 +327,10 @@ export function buildSpeedRemapSetpts(
         const m = dt > 1e-9 ? (a[i + 1] - a[i]) / dt : 0;
         if (Math.abs(m) > 1e-9) {
             // C_i + (1/m)·ln( (a_i + m·(T - t_i)) / a_i )
-            return `(${f(C[i])}+(${f(1 / m)})*log((${f(a[i])}+(${f(m)})*(T-${f(t[i])}))/${f(a[i])}))`;
+            // Clamp the log argument to a tiny positive floor: at a near-freeze the
+            // instantaneous speed → 0, and log(0) = NaN produces an invalid PTS that
+            // makes ffmpeg abort ("Failed to inject frame: Invalid argument").
+            return `(${f(C[i])}+(${f(1 / m)})*log(max(0.000100,(${f(a[i])}+(${f(m)})*(T-${f(t[i])}))/${f(a[i])})))`;
         }
         // C_i + (T - t_i)/a_i
         return `(${f(C[i])}+(T-${f(t[i])})/${f(a[i])})`;

@@ -57,6 +57,33 @@ const PanKnob: React.FC<{
     );
 };
 
+// ─── dB Reference Lines for VU Meter ──────────────────────────────────────────
+const drawRefLines = (ctx: CanvasRenderingContext2D, w: number, h: number) => {
+    const refs = [
+        { db: -6, color: 'rgba(34, 197, 94, 0.6)', label: '-6dB', dash: [] as number[] },
+        { db: -12, color: 'rgba(34, 197, 94, 0.4)', label: '-12dB', dash: [3, 3] },
+        { db: -24, color: 'rgba(59, 130, 246, 0.5)', label: '-24dB', dash: [] as number[] },
+        { db: -30, color: 'rgba(59, 130, 246, 0.3)', label: '-30dB', dash: [3, 3] },
+    ];
+    for (const ref of refs) {
+        // Convert dB to canvas position (0dB at top, -60dB at bottom)
+        const y = Math.round(h * (1 - (ref.db + 60) / 60));
+        ctx.save();
+        ctx.setLineDash(ref.dash);
+        ctx.strokeStyle = ref.color;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+        // Label
+        ctx.fillStyle = ref.color;
+        ctx.font = '7px monospace';
+        ctx.fillText(ref.label, 2, y - 2);
+        ctx.restore();
+    }
+};
+
 // ─── Canvas VU Meter Component ────────────────────────────────────────────────
 const VUMeter: React.FC<{
     isActive: boolean;
@@ -149,6 +176,9 @@ const VUMeter: React.FC<{
                 }
             }
 
+            // Draw dB reference lines on top of meter bars
+            drawRefLines(ctx, w, h);
+
             animRef.current = requestAnimationFrame(draw);
         };
 
@@ -156,9 +186,15 @@ const VUMeter: React.FC<{
         return () => cancelAnimationFrame(animRef.current);
     }, [isActive, level]);
 
+    // Compute peak dB from current level for readout
+    const peakDb = level === 0 ? -Infinity : (level / 100) * 12 - 6;
+
     return (
-        <div className="w-4 h-full relative">
-            <canvas ref={canvasRef} width={16} height={120} className="w-full h-full rounded bg-[#090918]" />
+        <div className="w-4 h-full relative flex flex-col items-center">
+            <canvas ref={canvasRef} width={16} height={120} className="w-full flex-1 rounded bg-[#090918]" />
+            <span className="text-[8px] font-mono text-white/40 text-center block mt-0.5">
+                {level === 0 ? '-∞' : `${peakDb.toFixed(1)} dB`}
+            </span>
         </div>
     );
 };
@@ -242,8 +278,33 @@ const ChannelStrip: React.FC<{
             </div>
 
             {/* Volume Text Indicator */}
-            <div className="font-mono text-[9px] font-bold text-white/70 bg-[#08081a] px-1.5 py-0.5 rounded border border-white/[0.04] mb-3">
+            <div className="font-mono text-[9px] font-bold text-white/70 bg-[#08081a] px-1.5 py-0.5 rounded border border-white/[0.04] mb-2">
                 {volume === 0 ? '-∞' : `${Math.round((volume / 100) * 12 - 6)} dB`}
+            </div>
+
+            {/* Quick gain presets */}
+            <div className="flex gap-0.5 mb-3 w-full">
+                <button
+                    onClick={() => onVolumeChange(75)}
+                    className="flex-1 text-[7px] px-1 py-0.5 rounded bg-emerald-500/15 text-emerald-400/70 hover:bg-emerald-500/25 transition-colors"
+                    title="Dialogue level (~-9dB)"
+                >
+                    DLG
+                </button>
+                <button
+                    onClick={() => onVolumeChange(20)}
+                    className="flex-1 text-[7px] px-1 py-0.5 rounded bg-blue-500/15 text-blue-400/70 hover:bg-blue-500/25 transition-colors"
+                    title="Music level (~-27dB)"
+                >
+                    MUS
+                </button>
+                <button
+                    onClick={() => onVolumeChange(45)}
+                    className="flex-1 text-[7px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400/70 hover:bg-amber-500/25 transition-colors"
+                    title="SFX level (~-18dB)"
+                >
+                    SFX
+                </button>
             </div>
 
             {/* Fader Mute & Solo row */}

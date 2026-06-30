@@ -5,6 +5,7 @@ import { useTimelineStore } from './useTimelineStore';
 import { useClipStore } from '../../../store/clipStore';
 import { useHistoryStore } from '../../../store/historyStore';
 import { createSetClipsCommand } from '../../../lib/commandPattern';
+import { rippleTrimClipEdge, rollTrim, slipClip, slideClip, rateStretchClip } from '../actions';
 import type { Track } from './types';
 import type { Clip } from '../../../store/clipStore';
 
@@ -61,6 +62,7 @@ export const TimelineClip: React.FC<TimelineClipProps> = memo(({
 }) => {
   const ppf = useTimelineStore((s) => s.pixelsPerFrame);
   const scrollX = useTimelineStore((s) => s.scrollX);
+  const activeTool = useTimelineStore((s) => s.activeTool);
 
   const trimRef = useRef<{ edge: 'left' | 'right'; startX: number } | null>(null);
 
@@ -71,6 +73,7 @@ export const TimelineClip: React.FC<TimelineClipProps> = memo(({
     duration: number;
     before: Clip[];
     moved: boolean;
+    lastTotal: number;
   } | null>(null);
 
   const handleBodyPointerDown = useCallback(
@@ -86,6 +89,7 @@ export const TimelineClip: React.FC<TimelineClipProps> = memo(({
         duration: clip.endFrame - clip.startFrame,
         before: cloneClips(useClipStore.getState().clips),
         moved: false,
+        lastTotal: 0,
       };
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
@@ -98,7 +102,21 @@ export const TimelineClip: React.FC<TimelineClipProps> = memo(({
       if (!d) return;
       const dx = e.clientX - d.startX;
       if (Math.abs(dx) >= DRAG_THRESHOLD_PX) d.moved = true;
-      let newStart = Math.max(0, d.origStart + Math.round(dx / ppf));
+      const totalFrames = Math.round(dx / ppf);
+
+      // Slip / Slide tools act on the clip body (incremental delta).
+      if (activeTool === 'slip' || activeTool === 'slide') {
+        const delta = totalFrames - d.lastTotal;
+        if (delta !== 0) {
+          d.lastTotal = totalFrames;
+          if (activeTool === 'slip') slipClip(clip.id, delta);
+          else slideClip(clip.id, delta);
+        }
+        return;
+      }
+
+      // Default: move the clip along time.
+      let newStart = Math.max(0, d.origStart + totalFrames);
       if (snapRange) {
         const r = snapRange(newStart, d.duration);
         if (r.didSnap) newStart = Math.max(0, r.snappedFrame);
@@ -108,7 +126,7 @@ export const TimelineClip: React.FC<TimelineClipProps> = memo(({
         endFrame: newStart + d.duration,
       });
     },
-    [ppf, snapRange, clip.id],
+    [ppf, snapRange, clip.id, activeTool],
   );
 
   const handleBodyPointerUp = useCallback(
@@ -117,6 +135,8 @@ export const TimelineClip: React.FC<TimelineClipProps> = memo(({
       dragRef.current = null;
       try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* noop */ }
       if (!d) return;
+      // Slip/Slide already committed their own undoable steps during the drag.
+      if (activeTool === 'slip' || activeTool === 'slide') return;
       if (!d.moved) return; // treat as a click — selection handled elsewhere
 
       // Resolve the track under the cursor (cross-track move). Briefly disable
@@ -192,13 +212,33 @@ export const TimelineClip: React.FC<TimelineClipProps> = memo(({
       if (deltaFrames === 0) return;
       trimRef.current.startX = e.clientX;
 
-      if (trimRef.current.edge === 'left') {
-        onTrimStart(clip.id, deltaFrames);
-      } else {
-        onTrimEnd(clip.id, deltaFrames);
+      const edge = trimRef.current.edge;
+      const startOrEnd = edge === 'left' ? 'start' : 'end';
+
+      // Ripple Edit: trim + close/open the gap downstream.
+      if (activeTool === 'ripple') { rippleTrimClipEdge(clip.id, startOrEnd, deltaFrames); return; }
+      // Rate Stretch: dragging an edge rescales speed.
+      if (activeTool === 'rate-stretch') { rateStretchClip(clip.id, startOrEnd, deltaFrames); return; }
+      // Rolling Edit: move the shared edit point with the adjacent clip.
+      if (activeTool === 'rolling') {
+        const lane = useClipStore.getState().clips
+          .filter((c) => c.track === clip.track && c.id !== clip.id)
+          .sort((a, b) => a.startFrame - b.startFrame);
+        if (edge === 'left') {
+          const prev = lane.filter((c) => c.endFrame <= clip.startFrame).pop();
+          if (prev) { rollTrim(prev.id, clip.id, deltaFrames); return; }
+        } else {
+          const next = lane.find((c) => c.startFrame >= clip.endFrame);
+          if (next) { rollTrim(clip.id, next.id, deltaFrames); return; }
+        }
+        // no adjacent clip → fall through to a normal trim
       }
+
+      // Normal trim (Selection / Trim tools).
+      if (edge === 'left') onTrimStart(clip.id, deltaFrames);
+      else onTrimEnd(clip.id, deltaFrames);
     },
-    [clip.id, ppf, onTrimStart, onTrimEnd],
+    [clip.id, clip.track, clip.startFrame, clip.endFrame, ppf, onTrimStart, onTrimEnd, activeTool],
   );
 
   const endTrim = useCallback((e: React.PointerEvent) => {
@@ -221,6 +261,7 @@ export const TimelineClip: React.FC<TimelineClipProps> = memo(({
         clipStyle,
         textColor,
         isSelected && 'ring-2 ring-purple-400/70 shadow-[0_0_8px_rgba(168,85,247,0.3)]',
+        !isSelected && clip.deflicker?.enabled && 'ring-1 ring-amber-500/30',
         isDisabled && 'opacity-30 grayscale border-dashed',
         isLocked && 'cursor-not-allowed',
         !isLocked && !isDisabled && 'hover:brightness-110 cursor-pointer',
@@ -240,6 +281,20 @@ export const TimelineClip: React.FC<TimelineClipProps> = memo(({
       onPointerUp={handleBodyPointerUp}
       title={`${clip.filename} (${durationFrames}f)`}
     >
+      {/* ── Deflicker nested-sequence visualization ── */}
+      {clip.deflicker?.enabled && (
+        <>
+          {/* Layer offset indicators — stacked layers suggest nested sequence */}
+          <div
+            className="absolute inset-0 border border-amber-500/20 rounded"
+            style={{ transform: 'translate(2px, -2px)', zIndex: -1 }}
+          />
+          <div
+            className="absolute inset-0 border border-amber-500/10 rounded"
+            style={{ transform: 'translate(4px, -4px)', zIndex: -2 }}
+          />
+        </>
+      )}
       {/* ── Left trim handle ── */}
       {!isLocked && !isDisabled && (
         <div
@@ -298,6 +353,11 @@ export const TimelineClip: React.FC<TimelineClipProps> = memo(({
 
       {/* ── Bottom info bar ── */}
       <div className="flex items-center justify-between px-1.5 pb-0.5">
+        {clip.deflicker?.enabled && (
+          <span className="text-[8px] font-bold text-amber-400/80 bg-amber-500/15 px-1 rounded">
+            ⚡ DF
+          </span>
+        )}
         {showSpeed && (
           <span className="text-[9px] font-mono bg-black/30 px-1 rounded">
             {clip.speed}×

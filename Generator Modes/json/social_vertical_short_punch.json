@@ -1,0 +1,95 @@
+{
+  "schema_version": "1.0",
+  "mode_id": "social_vertical_short_punch",
+  "name": "Social — Vertical Short Punch",
+  "family": "Short-Form Social",
+  "derived_from": [
+    "ShaunaNN"
+  ],
+  "summary": "Sub-40s 9:16 punch piece: a few fast, stylized shots with fisheye/warp, lens flare and motion blur — a compact, high-impact moment rather than a montage.",
+  "best_for": "Single-moment reels, product/teaser drops, quick brand hits.",
+  "canvas": {
+    "resolution": "1080x1920",
+    "aspect": "9:16",
+    "fps": 29.97
+  },
+  "pacing": {
+    "cuts_per_min": [
+      50,
+      80
+    ],
+    "duration_sec": [
+      10,
+      40
+    ],
+    "logic": "beat_sync",
+    "avg_clip_sec": [
+      0.6,
+      1.2
+    ]
+  },
+  "source_layout": {
+    "cameras": "1-2",
+    "broll": "minimal"
+  },
+  "reframe": {
+    "method": "AE.ADBE Motion + Geometry2",
+    "scale_range_pct": [
+      100,
+      160
+    ],
+    "pattern": "snap punch-ins"
+  },
+  "effect_stack": [
+    {
+      "match_name": "AE.S_WarpFishEye",
+      "role": "fisheye warp stylization"
+    },
+    {
+      "match_name": "AE.ADBE Lens Flare",
+      "role": "flare accent"
+    },
+    {
+      "match_name": "AE.ADBE Motion Blur",
+      "role": "movement smear"
+    },
+    {
+      "match_name": "AE.ADBE Lumetri",
+      "role": "punchy grade"
+    }
+  ],
+  "transitions": {
+    "philosophy": "Choose the transition that fits the moment; never default to a hard cut.",
+    "library": [
+      "fisheye warp whip",
+      "flare flash",
+      "zoom punch",
+      "blur dissolve"
+    ],
+    "default": "fisheye warp whip",
+    "notes": "Big stylized transitions for a small number of shots; each lands on a beat."
+  },
+  "color": {
+    "approach": "bold, contrasty",
+    "lumetri": "saturated"
+  },
+  "audio": {
+    "music": "punchy hook",
+    "sync": "beat grid"
+  },
+  "titles_graphics": {
+    "hook_text": "bold center hook",
+    "captions": "optional"
+  },
+  "toggles": [
+    "fisheye",
+    "flare",
+    "hook_text",
+    "speed_ramps"
+  ],
+  "generator_rules": [
+    "Keep it short; 3-8 shots max.",
+    "Lead with the strongest frame + hook text.",
+    "Stylized whip/flare transitions on each beat."
+  ]
+}

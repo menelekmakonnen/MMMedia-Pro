@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Upload, Grid, List, Search, Wand2, Film, FolderOpen, Smartphone, Monitor, Square, Trash2, CheckSquare, Crown, Plus, FileVideo, FileAudio, X, Clock, Music, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Upload, Grid, List, Search, Wand2, Film, FolderOpen, Smartphone, Monitor, Square, Trash2, CheckSquare, Crown, Plus, FileVideo, FileAudio, X, Clock, Music, ArrowUpDown, ArrowUp, ArrowDown, SlidersHorizontal } from 'lucide-react';
 import clsx from 'clsx';
 import { useClipStore, Clip } from '../../store/clipStore';
 import { useMediaStore, MediaFile } from '../../store/mediaStore';
@@ -154,6 +154,11 @@ export const MediaManagerTab: React.FC = () => {
                     locked: false,
                     rotation: file.rotation || 0,
                     sourceOrientation: file.orientation || 'horizontal',
+                    // Inherit source-level framing and usage weight
+                    ...(file.sourceZoom && file.sourceZoom !== 100 ? { sourceZoom: file.sourceZoom } : {}),
+                    ...(file.sourcePanX ? { sourcePanX: file.sourcePanX } : {}),
+                    ...(file.sourcePanY ? { sourcePanY: file.sourcePanY } : {}),
+                    ...(file.usageWeight && file.usageWeight !== 1 ? { usageWeight: file.usageWeight, usageMode: file.usageMode } : {}),
                 });
             } else if (file.type === 'audio') {
                 addClip({
@@ -410,7 +415,13 @@ export const MediaManagerTab: React.FC = () => {
             isMuted: false,
             isPinned: false,
             origin: 'manual',
-            locked: false
+            locked: false,
+            rotation: targetFile.rotation || 0,
+            sourceOrientation: targetFile.orientation || 'horizontal',
+            ...(targetFile.sourceZoom && targetFile.sourceZoom !== 100 ? { sourceZoom: targetFile.sourceZoom } : {}),
+            ...(targetFile.sourcePanX ? { sourcePanX: targetFile.sourcePanX } : {}),
+            ...(targetFile.sourcePanY ? { sourcePanY: targetFile.sourcePanY } : {}),
+            ...(targetFile.usageWeight && targetFile.usageWeight !== 1 ? { usageWeight: targetFile.usageWeight, usageMode: targetFile.usageMode } : {}),
         });
     };
 
@@ -601,6 +612,11 @@ export const MediaManagerTab: React.FC = () => {
                 {/* Quick Actions */}
                 <div className="flex items-center gap-3 py-2">
                     <span className="text-[10px] font-black text-white/30 uppercase tracking-widest mr-1">Quick:</span>
+                    <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                        onClick={() => { if (hasSelection) selectAllFiles(selectedFileIds); setActiveTab('import-manager'); }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/15 hover:bg-primary/25 text-primary-300 hover:text-primary-200 transition-all border border-primary/20 hover:border-primary/40 text-[10px] font-bold uppercase tracking-wider">
+                        <SlidersHorizontal size={12} /> Manager
+                    </motion.button>
                     <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => { useGodModeStore.getState().setEnabled(true); setActiveTab('trailer'); }}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-300/70 hover:text-yellow-200 transition-all border border-yellow-500/10 hover:border-yellow-500/30 text-[10px] font-bold uppercase tracking-wider">
                         <Crown size={12} /> God Mode

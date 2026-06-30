@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Film, FileCode, MonitorUp, Share } from 'lucide-react';
+import { Film, FileCode, MonitorUp, Share, Flame } from 'lucide-react';
+import { sendCurrentProjectToEnder } from '../../lib/enderSend';
 import { useClipStore } from '../../store/clipStore';
 import { useProjectStore } from '../../store/projectStore';
 import { useExportSettingsStore } from '../../store/exportSettingsStore';
@@ -192,6 +193,27 @@ export const ExportTab: React.FC = () => {
         });
         return () => { cleanupProgress(); cleanupLog?.(); };
     }, [isExportingAME, isExportingDirect, renderEngine]);
+
+    const [isSendingEnder, setIsSendingEnder] = useState(false);
+    const handleSendToEnder = async () => {
+        if (clips.length === 0) { toast.warning('Timeline is empty!'); return; }
+        setIsSendingEnder(true);
+        try {
+            const res = await sendCurrentProjectToEnder();
+            if (res.success) {
+                toast.success(res.transport === 'mailbox'
+                    ? 'Queued to Ender (mailbox) — open Ender to render'
+                    : 'Sent to Ender — rendering in the queue');
+                addLog(`Sent to Ender via ${res.transport}${res.id ? ` (job ${res.id.slice(0, 8)})` : ''}`);
+            } else {
+                toast.error(`Send to Ender failed: ${res.error || 'unknown error'}`);
+            }
+        } catch (e: any) {
+            toast.error(`Send to Ender failed: ${e?.message || e}`);
+        } finally {
+            setIsSendingEnder(false);
+        }
+    };
 
     const handleExportDirect = async () => {
         if (clips.length === 0) { toast.warning('Timeline is empty!'); return; }
@@ -440,7 +462,7 @@ export const ExportTab: React.FC = () => {
     return (
         <div className="w-full h-full flex flex-col bg-background relative overflow-hidden">
             {/* Header + Tab Bar */}
-            <div className="flex-shrink-0 border-b border-white/5 bg-black/30 backdrop-blur-sm">
+            <div className="flex-shrink-0 border-b border-white/5 bg-[#0a0a12]">
                 <div className="flex items-center gap-4 px-6 pt-5 pb-0">
                     <div className="p-2 bg-gradient-to-br from-primary to-secondary rounded-lg shadow-lg">
                         <Share size={18} className="text-white drop-shadow-md" />
@@ -469,6 +491,7 @@ export const ExportTab: React.FC = () => {
                 {activeTab === 'mp4' && (
                     <Mp4Tab isExporting={isExportingDirect} progress={directProgress} startTime={exportStartTime.current}
                         onExport={handleExportDirect} disabled={clips.length === 0 || anyExporting}
+                        onSendToEnder={handleSendToEnder} isSendingEnder={isSendingEnder}
                         exportLog={exportLog}
                         exportQueue={exportQueue}
                         onCancelExport={handleCancelExport}

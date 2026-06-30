@@ -327,6 +327,216 @@ export const EFFECT_REGISTRY: ParametricEffect[] = [
         ffmpegTemplate: 'hqdn3d={{luma}}:{{luma}}:6:6',
         realtimePreview: false,
     },
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // AE-DERIVED EFFECTS — FFmpeg equivalents of common After Effects techniques.
+    // Each maps a tutorial workflow onto a single 1-in/1-out -vf filter so it
+    // renders identically in the preview proxy and the final export, and can be
+    // auto-applied by the Edit/Grid Generator Engine via globalEffects.
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // ── Color ────────────────────────────────────────────────────────────────
+    {
+        // AE "Hue/Saturation" (Master Hue) — cycle the colour spectrum + saturate.
+        id: 'hue_saturation',
+        name: 'Hue / Saturation',
+        category: 'color',
+        description: 'Rotate the entire colour spectrum (Master Hue) and push or pull overall saturation.',
+        parameters: [
+            { key: 'hue', label: 'Master Hue', type: 'slider', min: -180, max: 180, step: 1, default: 0, unit: '°' },
+            { key: 'sat', label: 'Saturation', type: 'slider', min: 0, max: 3, step: 0.05, default: 1 },
+        ],
+        ffmpegTemplate: 'hue=h={{hue}}:s={{sat}}',
+        realtimePreview: true,
+    },
+    {
+        // AE "Tritone" — map shadows / highlights to opposing colours for a
+        // custom duotone/tritone grade (teal-orange when warmth is positive).
+        id: 'tritone',
+        name: 'Tritone',
+        category: 'color',
+        description: 'Desaturate, then map shadows and highlights to opposing tones for a duotone/tritone colour grade.',
+        parameters: [
+            { key: 'intensity', label: 'Intensity', type: 'slider', min: 0, max: 100, step: 1, default: 60, unit: '%' },
+            { key: 'warmth', label: 'Warmth', type: 'slider', min: -100, max: 100, step: 1, default: 60 },
+        ],
+        ffmpegTemplate: '{{_tritone}}',
+        realtimePreview: true,
+    },
+
+    // ── Style ────────────────────────────────────────────────────────────────
+    {
+        // AE "Find Edges" (+ Invert) — Canny edge stylisation, optionally inked.
+        id: 'find_edges',
+        name: 'Find Edges',
+        category: 'style',
+        description: 'Stylised edge outlines (Canny). Invert for white-on-black inked edges.',
+        parameters: [
+            { key: 'low', label: 'Low Threshold', type: 'slider', min: 0, max: 1, step: 0.01, default: 0.1 },
+            { key: 'high', label: 'High Threshold', type: 'slider', min: 0, max: 1, step: 0.01, default: 0.4 },
+            { key: 'invert', label: 'Invert', type: 'toggle', default: true },
+        ],
+        ffmpegTemplate: '{{_findEdges}}',
+        realtimePreview: false,
+    },
+    {
+        // AE combo: Find Edges + Curves + Tint + Deep Glow — glowing inked outline.
+        id: 'glowing_edges',
+        name: 'Glowing Edges',
+        category: 'style',
+        description: 'Find Edges → Curves → Tint look: a stylised, glowing outline of the subject. Pair with Glow for bloom.',
+        parameters: [
+            { key: 'intensity', label: 'Intensity', type: 'slider', min: 0, max: 100, step: 1, default: 60, unit: '%' },
+        ],
+        ffmpegTemplate: '{{_glowingEdges}}',
+        realtimePreview: false,
+    },
+    {
+        // AE "FilmConvert Nitrate"-style film emulation: toe lift, rolled
+        // highlights, gentle desaturation and animated grain.
+        id: 'film_emulation',
+        name: 'Film Emulation',
+        category: 'style',
+        description: 'Cinematic film-stock emulation: lifted toe, rolled highlights, gentle desaturation and animated grain.',
+        parameters: [
+            { key: 'strength', label: 'Strength', type: 'slider', min: 0, max: 100, step: 1, default: 60, unit: '%' },
+            { key: 'grain', label: 'Grain', type: 'slider', min: 0, max: 40, step: 1, default: 12 },
+        ],
+        ffmpegTemplate: '{{_filmEmulation}}',
+        realtimePreview: false,
+    },
+
+    // ── Distortion ───────────────────────────────────────────────────────────
+    {
+        // AE "Wave Warp" — gentle organic float/wobble (sine displacement).
+        id: 'wave_warp',
+        name: 'Wave Warp',
+        category: 'distortion',
+        description: 'Gentle organic wave displacement — a subtle floating wobble for text or elements.',
+        parameters: [
+            { key: 'amplitude', label: 'Amplitude', type: 'slider', min: 0, max: 30, step: 1, default: 6, unit: 'px' },
+            { key: 'wavelength', label: 'Wavelength', type: 'slider', min: 4, max: 60, step: 1, default: 18 },
+            { key: 'speed', label: 'Speed', type: 'slider', min: 0, max: 10, step: 0.1, default: 3 },
+        ],
+        ffmpegTemplate: '{{_waveWarp}}',
+        realtimePreview: false,
+    },
+    {
+        // AE "Turbulent Displace" (Horizontal) — high-frequency glitch shimmer.
+        id: 'turbulent_displace',
+        name: 'Turbulent Displace',
+        category: 'distortion',
+        description: 'High-impact horizontal turbulence — a fast, glitchy displacement shimmer across the frame.',
+        parameters: [
+            { key: 'amount', label: 'Amount', type: 'slider', min: 0, max: 30, step: 1, default: 14, unit: 'px' },
+            { key: 'scale', label: 'Detail', type: 'slider', min: 4, max: 40, step: 1, default: 7 },
+        ],
+        ffmpegTemplate: '{{_turbulent}}',
+        realtimePreview: false,
+    },
+    {
+        // AE "Digital Damage" / glitch — torn-scanline displacement + chroma + noise.
+        id: 'digital_glitch',
+        name: 'Digital Glitch',
+        category: 'distortion',
+        description: 'Digital-damage glitch: time-gated torn scanlines, chroma fringing and static.',
+        parameters: [
+            { key: 'intensity', label: 'Intensity', type: 'slider', min: 0, max: 100, step: 1, default: 50, unit: '%' },
+        ],
+        ffmpegTemplate: '{{_digitalGlitch}}',
+        realtimePreview: false,
+    },
+
+    // ── Color ────────────────────────────────────────────────────────────────
+    {
+        // AE "Invert" — flip colour values (the X-ray base).
+        id: 'invert',
+        name: 'Invert',
+        category: 'color',
+        description: 'Invert all colour values — the high-contrast base for X-ray and negative looks.',
+        parameters: [
+            { key: 'enabled', label: 'Enabled', type: 'toggle', default: true },
+        ],
+        ffmpegTemplate: 'negate',
+        realtimePreview: true,
+    },
+    {
+        // AE "Brightness & Contrast" — a staple of nearly every tutorial.
+        id: 'brightness_contrast',
+        name: 'Brightness & Contrast',
+        category: 'color',
+        description: 'Direct brightness and contrast control.',
+        parameters: [
+            { key: 'brightness', label: 'Brightness', type: 'slider', min: -1, max: 1, step: 0.01, default: 0 },
+            { key: 'contrast', label: 'Contrast', type: 'slider', min: 0, max: 3, step: 0.05, default: 1 },
+        ],
+        ffmpegTemplate: 'eq=brightness={{brightness}}:contrast={{contrast}}',
+        realtimePreview: true,
+    },
+
+    // ── Style ────────────────────────────────────────────────────────────────
+    {
+        // AE "Threshold" — hard two-tone cutoff for gritty high-contrast grades.
+        id: 'threshold',
+        name: 'Threshold',
+        category: 'style',
+        description: 'Hard black/white threshold for a gritty, high-contrast two-tone look.',
+        parameters: [
+            { key: 'level', label: 'Level', type: 'slider', min: 0, max: 255, step: 1, default: 128 },
+        ],
+        ffmpegTemplate: '{{_threshold}}',
+        realtimePreview: false,
+    },
+    {
+        // AE "Mosaic" — block pixelation (X-ray texture).
+        id: 'mosaic',
+        name: 'Mosaic',
+        category: 'style',
+        description: 'Block pixelation — coarse mosaic texture (resolution-independent, neighbour-sampled).',
+        parameters: [
+            { key: 'size', label: 'Block Size', type: 'slider', min: 2, max: 64, step: 1, default: 8, unit: 'px' },
+        ],
+        ffmpegTemplate: '{{_mosaic}}',
+        realtimePreview: false,
+    },
+    {
+        // AE "Posterize Time" — drop the temporal frame rate for a choppy, filmic stutter.
+        id: 'posterize_time',
+        name: 'Posterize Time',
+        category: 'style',
+        description: 'Reduce the temporal frame rate for a choppy, hand-animated / filmic stutter.',
+        parameters: [
+            { key: 'rate', label: 'Frame Rate', type: 'slider', min: 4, max: 30, step: 1, default: 12, unit: 'fps' },
+        ],
+        ffmpegTemplate: 'fps=fps={{rate}}',
+        realtimePreview: false,
+    },
+
+    // ── Distortion ───────────────────────────────────────────────────────────
+    {
+        // AE "Warp Fisheye" / CC Lens — barrel bulge (positive) or pinch (negative).
+        id: 'fisheye',
+        name: 'Fisheye / Warp',
+        category: 'distortion',
+        description: 'Lens warp — bulge outward (positive) or pinch inward (negative), like Warp Fisheye / CC Lens.',
+        parameters: [
+            { key: 'amount', label: 'Amount', type: 'slider', min: -100, max: 100, step: 1, default: 40 },
+        ],
+        ffmpegTemplate: '{{_fisheye}}',
+        realtimePreview: false,
+    },
+    {
+        // AE "Scatter" (Vertical) — per-column random pixel displacement.
+        id: 'scatter',
+        name: 'Scatter',
+        category: 'distortion',
+        description: 'Vertical pixel scatter — a shimmering per-column displacement, like AE Scatter.',
+        parameters: [
+            { key: 'amount', label: 'Amount', type: 'slider', min: 0, max: 40, step: 1, default: 20, unit: 'px' },
+        ],
+        ffmpegTemplate: '{{_scatter}}',
+        realtimePreview: false,
+    },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -401,6 +611,98 @@ function buildLevelsFilter(min: number, max: number, gamma: number): string {
     return parts.join(',');
 }
 
+// ── AE-derived effect builders ──────────────────────────────────────────────
+// Shared with electron/parametricEffects.ts (kept in sync by hand — the electron
+// tsconfig can't import across rootDir). Each returns a single 1-in/1-out -vf
+// fragment; commas inside geq expressions are backslash-escaped so the fragment
+// survives `filters.join(',')` in the filter builder.
+const _fxClamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, isFinite(v) ? v : lo));
+
+function buildTritoneFilter(intensity: number, warmth: number): string {
+    const t = _fxClamp(intensity, 0, 100) / 100;
+    const w = _fxClamp(warmth, -100, 100) / 100;
+    const s = Math.max(0, 1 - 0.85 * t).toFixed(3);
+    const m = 0.35 * t * w;                       // shadow/highlight tint magnitude
+    return `hue=s=${s},colorbalance=rs=${(-m).toFixed(3)}:bs=${m.toFixed(3)}:rh=${m.toFixed(3)}:bh=${(-m).toFixed(3)}`;
+}
+
+function buildFindEdgesFilter(low: number, high: number, invert: boolean): string {
+    const lo = _fxClamp(low, 0, 1).toFixed(3);
+    const hi = _fxClamp(high, 0, 1).toFixed(3);
+    const base = `edgedetect=low=${lo}:high=${hi}:mode=colormix`;
+    return invert ? `${base},negate` : base;
+}
+
+function buildGlowingEdgesFilter(intensity: number): string {
+    const t = _fxClamp(intensity, 0, 100) / 100;
+    const mid = (0.5 + 0.3 * t).toFixed(2);       // brighter edges with intensity
+    const sat = (1 + 0.6 * t).toFixed(2);
+    return `edgedetect=mode=wires,negate,curves=all='0/0 0.45/${mid} 1/1',colorbalance=rh=-0.2:bh=0.3,eq=saturation=${sat}`;
+}
+
+function buildFilmEmulationFilter(strength: number, grain: number): string {
+    const t = _fxClamp(strength, 0, 100) / 100;
+    const sat = (1 - 0.25 * t).toFixed(2);
+    const lift = (0.03 * t).toFixed(3);
+    const roll = (1 - 0.04 * t).toFixed(3);
+    const rm = (0.05 * t).toFixed(3);
+    const bm = (-0.05 * t).toFixed(3);
+    let f = `curves=all='0/${lift} 0.5/0.5 1/${roll}',eq=saturation=${sat},colorbalance=rm=${rm}:bm=${bm}`;
+    const g = Math.round(_fxClamp(grain, 0, 60));
+    if (g > 0) f += `,noise=alls=${g}:allf=t`;
+    return f;
+}
+
+function buildWaveWarpFilter(amplitude: number, wavelength: number, speed: number): string {
+    const a = _fxClamp(amplitude, 0, 60);
+    if (a <= 0) return '';
+    const A = a.toFixed(2);
+    const W = Math.max(1, wavelength).toFixed(2);
+    const S = _fxClamp(speed, 0, 60).toFixed(2);
+    const e = `X+${A}*sin(Y/${W}+T*${S})`;
+    return `format=rgb24,geq=r='r(${e}\\,Y)':g='g(${e}\\,Y)':b='b(${e}\\,Y)'`;
+}
+
+function buildTurbulentFilter(amount: number, scale: number): string {
+    const amt = _fxClamp(amount, 0, 60);
+    if (amt <= 0) return '';
+    const A = amt.toFixed(2);
+    const s1 = Math.max(2, scale).toFixed(2);
+    const s2 = (Math.max(2, scale) * 1.8).toFixed(2);
+    const e = `X+${A}*sin(Y/${s1}+T*40)*sin(Y/${s2}-T*30)`;
+    return `format=rgb24,geq=r='r(${e}\\,Y)':g='g(${e}\\,Y)':b='b(${e}\\,Y)'`;
+}
+
+function buildDigitalGlitchFilter(intensity: number): string {
+    const t = _fxClamp(intensity, 0, 100) / 100;
+    if (t <= 0) return '';
+    const amt = Math.max(2, Math.round(t * 30));
+    const ns = Math.max(2, Math.round(t * 14));
+    const disp = `${amt}*gt(sin(T*16)\\,0.5)*(2*lt(mod(Y+T*50\\,32)\\,16)-1)`;
+    return `format=rgb24,geq=r='r(X+${disp}\\,Y)':g='g(X\\,Y)':b='b(X-${disp}\\,Y)',noise=alls=${ns}:allf=t`;
+}
+function buildThresholdFilter(level: number): string {
+    const L = Math.round(_fxClamp(level, 0, 255));
+    return `hue=s=0,lutyuv=y='if(gt(val\\,${L})\\,235\\,16)'`;
+}
+function buildMosaicFilter(size: number): string {
+    const b = Math.round(_fxClamp(size, 2, 64));
+    return `scale=iw/${b}:ih/${b}:flags=neighbor,scale=iw*${b}:ih*${b}:flags=neighbor`;
+}
+function buildFisheyeFilter(amount: number): string {
+    // Positive amount = barrel bulge (negative lenscorrection k); negative = pinch.
+    const a = _fxClamp(amount, -100, 100) / 100;
+    const k1 = (-a * 0.5).toFixed(3);
+    const k2 = (-a * 0.15).toFixed(3);
+    return `lenscorrection=k1=${k1}:k2=${k2}`;
+}
+function buildScatterFilter(amount: number): string {
+    const a = _fxClamp(amount, 0, 40);
+    if (a <= 0) return '';
+    const e = `X\\,Y+${a.toFixed(2)}*sin(X*12.9898+T*40)`;
+    return `format=rgb24,geq=r='r(${e})':g='g(${e})':b='b(${e})'`;
+}
+
 export function resolveParametricEffect(
     effectId: string,
     params: Record<string, number | string | boolean>
@@ -436,6 +738,44 @@ export function resolveParametricEffect(
 
     if (effectId === 'levels') {
         return buildLevelsFilter(Number(resolved['min']), Number(resolved['max']), Number(resolved['gamma']));
+    }
+
+    // ── AE-derived effects — dynamic builders ────────────────────────────
+    if (effectId === 'tritone') {
+        return buildTritoneFilter(Number(resolved['intensity']), Number(resolved['warmth']));
+    }
+    if (effectId === 'find_edges') {
+        return buildFindEdgesFilter(Number(resolved['low']), Number(resolved['high']), Boolean(resolved['invert']));
+    }
+    if (effectId === 'glowing_edges') {
+        return buildGlowingEdgesFilter(Number(resolved['intensity']));
+    }
+    if (effectId === 'film_emulation') {
+        return buildFilmEmulationFilter(Number(resolved['strength']), Number(resolved['grain']));
+    }
+    if (effectId === 'wave_warp') {
+        return buildWaveWarpFilter(Number(resolved['amplitude']), Number(resolved['wavelength']), Number(resolved['speed']));
+    }
+    if (effectId === 'turbulent_displace') {
+        return buildTurbulentFilter(Number(resolved['amount']), Number(resolved['scale']));
+    }
+    if (effectId === 'digital_glitch') {
+        return buildDigitalGlitchFilter(Number(resolved['intensity']));
+    }
+    if (effectId === 'invert') {
+        return resolved['enabled'] ? 'negate' : '';
+    }
+    if (effectId === 'threshold') {
+        return buildThresholdFilter(Number(resolved['level']));
+    }
+    if (effectId === 'mosaic') {
+        return buildMosaicFilter(Number(resolved['size']));
+    }
+    if (effectId === 'fisheye') {
+        return buildFisheyeFilter(Number(resolved['amount']));
+    }
+    if (effectId === 'scatter') {
+        return buildScatterFilter(Number(resolved['amount']));
     }
 
     // Substitute {{key}} placeholders in the template

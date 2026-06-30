@@ -1,8 +1,10 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Clip, useClipStore } from '../../store/clipStore';
 import { useMediaStore, MediaFile } from '../../store/mediaStore';
-import { Wand2, FileVideo, FileAudio, Image as ImageIcon, X, RotateCw, Scissors, RotateCcw, ChevronRight, ChevronLeft, Check } from 'lucide-react';
+import { Wand2, FileVideo, FileAudio, Image as ImageIcon, X, RotateCw, Scissors, RotateCcw, ChevronRight, ChevronLeft, Check, SlidersHorizontal, RefreshCw } from 'lucide-react';
 import clsx from 'clsx';
+import { SegmentEditor } from './SegmentEditor';
+import { useViewStore } from '../../store/viewStore';
 
 interface MediaDetailsPanelProps {
     clip: Clip | null;
@@ -205,7 +207,7 @@ const TrimSlider: React.FC<{
  * ═══════════════════════════════════════════════════════════════════ */
 export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, mediaFile, onClose, onAdd, onRotate, hasPendingRotation, onConfirmRotation, onCancelRotation }) => {
     const { addClip } = useClipStore();
-    const { setFileTrim, clearFileTrim } = useMediaStore();
+    const { setFileTrim, clearFileTrim, rotateFile, rotateFileCCW, confirmRotation, cancelRotation, setFileFraming, resetFileFraming, setFileUsageWeight } = useMediaStore();
     const videoRef = useRef<HTMLVideoElement>(null);
     const [currentTime, setCurrentTime] = useState(0);
     const [videoDuration, setVideoDuration] = useState(0);
@@ -301,47 +303,36 @@ export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, medi
                 </button>
             </div>
 
-            {/* Preview Section */}
+            {/* Preview Section — orientation-adaptive player + include/exclude belt */}
             <div className="p-4 border-b border-white/5">
-                <div className="aspect-video bg-black/50 rounded-lg border border-white/10 overflow-hidden relative group flex items-center justify-center mb-4">
-                    {clip.type === 'video' || clip.type === 'image' ? (
-                        <video
-                            ref={videoRef}
-                            src={`file://${clip.path}`}
-                            className="w-full h-full object-contain transition-transform duration-300"
-                            style={rotation ? {
-                                transform: `rotate(${rotation}deg)${(rotation === 90 || rotation === 270) ? ` scale(${rotFitScale})` : ''}`,
-                                // For 90°/270°, scale down so the rotated video fits within the 16:9 container
-                            } : undefined}
-                            controls={clip.type === 'video'}
-                            onLoadedMetadata={(e) => {
-                                const dur = e.currentTarget.duration;
-                                setVideoDuration(dur);
-                                const vw = e.currentTarget.videoWidth, vh = e.currentTarget.videoHeight;
-                                if (vw && vh) { const av = vw / vh; setRotFitScale(av >= 16 / 9 ? 9 / 16 : Math.min(16 / 9, 1 / av)); }
-                                if (clip.sourceDurationFrames === 0 && dur > 0) {
-                                    useClipStore.getState().setClipDuration(clip.id, dur);
-                                }
-                            }}
-                        />
-                    ) : (
-                        getIcon()
-                    )}
-                    {/* Trim region overlay on video */}
-                    {hasTrim && clip.type === 'video' && effectiveDuration > 0 && (
-                        <>
-                            <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/50 z-10 pointer-events-none">
-                                <div
-                                    className="absolute top-0 bottom-0 bg-violet-500/70 rounded-full"
-                                    style={{
-                                        left: `${(trimIn / effectiveDuration) * 100}%`,
-                                        width: `${((trimOut - trimIn) / effectiveDuration) * 100}%`,
-                                    }}
-                                />
-                            </div>
-                        </>
-                    )}
-                </div>
+                {mediaFile ? (
+                    <div className="mb-4">
+                        <SegmentEditor file={mediaFile} variant="compact" />
+                    </div>
+                ) : (
+                    <div className="aspect-video bg-black/50 rounded-lg border border-white/10 overflow-hidden relative group flex items-center justify-center mb-4">
+                        {clip.type === 'video' || clip.type === 'image' ? (
+                            <video
+                                ref={videoRef}
+                                src={`file://${clip.path}`}
+                                className="w-full h-full object-contain transition-transform duration-300"
+                                style={rotation ? { transform: `rotate(${rotation}deg)${(rotation === 90 || rotation === 270) ? ` scale(${rotFitScale})` : ''}` } : undefined}
+                                controls={clip.type === 'video'}
+                                onLoadedMetadata={(e) => {
+                                    const dur = e.currentTarget.duration;
+                                    setVideoDuration(dur);
+                                    const vw = e.currentTarget.videoWidth, vh = e.currentTarget.videoHeight;
+                                    if (vw && vh) { const av = vw / vh; setRotFitScale(av >= 16 / 9 ? 9 / 16 : Math.min(16 / 9, 1 / av)); }
+                                    if (clip.sourceDurationFrames === 0 && dur > 0) {
+                                        useClipStore.getState().setClipDuration(clip.id, dur);
+                                    }
+                                }}
+                            />
+                        ) : (
+                            getIcon()
+                        )}
+                    </div>
+                )}
 
                 <h2 className="text-lg font-semibold text-white/90 break-words mb-1">
                     {clip.filename}
@@ -488,29 +479,164 @@ export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, medi
                 </div>
             </div>
 
+            {/* ── FRAMING SECTION ── */}
+            {mediaFile && (
+                <div className="p-4 border-b border-white/5 space-y-3">
+                    <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black text-white/60 uppercase tracking-wider">Framing</span>
+                        <button
+                            onClick={() => resetFileFraming(mediaFile.id)}
+                            className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/10 text-[9px] font-bold text-white/40 hover:text-white/70 transition-colors uppercase tracking-wider"
+                        >
+                            <RefreshCw size={9} /> Reset
+                        </button>
+                    </div>
+                    {/* Zoom */}
+                    <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[9px] text-white/40">Zoom</span>
+                            <span className="text-[9px] font-mono text-white/60">{mediaFile.sourceZoom ?? 100}%</span>
+                        </div>
+                        <input
+                            type="range" min={100} max={300} step={5}
+                            value={mediaFile.sourceZoom ?? 100}
+                            onChange={(e) => setFileFraming(mediaFile.id, Number(e.target.value), mediaFile.sourcePanX ?? 0, mediaFile.sourcePanY ?? 0)}
+                            className="w-full h-1 rounded-full appearance-none bg-white/10 accent-violet-500 cursor-pointer"
+                        />
+                    </div>
+                    {/* Pan X */}
+                    <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[9px] text-white/40">Pan X</span>
+                            <span className="text-[9px] font-mono text-white/60">{mediaFile.sourcePanX ?? 0}</span>
+                        </div>
+                        <input
+                            type="range" min={-100} max={100} step={1}
+                            value={mediaFile.sourcePanX ?? 0}
+                            onChange={(e) => setFileFraming(mediaFile.id, mediaFile.sourceZoom ?? 100, Number(e.target.value), mediaFile.sourcePanY ?? 0)}
+                            className="w-full h-1 rounded-full appearance-none bg-white/10 accent-violet-500 cursor-pointer"
+                        />
+                    </div>
+                    {/* Pan Y */}
+                    <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[9px] text-white/40">Pan Y</span>
+                            <span className="text-[9px] font-mono text-white/60">{mediaFile.sourcePanY ?? 0}</span>
+                        </div>
+                        <input
+                            type="range" min={-100} max={100} step={1}
+                            value={mediaFile.sourcePanY ?? 0}
+                            onChange={(e) => setFileFraming(mediaFile.id, mediaFile.sourceZoom ?? 100, mediaFile.sourcePanX ?? 0, Number(e.target.value))}
+                            className="w-full h-1 rounded-full appearance-none bg-white/10 accent-violet-500 cursor-pointer"
+                        />
+                    </div>
+                </div>
+            )}
+
+            {/* ── USAGE SECTION ── */}
+            {mediaFile && (
+                <div className="p-4 border-b border-white/5 space-y-2">
+                    <span className="text-[10px] font-black text-white/60 uppercase tracking-wider">Usage</span>
+                    <div className="flex rounded-lg border border-white/10 overflow-hidden">
+                        {(['more', 'normal', 'less', 'once'] as const).map((mode) => {
+                            const active = (mediaFile.usageMode ?? 'normal') === mode;
+                            return (
+                                <button
+                                    key={mode}
+                                    onClick={() => setFileUsageWeight(mediaFile.id, mode)}
+                                    className={clsx(
+                                        'flex-1 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors',
+                                        active
+                                            ? 'bg-[rgba(255,255,255,0.15)] text-white/90 border-b-2 border-violet-400'
+                                            : 'bg-white/[0.03] text-white/40 hover:bg-white/[0.08] hover:text-white/60',
+                                    )}
+                                >
+                                    {mode === 'more' ? 'More' : mode === 'normal' ? 'Normal' : mode === 'less' ? 'Less' : 'Once'}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
             {/* Actions Footer */}
             <div className="p-4 border-t border-white/5 bg-white/5 space-y-2">
-                {/* Pending rotation: Approve / Decline row */}
-                {hasPendingRotation && (
+                {/* Persistent rotation controls */}
+                {clip.type === 'video' && mediaFile && (
                     <div className="flex gap-2 mb-2">
-                        {onConfirmRotation && (
-                            <button
-                                onClick={onConfirmRotation}
-                                className="flex-1 flex items-center justify-center gap-2 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 p-2.5 rounded-lg font-bold text-xs uppercase tracking-wider transition-colors border border-emerald-500/30 hover:border-emerald-500/50"
-                            >
-                                <Check size={16} strokeWidth={3} /> Approve {rotation}°
-                            </button>
-                        )}
-                        {onCancelRotation && (
-                            <button
-                                onClick={onCancelRotation}
-                                className="flex items-center justify-center gap-2 bg-red-600/20 hover:bg-red-600/40 text-red-300 p-2.5 rounded-lg font-bold text-xs uppercase tracking-wider transition-colors border border-red-500/30 hover:border-red-500/50"
-                            >
-                                <X size={16} strokeWidth={3} />
-                            </button>
+                        <button
+                            onClick={() => rotateFileCCW(mediaFile.id)}
+                            className="flex items-center justify-center gap-1.5 bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 p-2.5 rounded-lg font-bold text-xs uppercase tracking-wider transition-colors border border-blue-500/20 hover:border-blue-500/40"
+                            title="Rotate counter-clockwise"
+                        >
+                            <RotateCcw size={16} />
+                        </button>
+                        <button
+                            onClick={() => rotateFile(mediaFile.id)}
+                            className="flex items-center justify-center gap-1.5 bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 p-2.5 rounded-lg font-bold text-xs uppercase tracking-wider transition-colors border border-blue-500/20 hover:border-blue-500/40"
+                            title="Rotate clockwise"
+                        >
+                            <RotateCw size={16} />
+                        </button>
+                        {mediaFile.pendingRotation !== undefined && mediaFile.pendingRotation !== (mediaFile.rotation ?? 0) && (
+                            <>
+                                <button
+                                    onClick={() => confirmRotation(mediaFile.id)}
+                                    className="flex-1 flex items-center justify-center gap-2 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-300 p-2.5 rounded-lg font-bold text-xs uppercase tracking-wider transition-colors border border-emerald-500/30 hover:border-emerald-500/50"
+                                >
+                                    <Check size={16} strokeWidth={3} /> Approve {mediaFile.pendingRotation}°
+                                </button>
+                                <button
+                                    onClick={() => cancelRotation(mediaFile.id)}
+                                    className="flex items-center justify-center gap-2 bg-red-600/20 hover:bg-red-600/40 text-red-300 p-2.5 rounded-lg font-bold text-xs uppercase tracking-wider transition-colors border border-red-500/30 hover:border-red-500/50"
+                                >
+                                    <X size={16} strokeWidth={3} />
+                                </button>
+                            </>
                         )}
                     </div>
                 )}
+
+                {/* Deflicker Source Toggle */}
+                {clip.type === 'video' && mediaFile && (
+                    <button
+                        onClick={() => {
+                            const { files } = useMediaStore.getState();
+                            const updated = files.map(f =>
+                                f.id === mediaFile.id ? { ...f, deflicker: !f.deflicker } : f
+                            );
+                            useMediaStore.setState({ files: updated });
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-medium transition-all ${
+                            mediaFile.deflicker
+                                ? 'bg-amber-500/20 border-amber-500/30 text-amber-300'
+                                : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
+                        }`}
+                    >
+                        <span className="flex items-center gap-2">
+                            <span>⚡</span>
+                            <span>Deflicker Source</span>
+                        </span>
+                        <span className="text-[10px]">
+                            {mediaFile.deflicker ? '✓ Active — all edits will use deflickered version' : 'Off'}
+                        </span>
+                    </button>
+                )}
+
+                {/* Open in Import Manager (in-depth segment curation) */}
+                {mediaFile && (
+                    <button
+                        onClick={() => {
+                            useMediaStore.getState().selectAllFiles([mediaFile.id]);
+                            useViewStore.getState().setActiveTab('import-manager');
+                        }}
+                        className="w-full flex items-center justify-center gap-2 mb-2 bg-primary/15 hover:bg-primary/25 text-primary-200 p-3 rounded-lg font-medium transition-all border border-primary/30"
+                    >
+                        <SlidersHorizontal size={18} />
+                        Open in Import Manager
+                    </button>
+                )}
+
                 <div className="flex gap-2">
                     <button
                         onClick={() => {
@@ -521,17 +647,8 @@ export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, medi
                         className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white p-3 rounded-lg font-medium transition-all shadow-[0_0_15px_rgba(168,85,247,0.3)] hover:shadow-[0_0_25px_rgba(168,85,247,0.5)]"
                     >
                         <Wand2 size={18} />
-                        {hasTrim ? 'Open Trimmed in Trailer Wizard' : 'Open in Trailer Wizard'}
+                        {hasTrim ? 'Open Trimmed in Edit Generator' : 'Open in Edit Generator'}
                     </button>
-                    {onRotate && clip.type === 'video' && (
-                        <button
-                            onClick={onRotate}
-                            className="flex items-center justify-center gap-2 bg-blue-600/20 hover:bg-blue-600/40 text-blue-300 p-3 rounded-lg font-medium transition-colors border border-blue-500/20 hover:border-blue-500/40"
-                            title={`Rotate (currently ${rotation}°)`}
-                        >
-                            <RotateCw size={18} />
-                        </button>
-                    )}
                 </div>
             </div>
         </div >

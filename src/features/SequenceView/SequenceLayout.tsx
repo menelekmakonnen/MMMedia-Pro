@@ -55,7 +55,7 @@ export const SequenceLayout: React.FC = () => {
     return (
         <div className="flex flex-col h-full overflow-hidden">
             {/* ── Subtab Bar ── */}
-            <div className="flex items-center gap-1.5 px-4 py-2 border-b border-white/5 bg-[#0a0a15]/60 backdrop-blur-sm flex-shrink-0">
+            <div className="flex items-center gap-1.5 px-4 py-2 border-b border-white/5 bg-[#0a0a15] flex-shrink-0">
                 {SUB_TABS.map((tab) => {
                     const Icon = tab.icon;
                     const isActive = activeSubTab === tab.id;

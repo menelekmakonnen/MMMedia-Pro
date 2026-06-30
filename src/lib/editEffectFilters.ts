@@ -20,7 +20,7 @@
 
 // ─── Config shapes (also used as Clip fields in types.ts) ──────────────────────
 
-export type BlendMode = 'screen' | 'lighten' | 'overlay' | 'add' | 'softlight' | 'multiply';
+export type BlendMode = 'normal' | 'screen' | 'lighten' | 'overlay' | 'add' | 'softlight' | 'multiply';
 
 export interface MotionBlurConfig {
     /** 0-100 — strength of the shutter trail. */
@@ -65,6 +65,13 @@ export interface DoubleExposureConfig {
     gradients?: string[][];
 }
 
+export interface TripleExposureConfig {
+    /** First overlay layer — higher opacity (typically 50%). */
+    layer1: DoubleExposureConfig;
+    /** Second overlay layer — lower opacity (typically 25%). */
+    layer2: DoubleExposureConfig;
+}
+
 export interface VibrationFlashConfig {
     /** 0-100 — peak brightness of the flash. */
     intensity: number;
@@ -77,8 +84,9 @@ export interface VibrationFlashConfig {
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 /** FFmpeg `blend` accepts `addition`, not `add`; map friendly names through. */
-function ffBlendMode(mode: BlendMode): string {
+export function ffBlendMode(mode: BlendMode): string {
     switch (mode) {
+        case 'normal': return 'normal';
         case 'add': return 'addition';
         case 'screen': return 'screen';
         case 'lighten': return 'lighten';
@@ -120,7 +128,9 @@ export function buildMinterpolateChain(fps: number): string {
 export function buildVibrationFlashChain(cfg: VibrationFlashConfig | undefined, fps: number): string {
     if (!cfg || cfg.intensity <= 0) return '';
     const durSec = Math.max(0.03, (cfg.durationFrames || Math.round(fps * 0.12)) / Math.max(1, fps));
-    const b = (clamp(cfg.intensity, 0, 100) / 100).toFixed(3);      // up to +1.0 brightness
+    // eq brightness is ADDED to normalized pixels, so 1.0 = pure white. Cap the
+    // peak at ~0.4 so even a full-intensity beat flash is punchy, never blown out.
+    const b = (clamp(cfg.intensity, 0, 100) / 100 * 0.4).toFixed(3);
     const s = (1 + (clamp(cfg.intensity, 0, 100) / 100) * 0.6).toFixed(3); // saturation pop
     const env = `max(0,1-t/${durSec.toFixed(3)})`;
     return `eq=brightness='${b}*${env}':saturation='1+(${s}-1)*${env}':eval=frame`;

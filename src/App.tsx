@@ -2,6 +2,7 @@ import { Sidebar } from './components/Sidebar';
 import { useViewStore } from './store/viewStore';
 import { SettingsTab } from './features/Settings/SettingsTab';
 import { MediaManagerTab } from './features/MediaManager/MediaManagerTab';
+import { ImportManagerTab } from './features/MediaManager/ImportManagerTab';
 import { TimelineTab } from './features/Timeline/TimelineTab';
 import { ExportTab } from './features/Export/ExportTab';
 import { SequenceLayout } from './features/SequenceView/SequenceLayout';
@@ -41,6 +42,8 @@ function App() {
                 return <SettingsTab />;
             case 'media':
                 return <MediaManagerTab />;
+            case 'import-manager':
+                return <ImportManagerTab />;
 
             case 'sequence':
                 return <SequenceLayout />;
@@ -71,7 +74,7 @@ function App() {
             {showSpaceBackground && <SpaceBackground />}
             
             {/* Custom Title Bar */}
-            <div className="h-8 bg-[#0a0a15]/80 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-4 drag z-10">
+            <div className="h-8 bg-[#0a0a15] border-b border-white/5 flex items-center justify-between px-4 drag z-10">
                 <div className="flex items-center gap-3">
                     <MMLogo size={24} />
                     <span className="text-xs font-semibold text-white/50 tracking-wide">MMMedia Pro</span>

@@ -1,5 +1,6 @@
 import { EditingTemplate, TemplateId, TEMPLATES } from './editingModes';
 import { RhythmPatternId } from './rhythmPatterns';
+import type { TransitionType, TransitionStyle, BoomerangPresetId, EffectApplyPolicy } from '../types';
 
 export interface MixedTemplate {
     sourceTemplates: TemplateId[];
@@ -17,6 +18,15 @@ export interface MixedTemplate {
     allowDuplicates: boolean;
     burstOnDrops: boolean;
     reverseOnHits: boolean;
+    // Transition
+    transitionStyle: TransitionStyle;
+    transitionTypes: TransitionType[];
+    transitionDurationMs: number;
+    // Boomerang
+    boomerangFrequency: number;
+    boomerangPresets: BoomerangPresetId[];
+    // PIP
+    pipPolicy: EffectApplyPolicy;
 }
 
 /**
@@ -70,6 +80,17 @@ export function mixTemplates(templateIds: TemplateId[], weights?: number[]): Mix
         allowDuplicates: boolOr(t => t.allowDuplicates),
         burstOnDrops: boolOr(t => t.burstOnDrops),
         reverseOnHits: boolOr(t => t.reverseOnHits),
+        // Transition: first template's style wins, union all transition types
+        transitionStyle: templates[0].transitionStyle,
+        transitionTypes: [...new Set(templates.flatMap(t => t.transitionTypes))] as TransitionType[],
+        transitionDurationMs: Math.round(wavg(t => t.transitionDurationMs)),
+        // Boomerang: max frequency, union presets
+        boomerangFrequency: Math.round(wmax(t => t.boomerangFrequency)),
+        boomerangPresets: [...new Set(templates.flatMap(t => t.boomerangPresets))] as BoomerangPresetId[],
+        // PIP: most aggressive policy wins (every-clip > per-beat > sparingly > off)
+        pipPolicy: (['every-clip', 'per-beat', 'sparingly', 'off'] as EffectApplyPolicy[]).find(
+            p => templates.some(t => t.pipPolicy === p)
+        ) || 'off',
     };
 }
 
@@ -92,5 +113,14 @@ export function templateToSettings(mixed: MixedTemplate): Record<string, any> {
         templateBurstOnDrops: mixed.burstOnDrops,
         templateReverseOnHits: mixed.reverseOnHits,
         templateBeatDivisor: mixed.beatDivisor,
+        // Transition preferences from template
+        transitionStyle: mixed.transitionStyle,
+        transitionTypes: mixed.transitionTypes,
+        transitionDurationMs: mixed.transitionDurationMs,
+        // Boomerang preferences from template
+        templateBoomerangFrequency: mixed.boomerangFrequency,
+        templateBoomerangPresets: mixed.boomerangPresets,
+        // PIP from template
+        pipPolicy: mixed.pipPolicy,
     };
 }

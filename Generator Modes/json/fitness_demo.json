@@ -1,0 +1,112 @@
+{
+  "schema_version": "1.0",
+  "mode_id": "fitness_demo",
+  "name": "Fitness — Exercise Demo",
+  "family": "Instructional / Fitness",
+  "derived_from": [
+    "BroganExercise_without_weights",
+    "BroganExercise_weights"
+  ],
+  "summary": "Instructional exercise demo: clean reps with an alignment grid overlay, magnify highlights on form cues, mirrored/flip angles, strobe for rep tempo and labeled callouts.",
+  "best_for": "Workout tutorials, form breakdowns, coaching content.",
+  "canvas": {
+    "resolution": "1920x1080",
+    "aspect": "16:9",
+    "fps": 59.94
+  },
+  "pacing": {
+    "cuts_per_min": [
+      45,
+      110
+    ],
+    "logic": "rep_and_cue_driven",
+    "avg_clip_sec": [
+      0.5,
+      1.5
+    ],
+    "note": "Cut on reps and form cues; slow-mo for technique."
+  },
+  "source_layout": {
+    "cameras": "1-2 angles (front/side)",
+    "broll": "minimal"
+  },
+  "reframe": {
+    "method": "AE.ADBE Motion + Magnify",
+    "scale_range_pct": [
+      100,
+      160
+    ],
+    "pattern": "magnify the working joint/muscle"
+  },
+  "effect_stack": [
+    {
+      "match_name": "AE.ADBE Grid",
+      "role": "alignment / posture reference grid"
+    },
+    {
+      "match_name": "AE.ADBE Magnify",
+      "role": "highlight form detail"
+    },
+    {
+      "match_name": "AE.ADBE AEMask",
+      "role": "isolate body part for callout"
+    },
+    {
+      "match_name": "AE.ADBE Strobe",
+      "role": "rep-tempo strobe"
+    },
+    {
+      "match_name": "AE.ADBE Horizontal Flip",
+      "role": "mirror angle"
+    },
+    {
+      "match_name": "AE.ADBE Drop Shadow",
+      "role": "label legibility"
+    },
+    {
+      "match_name": "AE.ADBE Turbulent Displace",
+      "role": "accent (optional)"
+    },
+    {
+      "match_name": "AE.ADBE Lumetri",
+      "role": "clean grade"
+    }
+  ],
+  "transitions": {
+    "philosophy": "Choose the transition that fits the moment; never default to a hard cut.",
+    "library": [
+      "clean match cut on rep",
+      "magnify push",
+      "speed-ramp into slow-mo",
+      "soft dissolve between exercises"
+    ],
+    "default": "speed-ramp into slow-mo",
+    "notes": "Ramp into slow-mo for technique; match-cut between reps; dissolve between exercises."
+  },
+  "color": {
+    "approach": "bright, clean, even",
+    "lumetri": "neutral"
+  },
+  "audio": {
+    "music": "energetic bed",
+    "dialogue": "coaching VO optional",
+    "counts": "rep counts optional"
+  },
+  "titles_graphics": {
+    "labels": "exercise name, sets/reps",
+    "cues": "form-cue callouts",
+    "grid": "reference grid"
+  },
+  "toggles": [
+    "alignment_grid",
+    "slowmo_technique",
+    "form_callouts",
+    "mirror_angle",
+    "rep_counter"
+  ],
+  "generator_rules": [
+    "Overlay alignment grid; magnify the working area on cues.",
+    "Speed-ramp into slow-mo for technique moments.",
+    "Label each exercise with sets/reps; keep lighting even."
+  ]
+}

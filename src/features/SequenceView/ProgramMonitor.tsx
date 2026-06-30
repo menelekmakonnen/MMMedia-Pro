@@ -1,12 +1,29 @@
 import React, { useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
-    Play, Pause, Volume2, VolumeX, MonitorSmartphone, Maximize2
+    Play, Pause, Volume2, VolumeX, MonitorSmartphone, Maximize2, Ruler
 } from 'lucide-react';
 import clsx from 'clsx';
+import { ProgramMonitorGuides } from './ProgramMonitorGuides';
+import { useTimelineStore } from './timeline/useTimelineStore';
 import { GridPlayer } from '../../components/GridPlayer';
 import { GridClip, Clip } from '../../types';
 import { formatTimecode } from '../../lib/time';
+import { useProjectStore } from '../../store/projectStore';
+import { resolveMotion, motionToCssStyle, MATCH } from '../../lib/premiere/effectControls';
+import { maskToCss } from '../../lib/premiere/masks';
+
+/** Map a Premiere blend-mode label to the nearest CSS mix-blend-mode for preview. */
+function mapBlendMode(label: string): string | undefined {
+    const m: Record<string, string> = {
+        'Normal': 'normal', 'Multiply': 'multiply', 'Screen': 'screen', 'Overlay': 'overlay',
+        'Darken': 'darken', 'Lighten': 'lighten', 'Color Dodge': 'color-dodge', 'Color Burn': 'color-burn',
+        'Hard Light': 'hard-light', 'Soft Light': 'soft-light', 'Difference': 'difference',
+        'Exclusion': 'exclusion', 'Hue': 'hue', 'Saturation': 'saturation', 'Color': 'color',
+        'Luminosity': 'luminosity', 'Linear Dodge (Add)': 'plus-lighter',
+    };
+    return m[label];
+}
 
 interface ProgramMonitorProps {
     activeVisualClip: Clip | null;
@@ -41,6 +58,10 @@ interface ProgramMonitorProps {
     bgAudioRefs: React.MutableRefObject<Record<string, HTMLAudioElement | null>>;
     /** True when an exact FFmpeg proxy exists for the active clip (preview == export). */
     exactProxyAvailable?: boolean;
+    /** Total sequence length in frames (for the seek bar). */
+    maxFrame?: number;
+    /** Seek the global playhead to a frame (program-monitor scrubber). */
+    onSeek?: (frame: number) => void;
 }
 
 export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
@@ -69,9 +90,27 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
     bgAudioClips,
     bgAudioRefs,
     exactProxyAvailable,
+    maxFrame = 0,
+    onSeek,
 }) => {
     const isGrid = activeVisualClip?.type === 'grid';
     const isActA = activeBuffer === 'A';
+    const showGuides = useTimelineStore((s) => s.showGuides);
+    const inOutRange = useTimelineStore((s) => s.inOutRange);
+
+    // ── Program-monitor seek bar (scrubber) ──
+    const seekBarRef = useRef<HTMLDivElement>(null);
+    const seekDragRef = useRef(false);
+    const seekPct = maxFrame > 0 ? Math.max(0, Math.min(100, (currentGlobalFrame / maxFrame) * 100)) : 0;
+    const seekFromClientX = useCallback((clientX: number) => {
+        const r = seekBarRef.current?.getBoundingClientRect();
+        if (!r || maxFrame <= 0) return;
+        const ratio = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+        onSeek?.(Math.round(ratio * maxFrame));
+    }, [maxFrame, onSeek]);
+    const seqRes = useProjectStore((s) => s.settings.resolution);
+    const seqW = seqRes?.width ?? 1920;
+    const seqH = seqRes?.height ?? 1080;
 
     const clipTimecode = activeVisualClip
         ? formatTimecode(currentGlobalFrame - activeVisualClip.startFrame, fps)
@@ -152,6 +191,19 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                                 ? clip.zoomStart + (clipProgress * (clip.zoomEnd - clip.zoomStart))
                                 : (clip.zoomLevel || 100);
 
+                            // Premiere Effect Controls — evaluate Motion/Opacity at this frame.
+                            // When present it is the source of truth for the preview transform.
+                            const ecMotion = clip.effectControls
+                                ? resolveMotion(clip.effectControls, Math.max(0, clipLocalFrame), seqW, seqH)
+                                : null;
+                            const ecStyle = ecMotion ? motionToCssStyle(ecMotion, seqW, seqH) : null;
+                            // Opacity-effect mask → clip-path / mask-image preview.
+                            const ecMaskCss = clip.effectControls
+                                ? maskToCss(clip.effectControls.video.find((c) => c.matchName === MATCH.OPACITY), seqW, seqH)
+                                : null;
+                            const ecMaskStyle = ecMaskCss ? { clipPath: ecMaskCss.clipPath, maskImage: ecMaskCss.maskImage, WebkitMaskImage: ecMaskCss.WebkitMaskImage } : undefined;
+                            const ecMaskOpacity = ecMaskCss?.opacity ?? 1;
+
                             if (clip.type === 'grid') {
                                 return (
                                     <div
@@ -193,9 +245,13 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                                                     isActA ? 'z-20 opacity-100' : 'z-0 opacity-0'
                                                 )}
                                                 style={{
-                                                    transform: `scale(${clipZoom / 100}) ${isActA ? transitionStyle.transform : ''}`,
-                                                    transformOrigin: clip.zoomOrigin || 'center',
-                                                    opacity: isActA ? transitionStyle.opacity : 0,
+                                                    transform: ecStyle
+                                                        ? `${ecStyle.transform} ${isActA ? transitionStyle.transform : ''}`
+                                                        : `scale(${clipZoom / 100}) ${isActA ? transitionStyle.transform : ''}`,
+                                                    transformOrigin: ecStyle ? ecStyle.transformOrigin : (clip.zoomOrigin || 'center'),
+                                                    opacity: isActA ? transitionStyle.opacity * (ecStyle ? ecStyle.opacity : 1) * ecMaskOpacity : 0,
+                                                    mixBlendMode: (ecMotion && ecMotion.blendMode !== 'Normal' ? mapBlendMode(ecMotion.blendMode) : undefined) as any,
+                                                    ...(ecMaskStyle || {}),
                                                     zIndex: idx + 20,
                                                 }}
                                                 playsInline
@@ -209,9 +265,13 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                                                     !isActA ? 'z-20 opacity-100' : 'z-0 opacity-0'
                                                 )}
                                                 style={{
-                                                    transform: `scale(${clipZoom / 100}) ${!isActA ? transitionStyle.transform : ''}`,
-                                                    transformOrigin: clip.zoomOrigin || 'center',
-                                                    opacity: !isActA ? transitionStyle.opacity : 0,
+                                                    transform: ecStyle
+                                                        ? `${ecStyle.transform} ${!isActA ? transitionStyle.transform : ''}`
+                                                        : `scale(${clipZoom / 100}) ${!isActA ? transitionStyle.transform : ''}`,
+                                                    transformOrigin: ecStyle ? ecStyle.transformOrigin : (clip.zoomOrigin || 'center'),
+                                                    opacity: !isActA ? transitionStyle.opacity * (ecStyle ? ecStyle.opacity : 1) * ecMaskOpacity : 0,
+                                                    mixBlendMode: (ecMotion && ecMotion.blendMode !== 'Normal' ? mapBlendMode(ecMotion.blendMode) : undefined) as any,
+                                                    ...(ecMaskStyle || {}),
                                                     zIndex: idx + 20,
                                                 }}
                                                 playsInline
@@ -299,6 +359,9 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                             <div className="absolute top-1/2 left-0 right-0 h-px bg-white/10 -translate-y-1/2" />
                         </div>
                     </div>
+
+                    {/* Ruler guide overlay */}
+                    <ProgramMonitorGuides containerWidth={0} containerHeight={0} />
                 </div>
 
                 {/* Background Audio Elements */}
@@ -317,6 +380,34 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                         className="hidden"
                     />
                 ))}
+            </div>
+
+            {/* Seek bar (program-monitor scrubber) */}
+            <div className="h-5 flex items-center px-3 bg-[#0e0e1c]/80 border-t border-white/[0.04] flex-shrink-0 select-none">
+                <div
+                    ref={seekBarRef}
+                    className="relative flex-1 h-1.5 bg-white/[0.08] rounded-full cursor-pointer group"
+                    onPointerDown={(e) => {
+                        e.preventDefault();
+                        seekDragRef.current = true;
+                        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                        seekFromClientX(e.clientX);
+                    }}
+                    onPointerMove={(e) => { if (seekDragRef.current) seekFromClientX(e.clientX); }}
+                    onPointerUp={(e) => { seekDragRef.current = false; try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* noop */ } }}
+                >
+                    {/* progress fill */}
+                    <div className="absolute left-0 top-0 bottom-0 bg-primary/40 rounded-full pointer-events-none" style={{ width: `${seekPct}%` }} />
+                    {/* in/out shading */}
+                    {inOutRange.inFrame !== null && maxFrame > 0 && (
+                        <div className="absolute top-0 bottom-0 bg-sky-400/15 pointer-events-none" style={{ left: `${(inOutRange.inFrame / maxFrame) * 100}%`, width: `${(((inOutRange.outFrame ?? maxFrame) - inOutRange.inFrame) / maxFrame) * 100}%` }} />
+                    )}
+                    {/* playhead handle */}
+                    <div
+                        className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 bg-primary rounded-full shadow ring-2 ring-[#0e0e1c] pointer-events-none group-hover:scale-110 transition-transform"
+                        style={{ left: `${seekPct}%` }}
+                    />
+                </div>
             </div>
 
             {/* Monitor Footer — mini transport bar */}
@@ -343,6 +434,13 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                     />
                 </div>
                 <div className="flex items-center gap-1">
+                    <button
+                        onClick={() => useTimelineStore.getState().toggleGuides()}
+                        className={clsx('p-1.5 rounded transition-colors', showGuides ? 'bg-indigo-500/30 text-indigo-300' : 'text-white/40 hover:text-white/60')}
+                        title="Toggle Ruler Guides"
+                    >
+                        <Ruler size={14} />
+                    </button>
                     <span className="text-[9px] font-mono text-white/20">FIT</span>
                     <Maximize2 size={10} className="text-white/20" />
                 </div>

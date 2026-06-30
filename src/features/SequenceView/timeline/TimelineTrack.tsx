@@ -1,7 +1,7 @@
 import React, { useState, useCallback, memo } from 'react';
 import {
   Lock, Unlock, Volume2, VolumeX, Eye, EyeOff, Headphones,
-  Video, Mic,
+  Video, Mic, Link2, Link2Off,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useTimelineStore } from './useTimelineStore';
@@ -39,6 +39,12 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = memo(({
   const activeTool = useTimelineStore((s) => s.activeTool);
   const selectedItemIds = useTimelineStore((s) => s.selectedItemIds);
   const updateTrack = useTimelineStore((s) => s.updateTrack);
+  const targetedTrackIds = useTimelineStore((s) => s.targetedTrackIds);
+  const toggleTargetTrack = useTimelineStore((s) => s.toggleTargetTrack);
+  const syncLockedTrackIds = useTimelineStore((s) => s.syncLockedTrackIds);
+  const toggleSyncLock = useTimelineStore((s) => s.toggleSyncLock);
+  const isTargeted = targetedTrackIds.has(track.id);
+  const isSyncLocked = syncLockedTrackIds.has(track.id);
 
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(track.name);
@@ -93,10 +99,26 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = memo(({
     >
       {/* ── Track Header (left 200px) ─────────────────────────────────── */}
       <div
-        className="w-[200px] bg-[#0f0f20]/80 backdrop-blur-md border-r border-white/[0.04] flex flex-col p-2 gap-1 flex-shrink-0 sticky left-0 z-10 shadow-lg"
+        className="w-[200px] bg-[#0f0f20] border-r border-white/[0.04] flex p-2 gap-1.5 flex-shrink-0 sticky left-0 z-10 shadow-lg"
         style={{ borderLeft: `4px solid ${track.color}` }}
         onContextMenu={(e) => onHeaderContextMenu?.(e, track, trackIndex, totalTracks)}
       >
+        {/* Track target box (Premiere: insert/overwrite destination) */}
+        <button
+          onClick={() => toggleTargetTrack(track.id)}
+          title={isTargeted ? 'Track targeted — click to untarget' : 'Target this track'}
+          className={clsx(
+            'w-7 h-7 flex-shrink-0 rounded flex items-center justify-center text-[9px] font-black tracking-tight transition-colors self-start',
+            isTargeted
+              ? 'bg-sky-500 text-white shadow ring-1 ring-sky-300/60'
+              : 'bg-[#1a1a30] text-white/40 hover:text-white/70 ring-1 ring-white/10',
+          )}
+        >
+          {track.name}
+        </button>
+
+        {/* Content column */}
+        <div className="flex-1 flex flex-col gap-1 min-w-0">
         {/* Name row */}
         <div className="flex items-center justify-between">
           {isEditing ? (
@@ -171,6 +193,16 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = memo(({
           >
             <Headphones size={11} />
           </button>
+          <button
+            onClick={() => toggleSyncLock(track.id)}
+            className={clsx(
+              'p-0.5 rounded transition-colors',
+              isSyncLocked ? 'text-cyan-300' : 'text-white/20 hover:text-white/50',
+            )}
+            title={isSyncLocked ? 'Sync Lock on' : 'Sync Lock off'}
+          >
+            {isSyncLocked ? <Link2 size={11} /> : <Link2Off size={11} />}
+          </button>
         </div>
 
         {/* Volume slider for audio tracks */}
@@ -191,6 +223,7 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = memo(({
             />
           </div>
         )}
+        </div>
       </div>
 
       {/* ── Track Lane (clip content area) ────────────────────────────── */}

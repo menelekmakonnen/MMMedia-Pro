@@ -52,9 +52,14 @@ function makeTrack(id: number): Track {
   };
 }
 
-/** Sort key so video tracks render above audio tracks, each ascending. */
+/**
+ * Sort key matching Premiere's track stacking: video tracks render
+ * highest-number-on-top (V3 above V2 above V1), then audio below with A1 on top
+ * (A1, A2, A3 …). Video uses -id so larger ids sort first (top); audio uses
+ * 1000+id so the whole audio block sits beneath video, ascending.
+ */
 function orderKey(id: number): number {
-  return isAudioTrack(id) ? 1000 + id : id;
+  return isAudioTrack(id) ? 1000 + id : -id;
 }
 
 export function useDeriveTracks(): void {
@@ -64,8 +69,14 @@ export function useDeriveTracks(): void {
   useEffect(() => {
     const existing = useTimelineStore.getState().tracks;
 
-    // Required ids = canonical defaults + every track referenced by a clip.
-    const needed = new Set<number>([1, 2, 101]);
+    // Required ids = canonical defaults + pre-provisioned multi-track workspace
+    // + every track referenced by a clip.
+    // Pre-provision 10 video (V1=1, V2=3..V10=11) + 10 audio (A1=2, A2-A10=101..109)
+    // so editors have room for layering B-roll and sound design from the start.
+    const needed = new Set<number>([
+        1, 3, 4, 5, 6, 7, 8, 9, 10, 11,       // V1..V10
+        2, 101, 102, 103, 104, 105, 106, 107, 108, 109, // A1..A10
+    ]);
     for (const c of clips) needed.add((c as { track?: number }).track ?? 1);
 
     const haveIds = new Set(existing.map((t) => t.id));
@@ -87,6 +98,8 @@ export function useDeriveTracks(): void {
       for (const id of missing.sort((a, b) => orderKey(a) - orderKey(b))) {
         next.push(makeTrack(id));
       }
+      // Re-sort so appended tracks land in Premiere stacking order.
+      next.sort((a, b) => orderKey(a.id) - orderKey(b.id));
     }
 
     const sig = next.map((t) => t.id).join(',');

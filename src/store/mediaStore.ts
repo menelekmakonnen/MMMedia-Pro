@@ -36,9 +36,24 @@ export interface MediaFile {
     // (trailer, godmode, timeline, flux) only use this portion of the source.
     trimIn?: number;   // Start of usable region (default: 0)
     trimOut?: number;  // End of usable region (default: duration)
+    /** Include/exclude edit decisions layered over the usable region — the
+     *  SOURCE OF TRUTH for which footage downstream tools may pull from. See
+     *  lib/mediaSegments.ts (resolveKeptRanges). Empty/undefined = whole region. */
+    segments?: import('../lib/mediaSegments').MediaSegment[];
+    /** True once the Smart Engine has produced suggestions for this source. */
+    smartAnalyzed?: boolean;
     /** Asset tags for the music-video generator (intro person-pull, "more shots
      *  on the stairs", per-scene grades). */
     tags?: { people?: string[]; scene?: string; location?: string; color?: string };
+    /** Source is marked for deflickering — clips created from this file auto-inherit deflicker config */
+    deflicker?: boolean;
+    // ── Source-level framing (zoom + reposition) ──────────────────────────
+    sourceZoom?: number;     // 100 = no zoom (default), 150 = 1.5x crop, etc.
+    sourcePanX?: number;     // -100 to 100, horizontal offset from center (default 0)
+    sourcePanY?: number;     // -100 to 100, vertical offset from center (default 0)
+    // ── Usage weight (Edit Engine allocation influence) ───────────────────
+    usageWeight?: number;    // default 1.0; 2.0 = show more, 0.5 = show less, -1 = show once
+    usageMode?: 'more' | 'normal' | 'less' | 'once';
 }
 
 interface MediaState {
@@ -66,6 +81,13 @@ interface MediaState {
     // Trim constraints
     setFileTrim: (id: string, trimIn: number, trimOut: number) => void;
     clearFileTrim: (id: string) => void;
+    // Include/exclude segments (source of truth)
+    setFileSegments: (id: string, segments: import('../lib/mediaSegments').MediaSegment[]) => void;
+    addFileSegment: (id: string, segment: import('../lib/mediaSegments').MediaSegment) => void;
+    updateFileSegment: (id: string, segmentId: string, patch: Partial<import('../lib/mediaSegments').MediaSegment>) => void;
+    removeFileSegment: (id: string, segmentId: string) => void;
+    toggleFileSegmentType: (id: string, segmentId: string) => void;
+    clearFileSegments: (id: string) => void;
     // Multi-select actions
     toggleFileSelection: (id: string, mode: 'single' | 'ctrl' | 'shift', allVisibleIds?: string[]) => void;
     selectAllFiles: (visibleIds?: string[]) => void;
@@ -75,6 +97,13 @@ interface MediaState {
     removeRecentFolder: (path: string) => void;
     addRecentAudio: (path: string) => void;
     removeRecentAudio: (path: string) => void;
+    // Counter-clockwise rotation
+    rotateFileCCW: (id: string) => void;
+    // Source-level framing
+    setFileFraming: (id: string, zoom: number, panX: number, panY: number) => void;
+    resetFileFraming: (id: string) => void;
+    // Usage weight
+    setFileUsageWeight: (id: string, mode: 'more' | 'normal' | 'less' | 'once') => void;
 }
 
 export const useMediaStore = create<MediaState>()(
@@ -155,6 +184,39 @@ export const useMediaStore = create<MediaState>()(
                 files: state.files.map(f => f.id === id ? { ...f, trimIn: undefined, trimOut: undefined } : f)
             })),
 
+            // ── Include/exclude segments (source of truth) ──────────────────
+            setFileSegments: (id, segments) => set((state) => ({
+                files: state.files.map(f => f.id === id ? { ...f, segments } : f)
+            })),
+
+            addFileSegment: (id, segment) => set((state) => ({
+                files: state.files.map(f => f.id === id ? { ...f, segments: [...(f.segments ?? []), segment] } : f)
+            })),
+
+            updateFileSegment: (id, segmentId, patch) => set((state) => ({
+                files: state.files.map(f => f.id === id
+                    ? { ...f, segments: (f.segments ?? []).map(s => s.id === segmentId ? { ...s, ...patch } : s) }
+                    : f)
+            })),
+
+            removeFileSegment: (id, segmentId) => set((state) => ({
+                files: state.files.map(f => f.id === id
+                    ? { ...f, segments: (f.segments ?? []).filter(s => s.id !== segmentId) }
+                    : f)
+            })),
+
+            toggleFileSegmentType: (id, segmentId) => set((state) => ({
+                files: state.files.map(f => f.id === id
+                    ? { ...f, segments: (f.segments ?? []).map(s => s.id === segmentId
+                        ? { ...s, type: s.type === 'include' ? 'exclude' as const : 'include' as const, origin: 'user' as const }
+                        : s) }
+                    : f)
+            })),
+
+            clearFileSegments: (id) => set((state) => ({
+                files: state.files.map(f => f.id === id ? { ...f, segments: [] } : f)
+            })),
+
             toggleFileSelection: (id, mode, allVisibleIds) => set((state) => {
                 if (mode === 'single') {
                     // Plain click: toggle single selection (deselect if already only selected)
@@ -220,6 +282,39 @@ export const useMediaStore = create<MediaState>()(
             removeRecentAudio: (path) => set((state) => ({
                 recentAudioFiles: state.recentAudioFiles.filter(f => f.path !== path),
             })),
+
+            // Counter-clockwise rotation (subtract 90°)
+            rotateFileCCW: (id) => set((state) => ({
+                files: state.files.map(f => {
+                    if (f.id !== id) return f;
+                    const base = f.pendingRotation ?? f.rotation ?? 0;
+                    const nextRotation = ((base - 90 + 360) % 360) as 0 | 90 | 180 | 270;
+                    return { ...f, pendingRotation: nextRotation };
+                })
+            })),
+
+            // Source-level framing (zoom + reposition)
+            setFileFraming: (id, zoom, panX, panY) => set((state) => ({
+                files: state.files.map(f => f.id === id
+                    ? { ...f, sourceZoom: zoom, sourcePanX: panX, sourcePanY: panY }
+                    : f)
+            })),
+
+            resetFileFraming: (id) => set((state) => ({
+                files: state.files.map(f => f.id === id
+                    ? { ...f, sourceZoom: undefined, sourcePanX: undefined, sourcePanY: undefined }
+                    : f)
+            })),
+
+            // Usage weight
+            setFileUsageWeight: (id, mode) => set((state) => {
+                const weightMap = { more: 2.0, normal: 1.0, less: 0.5, once: -1 };
+                return {
+                    files: state.files.map(f => f.id === id
+                        ? { ...f, usageMode: mode, usageWeight: weightMap[mode] }
+                        : f)
+                };
+            }),
         }),
         {
             name: 'mmmedia-media-storage',

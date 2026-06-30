@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useMediaStore } from '../../store/mediaStore';
 import { useClipStore } from '../../store/clipStore';
 import { useProjectStore } from '../../store/projectStore';
+import { useProjectsStore } from '../../store/projectsStore';
 import { useViewStore } from '../../store/viewStore';
 import { useUserStore } from '../../store/userStore';
 import { useSavedEditsStore } from '../../store/savedEditsStore';
@@ -16,6 +17,8 @@ import { Wand2, RefreshCw, Settings2, Film, Play, Pause, ArrowLeft, Volume2, Vol
 import clsx from 'clsx';
 import { v4 as uuidv4 } from 'uuid';
 import { Clip } from '../../types';
+import { EditLogicSidebar } from './EditLogicSidebar';
+import { useEditLogicStore } from '../../store/editLogicStore';
 
 interface PlayerProps {
     settings: TrailerSettings;
@@ -74,6 +77,11 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
     useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
     useEffect(() => { isGeneratingRef.current = isGenerating; }, [isGenerating]);
 
+    // Sync sidebar active clip with playback
+    useEffect(() => {
+        useEditLogicStore.getState().setActiveClipIndex(currentClipIndex);
+    }, [currentClipIndex]);
+
     const processClips = (rawClips: Clip[], settingsObj: TrailerSettings): Clip[] => {
         let clips = finalizeGeneratedSequence(rawClips, pool, settingsObj, fps);
         if (settingsObj.clipOrderMode && settingsObj.clipOrderMode !== 'none') {
@@ -116,7 +124,7 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
 
         let beats = null;
         if (settings.useAudioGuide && settings.audioUrl) {
-            beats = await extractBeatTimestamps(settings.audioUrl, settings.audioTrimStart || 0, settings.audioTrimEnd || settings.targetDuration, settings.audioAnalysis);
+            beats = await extractBeatTimestamps(settings.audioUrl, settings.audioTrimStart || 0, settings.audioTrimEnd || settings.audioAnalysis?.duration || settings.targetDuration, settings.audioAnalysis);
         }
         
         setTimeout(() => {
@@ -186,7 +194,7 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
 
         let beats = null;
         if (settings.useAudioGuide && settings.audioUrl) {
-            beats = await extractBeatTimestamps(settings.audioUrl, settings.audioTrimStart || 0, settings.audioTrimEnd || settings.targetDuration, settings.audioAnalysis);
+            beats = await extractBeatTimestamps(settings.audioUrl, settings.audioTrimStart || 0, settings.audioTrimEnd || settings.audioAnalysis?.duration || settings.targetDuration, settings.audioAnalysis);
         }
 
         setTimeout(() => {
@@ -486,8 +494,12 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
         // Add audio track if audio guide was used
         const allClips: Clip[] = [...cleanSeq];
         if (settings.useAudioGuide && settings.audioUrl) {
+            // Use the max endFrame across ALL clips to get the true timeline end.
+            // Previously used `cleanSeq[last].endFrame` which failed when clips
+            // weren't sorted by timeline position (multi-track, PiP, grid bridges)
+            // or when array re-ordering moved a shorter clip to the end.
             const totalFrames = cleanSeq.length > 0
-                ? cleanSeq[cleanSeq.length - 1].endFrame
+                ? Math.max(...cleanSeq.map(c => c.endFrame))
                 : Math.floor(settings.targetDuration * fps);
 
             // ── PATH RESOLUTION ──
@@ -566,16 +578,23 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
                 }
             }
 
+            // The audio clip should span the full intended duration — which is the
+            // LARGER of the video span and the audio trim range. Previously this used
+            // totalFrames (video-only), causing the audio clip's endFrame to be shorter
+            // than the audio when video generation fell short. The export engine then
+            // detected a mismatch and padded with a freeze frame.
+            const audioTrimFrames = Math.floor((settings.audioTrimEnd || settings.targetDuration) * fps);
+            const audioEndFrame = Math.max(totalFrames, audioTrimFrames);
             const audioClip: Clip = {
                 id: uuidv4(),
                 type: 'audio',
                 path: resolvedAudioPath,
                 filename: settings.audioFile || 'Audio Track',
                 startFrame: 0,
-                endFrame: totalFrames,
-                sourceDurationFrames: totalFrames,
+                endFrame: audioEndFrame,
+                sourceDurationFrames: audioEndFrame,
                 trimStartFrame: Math.floor((settings.audioTrimStart || 0) * fps),
-                trimEndFrame: Math.floor((settings.audioTrimEnd || settings.targetDuration) * fps),
+                trimEndFrame: audioTrimFrames,
                 track: 101,  // Audio 2 track — background music, NOT linked clip audio (track 2)
                 speed: 1,
                 volume: 100,
@@ -588,19 +607,12 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
             allClips.push(audioClip);
         }
 
-        // ⚠ EXPORT PIPELINE: Also preserve any existing audio clips from the store
-        // that were imported via the Media Manager (not via Beat Intelligence).
-        // This ensures background music survives the "Keep Edit" flow.
-        const { clips: existingClips } = useClipStore.getState();
-        const existingAudioClips = existingClips.filter(c => c.type === 'audio');
-        // Avoid duplicating audio clips — only add existing ones whose paths aren't
-        // already in allClips (the Beat Intelligence audio clip was just added above).
-        const newAudioPaths = new Set(allClips.filter(c => c.type === 'audio').map(c => c.path));
-        for (const existing of existingAudioClips) {
-            if (!newAudioPaths.has(existing.path)) {
-                allClips.push(existing);
-            }
-        }
+        // Audio preservation is handled by commitClips() in EditRouter, which
+        // correctly preserves manual audio (non-auto, non-track-101) and strips
+        // old Beat Intelligence audio.  We must NOT re-read and re-add audio
+        // clips from the store here — doing so caused the "double audio" bug
+        // when switching songs, because path normalisation mismatches allowed
+        // the old audio clip to slip back in.
 
         setClips(allClips);
 
@@ -619,10 +631,23 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
         delete settingsSnapshot.audioAnalysis;
         delete settingsSnapshot.narrationAnalysis;
 
-        // Collect source folder paths for project restore
-        const sourceFolders = mediaState.recentFolders.map(f => f.path);
+        // Collect source folder paths for project restore — scoped to the folders
+        // THIS edit's clips actually live in, derived from the clip paths. Using
+        // the global mediaState.recentFolders here captured every folder ever
+        // opened, so restoring one edit pulled in every past project's sources.
+        const sourceFolders = (() => {
+            const folders = new Set<string>();
+            for (const c of allClips) {
+                if (c.path) {
+                    const folder = c.path.replace(/[\\/][^\\/]+$/, '');
+                    if (folder && folder !== c.path) folders.add(folder);
+                }
+            }
+            // Fall back to recent folders only if no clip carries a usable path.
+            return folders.size > 0 ? [...folders] : mediaState.recentFolders.map(f => f.path);
+        })();
 
-        useSavedEditsStore.getState().addEdit({
+        const editData = {
             name: `Trailer — ${new Date().toLocaleTimeString()}`,
             clips: allClips,
             clipCount: videoClips.length,
@@ -633,7 +658,16 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
             audioFilePath: settings.audioFilePath || undefined,
             audioFileName: settings.audioFile || undefined,
             settingsSnapshot,
-        });
+        };
+        const editId = useSavedEditsStore.getState().addEdit(editData);
+
+        // Auto-create / update the project for this generation. The project
+        // captures the current media + segment decisions and this edit, and is
+        // saved as a .mmm (silently to the Documents projects folder when the
+        // disk IPC is available).
+        try {
+            useProjectsStore.getState().attachEdit({ ...editData, id: editId, createdAt: new Date().toISOString() } as any);
+        } catch { /* non-fatal */ }
 
         setActiveTab('sequence');
     };
@@ -802,6 +836,9 @@ export const EditPlayer: React.FC<PlayerProps> = ({ settings, preGeneratedClips,
                     </div>
                 </div>
             )}
+
+            {/* Edit Logic Sidebar (player overlay) */}
+            <EditLogicSidebar mode="player" />
         </div>
     );
 };

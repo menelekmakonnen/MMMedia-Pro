@@ -2,13 +2,15 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
     Play, Pause, SkipBack, SkipForward, Volume2, VolumeX,
     Maximize2, Minimize2, Repeat, ChevronLeft, ChevronRight,
-    Film
+    Film, Flame
 } from 'lucide-react';
 import { useClipStore, Clip } from '../../store/clipStore';
 import { useProjectStore } from '../../store/projectStore';
 import { useUserStore } from '../../store/userStore';
 import { useProxyStore } from '../../store/proxyStore';
 import { DEFAULT_FPS } from '../../lib/time';
+import { sendCurrentProjectToEnder } from '../../lib/enderSend';
+import { toast } from '../../components/Toast';
 import clsx from 'clsx';
 
 /**
@@ -28,6 +30,26 @@ export const VideoPlayerTab: React.FC = () => {
     const [_isSeeking, setIsSeeking] = useState(false);
     const [loopMode, setLoopMode] = useState(false);
     const [hoverTime, setHoverTime] = useState<number | null>(null);
+    const [isSendingEnder, setIsSendingEnder] = useState(false);
+
+    const handleSendToEnder = useCallback(async () => {
+        if (clips.length === 0) { toast.warning('Timeline is empty!'); return; }
+        setIsSendingEnder(true);
+        try {
+            const res = await sendCurrentProjectToEnder();
+            if (res.success) {
+                toast.success(res.transport === 'mailbox'
+                    ? 'Queued to Ender (mailbox) — open Ender to render'
+                    : 'Sent to Ender — rendering in the queue');
+            } else {
+                toast.error(`Send to Ender failed: ${res.error || 'unknown error'}`);
+            }
+        } catch (e: any) {
+            toast.error(`Send to Ender failed: ${e?.message || e}`);
+        } finally {
+            setIsSendingEnder(false);
+        }
+    }, [clips.length]);
     const [hoverX, setHoverX] = useState(0);
 
     const videoPoolRef = useRef<(HTMLVideoElement | null)[]>([null, null, null]);
@@ -37,6 +59,7 @@ export const VideoPlayerTab: React.FC = () => {
     const lastRafTimeRef = useRef(0);
     const bgAudioRefs = useRef<Record<string, HTMLAudioElement | null>>({});
     const _bgAudioRefsCleanup = useRef<Set<string>>(new Set());
+    const pipVideoRefs = useRef<Record<string, HTMLVideoElement | null>>({});
     const poolSources = useRef<string[]>(['', '', '']);
     const containerRef = useRef<HTMLDivElement>(null);
     const controlsTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -48,7 +71,12 @@ export const VideoPlayerTab: React.FC = () => {
     const fps = settings.fps || DEFAULT_FPS;
 
     const videoClips = useMemo(() =>
-        clips.filter(c => c.type !== 'audio' && !c.disabled).sort((a, b) => a.startFrame - b.startFrame),
+        clips.filter(c => c.type !== 'audio' && !c.disabled && !c.compositeOverlay).sort((a, b) => a.startFrame - b.startFrame),
+        [clips]
+    );
+
+    const pipClips = useMemo(() =>
+        clips.filter(c => c.compositeOverlay && c.track === 3 && !c.disabled),
         [clips]
     );
 
@@ -58,9 +86,12 @@ export const VideoPlayerTab: React.FC = () => {
     );
 
     const maxFrame = useMemo(() => {
-        if (videoClips.length === 0) return 0;
-        return Math.max(...videoClips.map(c => c.endFrame));
-    }, [videoClips]);
+        // Include BOTH video and audio clips so the playhead extends to the
+        // full audio duration when the song outlasts the generated video.
+        const allActive = clips.filter(c => !c.disabled);
+        if (allActive.length === 0) return 0;
+        return Math.max(...allActive.map(c => c.endFrame));
+    }, [clips]);
 
     const totalDuration = maxFrame / fps;
 
@@ -129,6 +160,7 @@ export const VideoPlayerTab: React.FC = () => {
             letterbox: clip.letterbox,
             volume: clip.volume,
             isMuted: clip.isMuted,
+            deflicker: clip.deflicker,
         });
         // Simple string hash for the browser side
         let h = 0;
@@ -142,6 +174,7 @@ export const VideoPlayerTab: React.FC = () => {
     const clipNeedsProxy = useCallback((clip: Clip): boolean => {
         return !!(
             clip.reversed ||
+            clip.rotation ||
             (clip.effectIds && clip.effectIds.length > 0) ||
             (clip.parametricEffects && clip.parametricEffects.length > 0) ||
             clip.colorGrading ||
@@ -153,6 +186,7 @@ export const VideoPlayerTab: React.FC = () => {
             (clip.sharpen && clip.sharpen > 0) ||
             (clip.blurAmount && clip.blurAmount > 0) ||
             clip.chromaKey?.enabled ||
+            clip.deflicker?.enabled ||
             clip.letterbox ||
             (clip.zoomStart && clip.zoomStart !== 100) ||
             (clip.zoomEnd && clip.zoomEnd !== 100) ||
@@ -346,6 +380,29 @@ export const VideoPlayerTab: React.FC = () => {
         });
     }, [bgAudioClips, isPlaying, currentFrame, isMasterMuted, masterVolume, trackVolumes, trackMutes, fps, maxFrame]);
 
+    // PIP overlay sync — per-frame position, play/pause (mirrors bgAudio sync)
+    useEffect(() => {
+        pipClips.forEach(clip => {
+            const vid = pipVideoRefs.current[clip.id];
+            if (!vid) return;
+
+            const trimStartSec = (clip.trimStartFrame || 0) / fps;
+            const clipStartFrame = clip.startFrame || 0;
+            const clipEndFrame = clip.endFrame || 0;
+
+            if (isPlaying && currentFrame >= clipStartFrame && currentFrame < clipEndFrame) {
+                const elapsedFrames = currentFrame - clipStartFrame;
+                const expectedSec = trimStartSec + (elapsedFrames / fps);
+                if (Math.abs(vid.currentTime - expectedSec) > 0.3) vid.currentTime = expectedSec;
+                if (vid.paused && vid.readyState >= 2) {
+                    vid.play().catch(e => console.warn(`[VideoPlayer] PIP play FAILED:`, e));
+                }
+            } else {
+                if (!vid.paused) vid.pause();
+            }
+        });
+    }, [pipClips, isPlaying, currentFrame, fps]);
+
     // RAF playback loop
     useEffect(() => {
         if (!isPlaying) {
@@ -378,6 +435,8 @@ export const VideoPlayerTab: React.FC = () => {
             videoPoolRef.current.forEach(v => v?.pause());
             // Also pause all background audio elements (DOM-rendered)
             Object.values(bgAudioRefs.current).forEach(a => { if (a && !a.paused) a.pause(); });
+            // Also pause all PIP overlay videos
+            Object.values(pipVideoRefs.current).forEach(v => { if (v && !v.paused) v.pause(); });
         }
     }, [isPlaying]);
 
@@ -468,18 +527,33 @@ export const VideoPlayerTab: React.FC = () => {
         >
             {/* ── Video Display ── */}
             <div className="flex-1 relative flex items-center justify-center bg-black overflow-hidden">
-                {[0, 1, 2].map(i => (
-                    <video
-                        key={i}
-                        ref={el => { videoPoolRef.current[i] = el; }}
-                        className={clsx(
-                            "absolute inset-0 w-full h-full object-contain",
-                            activePoolIdx.current === i ? "opacity-100 z-10" : "opacity-0 z-0"
-                        )}
-                        style={{ transition: 'opacity 60ms ease' }}
-                        playsInline muted={false} preload="auto" crossOrigin="anonymous"
-                    />
-                ))}
+                {(() => {
+                    const rotation = activeClip?.rotation || 0;
+                    const isOrthogonal = rotation === 90 || rotation === 270;
+                    // For 90°/270° the video axes swap — scale down so the rotated frame fits
+                    // the container. Use the project aspect ratio (container is always this shape).
+                    const projW = settings.resolution?.width || 1080;
+                    const projH = settings.resolution?.height || 1920;
+                    const rotFitScale = isOrthogonal ? Math.min(projW / projH, projH / projW) : 1;
+                    const rotTransform = rotation
+                        ? `rotate(${rotation}deg)${isOrthogonal ? ` scale(${rotFitScale})` : ''}`
+                        : undefined;
+                    return [0, 1, 2].map(i => (
+                        <video
+                            key={i}
+                            ref={el => { videoPoolRef.current[i] = el; }}
+                            className={clsx(
+                                "absolute inset-0 w-full h-full object-contain",
+                                activePoolIdx.current === i ? "opacity-100 z-10" : "opacity-0 z-0"
+                            )}
+                            style={{
+                                transition: 'opacity 60ms ease',
+                                ...(activePoolIdx.current === i && rotTransform ? { transform: rotTransform } : {}),
+                            }}
+                            playsInline muted={false} preload="auto" crossOrigin="anonymous"
+                        />
+                    ));
+                })()}
                 {/* ── A2+ Background Audio (DOM-attached, same security context as <video>) ── */}
                 {bgAudioClips.map(clip => (
                     <audio
@@ -490,6 +564,38 @@ export const VideoPlayerTab: React.FC = () => {
                         className="hidden"
                     />
                 ))}
+
+                {/* ── PIP Overlay Clips ── */}
+                {pipClips.map(clip => {
+                    const clipStart = clip.startFrame || 0;
+                    const clipEnd = clip.endFrame || 0;
+                    const isActive = currentFrame >= clipStart && currentFrame < clipEnd;
+                    if (!isActive) return null;
+                    const src = clip.path?.startsWith('file://') ? clip.path : `file://${clip.path}`;
+                    return (
+                        <video
+                            key={clip.id}
+                            ref={el => { pipVideoRefs.current[clip.id] = el; }}
+                            src={src}
+                            playsInline
+                            muted
+                            preload="auto"
+                            style={{
+                                position: 'absolute',
+                                left: (clip.compositeX ?? 50) + '%',
+                                top: (clip.compositeY ?? 50) + '%',
+                                transform: 'translate(-50%, -50%)',
+                                width: (clip.compositeScale ?? 30) + '%',
+                                borderRadius: (clip.compositeBorderRadius ?? 0) + 'px',
+                                opacity: (clip.compositeOpacity ?? 100) / 100,
+                                overflow: 'hidden',
+                                pointerEvents: 'none',
+                                zIndex: 10,
+                                objectFit: 'cover',
+                            }}
+                        />
+                    );
+                })}
 
                 {/* ── Top gradient + clip info ── */}
                 <div className={clsx(
@@ -503,6 +609,11 @@ export const VideoPlayerTab: React.FC = () => {
                             {activeClip.speed && activeClip.speed !== 1 && (
                                 <span className="text-[9px] px-1.5 py-0.5 rounded-full font-mono text-white/40" style={{ background: 'var(--color-surface)' }}>
                                     {activeClip.speed}x
+                                </span>
+                            )}
+                            {activeClip.deflicker?.enabled && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold text-amber-300/90" style={{ background: 'rgba(245,158,11,0.15)' }}>
+                                    ⚡ Deflickered ({activeClip.deflicker.layers}L)
                                 </span>
                             )}
                         </div>
@@ -648,6 +759,12 @@ export const VideoPlayerTab: React.FC = () => {
 
                                 <div className="w-px h-4 bg-white/10 mx-1" />
 
+                                <CtrlBtn
+                                    icon={<Flame size={13} />}
+                                    onClick={handleSendToEnder}
+                                    title="Send to Ender — render in the background while you keep editing"
+                                    active={isSendingEnder}
+                                />
                                 <CtrlBtn icon={<Repeat size={13} />} onClick={() => setLoopMode(p => !p)} title="Loop (L)" active={loopMode} />
                                 <CtrlBtn
                                     icon={isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}

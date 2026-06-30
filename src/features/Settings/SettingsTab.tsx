@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useProjectStore } from '../../store/projectStore';
-import { Save, Upload, FileJson, Settings, Film, Activity, Shuffle } from 'lucide-react';
+import { Save, Upload, FileJson, Settings, Film, Activity, Shuffle, FolderGit2, FolderOpen } from 'lucide-react';
+import { useProjectsStore } from '../../store/projectsStore';
+import { getProjectsDir, pickProjectsDir } from '../../lib/projectFs';
 import { PowerMeter } from './PowerMeter';
 import { useAppHealthStore } from '../../store/appHealthStore';
 import { useClipStore } from '../../store/clipStore';
@@ -9,6 +11,7 @@ import { useUserStore } from '../../store/userStore';
 import { getTransitionsByCategory, getTransitionById, CATEGORY_LABELS, type TransitionCategory } from '../../lib/transitions';
 import clsx from 'clsx';
 import { toast } from '../../components/Toast';
+import { ProjectDrawer } from '../../components/ProjectDrawer';
 // import { useClipStore } from '../../store/clipStore'; // Dynamic import used below
 
 export const SettingsTab: React.FC = () => {
@@ -54,6 +57,7 @@ export const SettingsTab: React.FC = () => {
 
     return (
         <div className="w-full h-full overflow-y-auto custom-scrollbar">
+            <ProjectDrawer side="bottom" />
             <div className="max-w-4xl mx-auto p-8 flex flex-col gap-8">
 
                 {/* Header */}
@@ -72,7 +76,9 @@ export const SettingsTab: React.FC = () => {
                 <div className="grid sm:grid-cols-2 gap-8">
                     {/* Left Column: Project Config */}
                     <div className="flex flex-col gap-8">
-                        
+
+                        <ProjectsStorageCard />
+
                         {/* General Configuration */}
                         <div className="border border-white/5 rounded-xl bg-black/20 p-5 space-y-5">
                             <div className="flex items-center gap-2">
@@ -311,6 +317,48 @@ export const SettingsTab: React.FC = () => {
                     </div>
                 </div>
 
+            </div>
+        </div>
+    );
+};
+
+// ── Project storage folder (.mmm files) ──────────────────────────────────────
+const ProjectsStorageCard: React.FC = () => {
+    const projectsDir = useProjectsStore((s) => s.projectsDir);
+    const setProjectsDir = useProjectsStore((s) => s.setProjectsDir);
+    const [resolved, setResolved] = useState<string | null>(null);
+
+    useEffect(() => { void getProjectsDir().then(setResolved); }, [projectsDir]);
+
+    const change = async () => {
+        const dir = await pickProjectsDir();
+        if (dir) { setProjectsDir(dir); setResolved(dir); toast.success('Projects folder updated'); }
+    };
+
+    return (
+        <div className="border border-white/5 rounded-xl bg-black/20 p-5 space-y-4">
+            <div className="flex items-center gap-2">
+                <FolderGit2 size={16} className="text-primary-300" />
+                <span className="text-sm font-bold text-white">Projects Storage</span>
+            </div>
+            <p className="text-[11px] text-white/40 leading-relaxed">
+                Your projects are saved as <span className="font-mono text-white/60">.mmm</span> files. By default they live in a
+                <span className="text-white/60"> MMMedia Projects</span> folder in your Documents. Change the destination here.
+            </p>
+            <div className="bg-black/50 border border-white/10 rounded-lg p-3 text-[11px] font-mono text-white/70 break-all">
+                {resolved || projectsDir || 'Documents/MMMedia Projects (default)'}
+            </div>
+            <div className="flex gap-2">
+                <button onClick={change}
+                        className="px-3 py-2 rounded-lg bg-primary/20 hover:bg-primary/30 text-primary text-xs font-bold inline-flex items-center gap-1.5">
+                    <FolderOpen size={14} /> Change folder
+                </button>
+                {projectsDir && (
+                    <button onClick={() => { setProjectsDir(null); void getProjectsDir().then(setResolved); }}
+                            className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-white/50 text-xs font-bold">
+                        Reset to default
+                    </button>
+                )}
             </div>
         </div>
     );

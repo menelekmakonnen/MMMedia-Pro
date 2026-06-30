@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import clsx from 'clsx';
 import type { TransitionType } from '../../types';
@@ -8,6 +8,18 @@ interface TransitionCardProps {
     type: TransitionType;
     selected: boolean;
     onToggle: () => void;
+    /** Whether return transition is on for this transition type */
+    returnEnabled?: boolean;
+    /** How often the return fires (50% or 100%) */
+    returnFrequency?: 50 | 100;
+    /** Callback when return is toggled */
+    onReturnToggle?: () => void;
+    /** Callback when frequency changes */
+    onReturnFrequency?: (freq: 50 | 100) => void;
+    /** Per-transition option overrides (duration, intensity, ease) */
+    transitionParams?: { duration?: number; intensity?: number; ease?: string };
+    /** Callback when per-transition options change */
+    onParamsChange?: (params: { duration?: number; intensity?: number; ease?: string }) => void;
 }
 
 /* ────────────────────────────────────────────────────────────
@@ -432,6 +444,71 @@ function getConfig(type: TransitionType, uid: string): PanelConfig {
                 bHover: 'opacity: 1; transform: translateX(0); filter: blur(0px);',
             };
 
+        case 'triple-exposure':
+            return {
+                aIdle: '', aHover: 'opacity: 0.5;',
+                bIdle: 'opacity: 0; mix-blend-mode: screen;',
+                bHover: 'opacity: 0.7;',
+                extras: (
+                    <div
+                        className={`${uid}-c`}
+                        style={{
+                            position: 'absolute', inset: 0, borderRadius: '2px',
+                            background: 'linear-gradient(225deg, #f59e0b, #ef4444)',
+                            opacity: 0,
+                            mixBlendMode: 'overlay',
+                            transition: `opacity ${DUR} ease-in-out`,
+                            zIndex: 5,
+                        }}
+                    />
+                ),
+                extraStyles: `.group:hover .${uid}-c { opacity: 0.5; }`,
+            };
+
+        /* ═══════════════════ PIP ═══════════════════
+         * Panel A shrinks to a corner (PiP overlay)
+         * while Panel B takes full frame. */
+
+        case 'pip':
+            return {
+                aIdle: 'transform: scale(1); transform-origin: bottom right; border-radius: 0;',
+                aHover: 'transform: scale(0.3); transform-origin: bottom right; border-radius: 3px; z-index: 3;',
+                bIdle: 'opacity: 0;',
+                bHover: 'opacity: 1;',
+            };
+
+        /* ═══════════════════ BOOMERANG ═══════════════════
+         * Panel A scales up-down (forward-reverse feel)
+         * then B appears. */
+
+        case 'boomerang':
+            return {
+                aIdle: 'transform: scale(1);',
+                aHover: 'transform: scale(1.15) rotate(2deg);',
+                bIdle: 'opacity: 0; transform: scale(0.85);',
+                bHover: 'opacity: 1; transform: scale(1);',
+            };
+
+        /* ═══════════════════ DOUBLE EXPOSURE ═══════════════════
+         * A and B blend together in an overlay. */
+
+        case 'double-exposure':
+            return {
+                aIdle: '', aHover: 'opacity: 0.5;',
+                bIdle: 'opacity: 0; mix-blend-mode: screen;',
+                bHover: 'opacity: 0.8; mix-blend-mode: screen;',
+            };
+
+        /* ═══════════════════ VHS ═══════════════════
+         * Horizontal tracking distortion between clips. */
+
+        case 'vhs':
+            return {
+                aIdle: '', aHover: 'transform: translateX(3px) skewX(-2deg); filter: blur(1px);',
+                bIdle: 'opacity: 0; transform: translateX(-3px);',
+                bHover: 'opacity: 1; transform: translateX(0);',
+            };
+
         /* ═══════════════════ FALLBACK ═══════════════════ */
 
         default:
@@ -484,58 +561,309 @@ function DivTransitionPreview({ type }: { type: TransitionType }) {
 }
 
 /* ────────────────────────────────────────────────────────────
- *  TransitionCard component
+ *  Impact transitions that support the intensity slider.
  * ──────────────────────────────────────────────────────────── */
 
-export const TransitionCard: React.FC<TransitionCardProps> = ({ type, selected, onToggle }) => {
+const IMPACT_TYPES: ReadonlySet<TransitionType> = new Set([
+    'flash', 'glitch', 'rgb-split', 'zoom-through', 'spin', 'film-burn', 'whip',
+]);
+
+/** Smooth/directional transitions that benefit from an ease-curve override. */
+const EASE_TYPES: ReadonlySet<TransitionType> = new Set([
+    'smoothleft', 'smoothright', 'smoothup', 'smoothdown',
+    'slideleft', 'slideright', 'slideup', 'slidedown',
+    'wipeleft', 'wiperight', 'wipeup', 'wipedown',
+    'fade', 'fadewhite', 'fadeblack', 'dissolve',
+    'circlecrop', 'circleopen', 'circleclose',
+    'diagtl', 'diagtr', 'diagbl', 'diagbr',
+    'squeezeh', 'squeezev', 'hblur',
+]);
+
+const EASE_OPTIONS: { value: string; label: string }[] = [
+    { value: 'linear', label: 'Linear' },
+    { value: 'ease-in', label: 'Ease In' },
+    { value: 'ease-out', label: 'Ease Out' },
+    { value: 'ease-in-out', label: 'In-Out' },
+];
+
+export const TransitionCard = React.memo<TransitionCardProps>(({
+    type,
+    selected,
+    onToggle,
+    returnEnabled,
+    returnFrequency = 100,
+    onReturnToggle,
+    onReturnFrequency,
+    transitionParams,
+    onParamsChange,
+}) => {
     const meta = TRANSITION_META[type];
+    const [optionsOpen, setOptionsOpen] = useState(false);
+
+    /** Whether the return-transition controls should be visible */
+    const showReturnControls = selected && returnEnabled !== undefined;
+
+    /** Whether this type has any configurable options */
+    const hasOptions = IMPACT_TYPES.has(type) || EASE_TYPES.has(type);
+    const showOptionsToggle = selected && hasOptions && onParamsChange;
+
+    const patchParams = (patch: Partial<{ duration?: number; intensity?: number; ease?: string }>) => {
+        onParamsChange?.({ ...(transitionParams ?? {}), ...patch });
+    };
 
     return (
-        <motion.button
-            onClick={onToggle}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            title={meta.description}
-            className={clsx(
-                'relative w-20 h-20 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all duration-200 cursor-pointer group',
-                selected
-                    ? 'bg-gradient-to-br from-purple-600/20 to-violet-600/20 border-purple-500/50 shadow-[0_0_12px_rgba(147,51,234,0.25)]'
-                    : 'bg-white/[0.03] border-white/10 hover:bg-white/[0.06] hover:border-white/20'
-            )}
-        >
-            {/* Selected checkmark badge */}
+        <div className="flex flex-col items-center gap-1">
+            <motion.button
+                onClick={onToggle}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                title={meta.description}
+                className={clsx(
+                    'relative w-24 h-24 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all duration-200 cursor-pointer group',
+                    selected
+                        ? 'bg-gradient-to-br from-purple-600/20 to-violet-600/20 border-purple-500/50 shadow-[0_0_12px_rgba(147,51,234,0.25)]'
+                        : 'bg-white/[0.03] border-white/10 hover:bg-white/[0.06] hover:border-white/20'
+                )}
+            >
+                {/* Selected checkmark badge */}
+                <AnimatePresence>
+                    {selected && (
+                        <motion.div
+                            initial={{ scale: 0, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0, opacity: 0 }}
+                            className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-purple-500 rounded-full flex items-center justify-center z-10"
+                        >
+                            <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Animated transition preview */}
+                <DivTransitionPreview type={type} />
+
+                {/* Label */}
+                <span className={clsx(
+                    'text-[8px] font-bold uppercase tracking-wider leading-tight text-center px-0.5',
+                    selected ? 'text-purple-200' : 'text-white/40'
+                )}>
+                    {meta.label}
+                </span>
+
+                {/* Custom badge */}
+                {meta.isCustom && (
+                    <span className="absolute top-1 left-1 w-1.5 h-1.5 rounded-full bg-amber-400/60" title="Custom filter chain" />
+                )}
+
+                {/* ── Options gear toggle (bottom-left) ── */}
+                <AnimatePresence>
+                    {showOptionsToggle && (
+                        <motion.div
+                            initial={{ scale: 0, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0, opacity: 0 }}
+                            className="absolute bottom-1 left-1 z-10"
+                        >
+                            <div
+                                role="button"
+                                tabIndex={0}
+                                title="Transition options"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setOptionsOpen(!optionsOpen);
+                                }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.stopPropagation();
+                                        e.preventDefault();
+                                        setOptionsOpen(!optionsOpen);
+                                    }
+                                }}
+                                className={clsx(
+                                    'w-4 h-4 rounded flex items-center justify-center text-[10px] leading-none transition-colors duration-150 cursor-pointer select-none',
+                                    optionsOpen
+                                        ? 'bg-purple-500/30 text-purple-300 hover:bg-purple-500/45'
+                                        : 'bg-white/10 text-white/30 hover:bg-white/20'
+                                )}
+                            >
+                                ⚙
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* ── Return-transition indicator ── */}
+                <AnimatePresence>
+                    {showReturnControls && (
+                        <motion.div
+                            initial={{ scale: 0, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0, opacity: 0 }}
+                            className="absolute bottom-1 right-1 z-10 flex items-center gap-0.5"
+                        >
+                            {/* Return toggle icon button */}
+                            <div
+                                role="button"
+                                tabIndex={0}
+                                title={returnEnabled ? 'Disable return transition' : 'Enable return transition'}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onReturnToggle?.();
+                                }}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.stopPropagation();
+                                        e.preventDefault();
+                                        onReturnToggle?.();
+                                    }
+                                }}
+                                className={clsx(
+                                    'w-4 h-4 rounded flex items-center justify-center text-[10px] leading-none transition-colors duration-150 cursor-pointer select-none',
+                                    returnEnabled
+                                        ? 'bg-amber-500/25 text-amber-300 hover:bg-amber-500/40'
+                                        : 'bg-white/10 text-white/30 hover:bg-white/20'
+                                )}
+                            >
+                                ↩
+                            </div>
+
+                            {/* Frequency badge — only shown when return is enabled */}
+                            {returnEnabled && (
+                                <motion.div
+                                    initial={{ width: 0, opacity: 0 }}
+                                    animate={{ width: 'auto', opacity: 1 }}
+                                    exit={{ width: 0, opacity: 0 }}
+                                    transition={{ duration: 0.15 }}
+                                    className="overflow-hidden"
+                                >
+                                    <div
+                                        role="button"
+                                        tabIndex={0}
+                                        title={`Return frequency: ${returnFrequency}% — click to toggle`}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            const next: 50 | 100 = returnFrequency === 100 ? 50 : 100;
+                                            onReturnFrequency?.(next);
+                                        }}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                e.stopPropagation();
+                                                e.preventDefault();
+                                                const next: 50 | 100 = returnFrequency === 100 ? 50 : 100;
+                                                onReturnFrequency?.(next);
+                                            }
+                                        }}
+                                        className="px-1 h-4 rounded bg-amber-500/20 text-amber-300 text-[8px] font-bold leading-none flex items-center justify-center cursor-pointer hover:bg-amber-500/35 transition-colors duration-150 select-none whitespace-nowrap"
+                                    >
+                                        {returnFrequency}%
+                                    </div>
+                                </motion.div>
+                            )}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </motion.button>
+
+            {/* ── Collapsible per-transition options panel ── */}
             <AnimatePresence>
-                {selected && (
+                {selected && optionsOpen && hasOptions && onParamsChange && (
                     <motion.div
-                        initial={{ scale: 0, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0, opacity: 0 }}
-                        className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-purple-500 rounded-full flex items-center justify-center z-10"
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden w-24"
                     >
-                        <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                        </svg>
+                        <div className="rounded-lg border border-purple-500/20 bg-purple-950/30 p-1.5 space-y-1.5">
+                            {/* Duration override */}
+                            <div className="space-y-0.5">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[7px] font-bold uppercase tracking-wider text-white/40">Duration</span>
+                                    <span className="text-[7px] text-purple-300/70 tabular-nums">
+                                        {transitionParams?.duration != null ? `${transitionParams.duration}ms` : 'auto'}
+                                    </span>
+                                </div>
+                                <input
+                                    type="range"
+                                    min={50} max={1500} step={25}
+                                    value={transitionParams?.duration ?? 200}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) => {
+                                        e.stopPropagation();
+                                        patchParams({ duration: Number(e.target.value) });
+                                    }}
+                                    className="w-full h-1 accent-purple-500 cursor-pointer"
+                                />
+                                {transitionParams?.duration != null && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            const { duration: _, ...rest } = transitionParams ?? {};
+                                            onParamsChange(Object.keys(rest).length > 0 ? rest : {});
+                                        }}
+                                        className="text-[6px] text-white/25 hover:text-white/50 transition-colors"
+                                    >
+                                        reset
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Intensity — only for impact types */}
+                            {IMPACT_TYPES.has(type) && (
+                                <div className="space-y-0.5">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[7px] font-bold uppercase tracking-wider text-white/40">Intensity</span>
+                                        <span className="text-[7px] text-purple-300/70 tabular-nums">
+                                            {transitionParams?.intensity ?? 50}%
+                                        </span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min={0} max={100} step={5}
+                                        value={transitionParams?.intensity ?? 50}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onChange={(e) => {
+                                            e.stopPropagation();
+                                            patchParams({ intensity: Number(e.target.value) });
+                                        }}
+                                        className="w-full h-1 accent-purple-500 cursor-pointer"
+                                    />
+                                </div>
+                            )}
+
+                            {/* Ease curve — for smooth/directional transitions */}
+                            {EASE_TYPES.has(type) && (
+                                <div className="space-y-0.5">
+                                    <span className="text-[7px] font-bold uppercase tracking-wider text-white/40">Ease</span>
+                                    <div className="grid grid-cols-2 gap-0.5">
+                                        {EASE_OPTIONS.map(opt => (
+                                            <button
+                                                key={opt.value}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    patchParams({ ease: opt.value });
+                                                }}
+                                                className={clsx(
+                                                    'px-1 py-0.5 rounded text-[6px] font-bold uppercase tracking-wider transition-colors cursor-pointer',
+                                                    (transitionParams?.ease ?? 'ease-in-out') === opt.value
+                                                        ? 'bg-purple-500/30 text-purple-200'
+                                                        : 'bg-white/5 text-white/30 hover:bg-white/10'
+                                                )}
+                                            >
+                                                {opt.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </motion.div>
                 )}
             </AnimatePresence>
-
-            {/* Animated transition preview */}
-            <DivTransitionPreview type={type} />
-
-            {/* Label */}
-            <span className={clsx(
-                'text-[9px] font-bold uppercase tracking-wider leading-tight text-center px-0.5 line-clamp-1',
-                selected ? 'text-purple-200' : 'text-white/40'
-            )}>
-                {meta.label}
-            </span>
-
-            {/* Custom badge */}
-            {meta.isCustom && (
-                <span className="absolute top-1 left-1 w-1.5 h-1.5 rounded-full bg-amber-400/60" title="Custom filter chain" />
-            )}
-        </motion.button>
+        </div>
     );
-};
+});
 
 export default TransitionCard;

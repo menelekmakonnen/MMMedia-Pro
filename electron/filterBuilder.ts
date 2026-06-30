@@ -13,6 +13,7 @@ import type { ColorGrading } from './parametricEffects';
 import { buildSpeedRemapSetpts, curveHasSlowdown } from '../src/lib/effectsEngine';
 import { buildKeyframeExpr } from '../src/lib/keyframes';
 import { buildMotionBlurChain, buildVibrationFlashChain, buildMinterpolateChain, buildForkMergeGraph, buildRgbSplitChain, buildHueCycleChain, buildVhsChain } from '../src/lib/editEffectFilters';
+import { buildDeflickerChain, type DeflickerLayers } from '../src/lib/deflickerFilter';
 
 // ── Data Types ──────────────────────────────────────────────────────────────
 
@@ -56,11 +57,47 @@ export interface ClipExportData {
     /** Text overlay configurations */
     textOverlays?: any[];
 
+    // ── Source-level framing (static crop/reposition from import) ──────
+    /** Source zoom percentage (100 = no crop, 150 = 1.5x crop) */
+    sourceZoom?: number;
+    /** Source horizontal pan offset (-100 to 100) */
+    sourcePanX?: number;
+    /** Source vertical pan offset (-100 to 100) */
+    sourcePanY?: number;
+
     // ── New parametric & grading fields ──────────────────────────────────
     /** Parametric effects (new adjustable-param system) */
     parametricEffects?: Array<{ effectId: string; params: Record<string, number | string | boolean> }>;
     /** Color grading settings */
     colorGrading?: ColorGrading;
+    /** Premiere Effect Controls (Motion/Opacity + masks). Only the fields the
+     *  renderer bakes are typed. Rotation/opacity (static + keyframed) and ellipse
+     *  masks are rendered here so exports match the Effect Controls preview.
+     *  Position/scale continue to flow through the zoom/composite path. */
+    effectControls?: {
+        video?: Array<{
+            matchName: string;
+            enabled?: boolean;
+            params: Array<{
+                id: string;
+                keyframed?: boolean;
+                value?: number | string | boolean | { x: number; y: number };
+                keyframes?: Array<{ frame: number; value: number; interp?: 'linear' | 'bezier' | 'constant'; handleR?: [number, number]; handleL?: [number, number] }>;
+                keyframesX?: Array<{ frame: number; value: number; interp?: 'linear' | 'bezier' | 'constant' }>;
+                keyframesY?: Array<{ frame: number; value: number; interp?: 'linear' | 'bezier' | 'constant' }>;
+            }>;
+            masks?: Array<{
+                enabled?: boolean; mode?: string; x: number; y: number;
+                width: number; height: number; feather: number; expansion: number;
+                opacity: number; inverted?: boolean;
+            }>;
+        }>;
+        audio?: Array<{
+            matchName: string;
+            enabled?: boolean;
+            params: Array<{ id: string; value?: number | string | boolean | { x: number; y: number } }>;
+        }>;
+    };
     /** Flip horizontally */
     flipH?: boolean;
     /** Flip vertically */
@@ -73,6 +110,8 @@ export interface ClipExportData {
     chromaKey?: { enabled: boolean; color: string; similarity: number; blend: number };
     /** Video stabilization */
     stabilize?: { enabled: boolean; smoothing: number };
+    /** Deflicker: temporal averaging via multi-layer blend */
+    deflicker?: { enabled: boolean; includeAudio: boolean; layers: 3 | 5 };
     /** Keyframed brightness (-1..1) baked to an eq expression. */
     brightnessKeyframes?: Array<{ frame: number; value: number; interp?: 'linear' | 'bezier' | 'constant'; handleR?: [number, number]; handleL?: [number, number] }>;
     /** Keyframed contrast (0..3) baked to an eq expression. */
@@ -243,7 +282,8 @@ export function computeClipTiming(
     // so the rendered total matches the defined duration. In the common case where
     // the source covers the slot, timelineDurSec == srcDurSec/speed, so this is a
     // no-op vs. the old formula.
-    const outDurSec = timelineDurSec;
+    // Hard floor: prevent invisible 1-frame clips from reaching the stitch phase.
+    const outDurSec = Math.max(0.2, timelineDurSec);
     return {
         seekSec,
         srcDurSec,
@@ -286,6 +326,23 @@ export function buildClipAudioFilter(
         if (fx) filters.push(fx);
     }
 
+    // ── AUTO MICRO-CROSSFADE (30ms) ─────────────────────────────────────
+    // When no explicit audio fades are set, inject 30ms fade-in / fade-out
+    // to eliminate audible pops at cut boundaries. Imperceptible to the
+    // listener but prevents the hard DC-offset clicks FFmpeg can produce
+    // when audio samples are sliced mid-waveform.
+    {
+        const hasFadeIn  = clip.audioEffects?.fadeInDuration  && clip.audioEffects.fadeInDuration  > 0;
+        const hasFadeOut = clip.audioEffects?.fadeOutDuration && clip.audioEffects.fadeOutDuration > 0;
+        if (!hasFadeIn) {
+            filters.push('afade=t=in:st=0:d=0.03');
+        }
+        if (!hasFadeOut) {
+            const fadeOutStart = Math.max(0, timing.outDurSec - 0.03);
+            filters.push(`afade=t=out:st=${fadeOutStart.toFixed(4)}:d=0.03`);
+        }
+    }
+
     if (clip.volumeKeyframes && clip.volumeKeyframes.length > 0) {
         const normalizedKf = clip.volumeKeyframes.map(kf => ({
             ...kf,
@@ -297,6 +354,32 @@ export function buildClipAudioFilter(
         const vol = ((clip.volume ?? 100) / 100) * (clip.isMuted ? 0 : 1);
         filters.push(`volume=${vol.toFixed(4)}`);
     }
+    // Premiere Effect Controls ▸ Audio: Volume (Mute + Level dB) and Channel
+    // Volume (L/R dB). Defaults (0 dB, unmuted) are no-ops, so this only changes
+    // the render when the user adjusts them. Shared with Ender via the render-core.
+    {
+        const audio = clip.effectControls?.audio;
+        if (audio) {
+            const num = (comp: { params: Array<{ id: string; value?: unknown }> } | undefined, id: string): number =>
+                typeof comp?.params.find((p) => p.id === id)?.value === 'number'
+                    ? (comp!.params.find((p) => p.id === id)!.value as number) : 0;
+            const vol = audio.find((c) => c.matchName === 'AE.ADBE Volume');
+            if (vol && vol.enabled !== false) {
+                const muted = vol.params.find((p) => p.id === 'mute')?.value === true;
+                const db = num(vol, 'level');
+                if (muted) filters.push('volume=0');
+                else if (Math.abs(db) > 0.01) filters.push(`volume=${Math.pow(10, db / 20).toFixed(4)}`);
+            }
+            const ch = audio.find((c) => c.matchName === 'AE.ADBE Channel Volume');
+            if (ch && ch.enabled !== false) {
+                const dbL = num(ch, 'left'), dbR = num(ch, 'right');
+                if (Math.abs(dbL) > 0.01 || Math.abs(dbR) > 0.01) {
+                    filters.push(`pan=stereo|c0=${Math.pow(10, dbL / 20).toFixed(4)}*c0|c1=${Math.pow(10, dbR / 20).toFixed(4)}*c1`);
+                }
+            }
+        }
+    }
+
     // Normalize to a uniform layout so concat/xfade across intermediates is clean.
     filters.push('aresample=async=1');
     filters.push('aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo');
@@ -324,10 +407,48 @@ export function buildZoompanFilter(
     outputHeight: number,
     fps: number = 30
 ): string {
-    const zoomStart = clip.zoomStart ?? 100;
-    const zoomEnd = clip.zoomEnd ?? (clip.zoomLevel ?? 100);
+    let zoomStart = clip.zoomStart ?? 100;
+    let zoomEnd = clip.zoomEnd ?? (clip.zoomLevel ?? 100);
 
-    // No zoom needed if both start and end are 100% (or very close)
+    // Premiere Effect Controls ▸ Motion: Scale keyframes drive the animated zoom
+    // (start→end, eased by zoomCurve) and Position drives a pan, so EXPORTS match
+    // the panel. Scale clamps to ≥100% (zoompan zooms in; shrink/PiP uses the
+    // composite path). Pan only has room when zoomed in. Shared with MMMedia
+    // Ender via the vendored render-core.
+    //
+    // Sign convention (derived to match motionToCssStyle's preview): the preview
+    // translates a clip with position.x > centre to the RIGHT. In a zoomed crop,
+    // showing the clip shifted right means the crop window moves LEFT (x ↓):
+    //   x = centreX − (posX − cx)·(iw/zoom)/outW   (and likewise for y).
+    let panFirstX = 0, panLastX = 0, panFirstY = 0, panLastY = 0, hasPan = false;
+    {
+        const motion = clip.effectControls?.video?.find((c) => c.matchName === 'AE.ADBE Motion');
+        const scaleP = motion?.params.find((p) => p.id === 'scale');
+        if (scaleP && scaleP.keyframed && scaleP.keyframes && scaleP.keyframes.length > 1) {
+            zoomStart = scaleP.keyframes[0].value;
+            zoomEnd = scaleP.keyframes[scaleP.keyframes.length - 1].value;
+        }
+        const posP = motion?.params.find((p) => p.id === 'position');
+        const cx = outputWidth / 2, cy = outputHeight / 2;
+        if (posP && posP.keyframed && (posP.keyframesX?.length || posP.keyframesY?.length)) {
+            const lx = posP.keyframesX ?? [], ly = posP.keyframesY ?? [];
+            hasPan = true;
+            panFirstX = (lx[0]?.value ?? cx) - cx;
+            panLastX = (lx[lx.length - 1]?.value ?? cx) - cx;
+            panFirstY = (ly[0]?.value ?? cy) - cy;
+            panLastY = (ly[ly.length - 1]?.value ?? cy) - cy;
+        } else if (posP && posP.value && typeof posP.value === 'object') {
+            const v = posP.value as { x: number; y: number };
+            if (Math.abs(v.x - cx) > 0.5 || Math.abs(v.y - cy) > 0.5) {
+                hasPan = true;
+                panFirstX = panLastX = v.x - cx;
+                panFirstY = panLastY = v.y - cy;
+            }
+        }
+    }
+
+    // No zoom needed if both start and end are 100% (or very close). A pan needs
+    // a zoom to have room, so without zoom there is nothing to render here.
     if (Math.abs(zoomStart - 100) < 0.5 && Math.abs(zoomEnd - 100) < 0.5) {
         return '';
     }
@@ -369,6 +490,20 @@ export function buildZoompanFilter(
             break;
     }
 
+    // Effect Controls ▸ Motion ▸ Position pan (overrides origin centring). Animates
+    // first→last over the clip's frame span (`on`), clamped to the crop bounds.
+    if (hasPan) {
+        const Dp = Math.max(1, Math.round(clipDurationFrames));
+        const panXE = Math.abs(panLastX - panFirstX) < 0.5
+            ? panFirstX.toFixed(1)
+            : `(${panFirstX.toFixed(1)}+(${(panLastX - panFirstX).toFixed(1)})*min(1,on/${Dp}))`;
+        const panYE = Math.abs(panLastY - panFirstY) < 0.5
+            ? panFirstY.toFixed(1)
+            : `(${panFirstY.toFixed(1)}+(${(panLastY - panFirstY).toFixed(1)})*min(1,on/${Dp}))`;
+        xExpr = `'min(max(iw/2-(iw/zoom/2)-(${panXE})*(iw/zoom)/${outputWidth},0),iw-iw/zoom)'`;
+        yExpr = `'min(max(ih/2-(ih/zoom/2)-(${panYE})*(ih/zoom)/${outputHeight},0),ih-ih/zoom)'`;
+    }
+
     // CRITICAL: d MUST be 1 for video input. zoompan emits `d` frames for EACH
     // input frame, so d=clipDurationFrames on a multi-frame clip multiplies the
     // duration by clipDurationFrames (the "30-minute export" bug). With d=1 we
@@ -405,7 +540,9 @@ export function buildZoompanFilter(
     // Interpolate: zs + (ze - zs) * eased_t
     const zExpr = `'${zs}+(${ze}-${zs})*${tExpr}'`;
 
-    return `zoompan=z=${zExpr}:x=${xExpr}:y=${yExpr}:d=1:s=${outputWidth}x${outputHeight}`;
+    // `:fps=` is REQUIRED. Without it zoompan defaults to 25fps; on high-fps
+    // sources (e.g. 60fps phone footage) with d=1 that desyncs into BLACK frames.
+    return `zoompan=z=${zExpr}:x=${xExpr}:y=${yExpr}:d=1:s=${outputWidth}x${outputHeight}:fps=${fps}`;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -463,6 +600,104 @@ export function buildAtempoChain(speed: number): string {
  * @param probeData - Probed source media dimensions and duration
  * @returns FFmpeg video filter chain string (without stream labels)
  */
+/**
+ * Bake the Premiere Effect Controls model into FFmpeg filters so EXPORTS match
+ * the Effect Controls preview. Handles Motion ▸ Rotation (static + keyframed),
+ * Opacity (static + keyframed), and ellipse masks (with feather / expansion /
+ * inversion). Position & Scale continue to flow through the existing zoom /
+ * composite path, so this only adds what that path doesn't cover.
+ *
+ * Shared by the internal export AND — through the vendored render-core — by
+ * MMMedia Ender, so both engines render identically.
+ *
+ * Guards:
+ *  • Rotation subtracts any legacy 90°-bucket `clip.rotation` already applied
+ *    upstream, so a clean 90/180/270 isn't rotated twice.
+ *  • Opacity/masks are skipped for overlay clips (the track compositor applies
+ *    their opacity), avoiding double-dim.
+ */
+function buildEffectControlsFilters(clip: ClipExportData, fps: number, outW = 1920, outH = 1080): string[] {
+    const ec = clip.effectControls;
+    if (!ec || !ec.video) return [];
+    const out: string[] = [];
+
+    const motion = ec.video.find((c) => c.matchName === 'AE.ADBE Motion');
+    const opacityC = ec.video.find((c) => c.matchName === 'AE.ADBE Opacity');
+
+    // ── Motion ▸ Crop (Left/Top/Right/Bottom %) → crop the sub-rect, then pad it
+    //    back to full frame at the same offset (Premiere shrinks the image and
+    //    leaves the cropped area empty). ──
+    if (motion && motion.enabled !== false) {
+        const cv = (id: string) => {
+            const p = motion.params.find((x) => x.id === id);
+            return typeof p?.value === 'number' ? p.value : 0;
+        };
+        const L = cv('cropLeft'), T = cv('cropTop'), R = cv('cropRight'), B = cv('cropBottom');
+        if ((L > 0.01 || T > 0.01 || R > 0.01 || B > 0.01) && (L + R) < 99.5 && (T + B) < 99.5) {
+            const cw = Math.max(2, Math.round(outW * (100 - (L + R)) / 100));
+            const ch = Math.max(2, Math.round(outH * (100 - (T + B)) / 100));
+            const cx = Math.round(outW * L / 100);
+            const cy = Math.round(outH * T / 100);
+            out.push(`crop=${cw}:${ch}:${cx}:${cy}`);
+            out.push(`pad=${outW}:${outH}:${cx}:${cy}:black`);
+        }
+    }
+
+    // ── Motion ▸ Rotation (minus any legacy quantised rotation already applied) ──
+    if (motion && motion.enabled !== false) {
+        const rot = motion.params.find((p) => p.id === 'rotation');
+        const legacyDeg = typeof clip.rotation === 'number' ? clip.rotation : 0;
+        if (rot && rot.keyframed && rot.keyframes && rot.keyframes.length > 1) {
+            const deg = buildKeyframeExpr(rot.keyframes as any, fps);
+            out.push(`rotate='((${deg})-${legacyDeg})*PI/180':ow=iw:oh=ih`);
+        } else if (rot && typeof rot.value === 'number') {
+            const residual = rot.value - legacyDeg;
+            if (Math.abs(residual) > 0.01) {
+                out.push(`rotate=${((residual * Math.PI) / 180).toFixed(6)}:ow=iw:oh=ih`);
+            }
+        }
+    }
+
+    // ── Opacity (Opacity) + first ellipse mask → alpha ──
+    // Skipped for overlay clips: the track compositor owns their opacity.
+    const isOverlay = Boolean((clip as unknown as { compositeOverlay?: boolean }).compositeOverlay);
+    if (!isOverlay && opacityC && opacityC.enabled !== false) {
+        let opacityStatic = 1;
+        let opacityExpr: string | null = null;
+        const op = opacityC.params.find((p) => p.id === 'opacity');
+        if (op && op.keyframed && op.keyframes && op.keyframes.length > 1) {
+            // geq evaluates with plain commas (see the white-flash geq elsewhere),
+            // so un-escape the filtergraph commas buildKeyframeExpr emits.
+            opacityExpr = `(${buildKeyframeExpr(op.keyframes as any, fps).replace(/\\,/g, ',')})/100`;
+        } else if (op && typeof op.value === 'number') {
+            opacityStatic = Math.max(0, Math.min(1, op.value / 100));
+        }
+
+        const mask = opacityC.masks?.find((m) => m.enabled !== false && (m.mode === 'ellipse' || !m.mode));
+
+        if (opacityExpr !== null || mask) {
+            const opPart = opacityExpr ?? opacityStatic.toFixed(4);
+            let maskPart = '1';
+            if (mask) {
+                const rx = Math.max(1, mask.width / 2 + (mask.expansion || 0));
+                const ry = Math.max(1, mask.height / 2 + (mask.expansion || 0));
+                const avgR = (rx + ry) / 2;
+                const d = `sqrt(pow((X-${mask.x.toFixed(1)})/${rx.toFixed(2)},2)+pow((Y-${mask.y.toFixed(1)})/${ry.toFixed(2)},2))`;
+                const ff = (mask.feather || 0) / avgR;
+                let base = ff > 0.0001 ? `clip((1-(${d}))/${ff.toFixed(4)},0,1)` : `lte(${d},1)`;
+                if (mask.inverted) base = `(1-(${base}))`;
+                const mOp = Math.max(0, Math.min(1, (mask.opacity ?? 100) / 100));
+                maskPart = mOp < 0.999 ? `(${base})*${mOp.toFixed(4)}` : `(${base})`;
+            }
+            out.push(`format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='255*(${opPart})*(${maskPart})'`);
+        } else if (opacityStatic < 0.999) {
+            out.push(`format=yuva420p,colorchannelmixer=aa=${opacityStatic.toFixed(4)}`);
+        }
+    }
+
+    return out;
+}
+
 export function buildVideoFilter(
     clip: ClipExportData,
     settings: ExportSettings,
@@ -479,6 +714,17 @@ export function buildVideoFilter(
     const clipDur = timing.srcDurSec;
 
     const filters: string[] = [];
+
+    // ── Deflicker (must be first in chain — operates on raw frames) ──
+    if (clip.deflicker?.enabled) {
+        // Deflicker uses split/blend which requires filter_complex, not simple -vf.
+        // Mark clip for filter_complex processing in the caller.
+        (clip as any).__deflickerGraph = buildDeflickerChain(
+            '[v_in]', '[v_df]',
+            clip.deflicker.layers || 3,
+            fps,
+        );
+    }
 
     // 1. Trim + reset PTS.
     //    When the caller fast-seeks with `-ss` before `-i` (preSeeked), the source
@@ -515,6 +761,25 @@ export function buildVideoFilter(
         filters.push('transpose=2');
     }
 
+    // 3b. Source-level framing (static crop/reposition from import page)
+    //     Applied BEFORE zoompan/scale so it acts as a global reframe of the source.
+    const srcZoom = clip.sourceZoom ?? 100;
+    const srcPanX = clip.sourcePanX ?? 0;
+    const srcPanY = clip.sourcePanY ?? 0;
+    if (srcZoom > 100 || srcPanX !== 0 || srcPanY !== 0) {
+        const z = Math.max(100, srcZoom) / 100;
+        // Crop dimensions: inverse of zoom (zoom 200% → crop to 50% of frame)
+        const cropW = `iw/${z.toFixed(4)}`;
+        const cropH = `ih/${z.toFixed(4)}`;
+        // Pan: map -100..+100 to the available offset range.
+        // At center (pan=0): offset = (iw - cropW) / 2
+        // At pan=+100: offset = iw - cropW (right/bottom edge)
+        // At pan=-100: offset = 0 (left/top edge)
+        const xOff = `(iw-iw/${z.toFixed(4)})/2*(1+${(srcPanX / 100).toFixed(4)})`;
+        const yOff = `(ih-ih/${z.toFixed(4)})/2*(1+${(srcPanY / 100).toFixed(4)})`;
+        filters.push(`crop=${cropW}:${cropH}:${xOff}:${yOff}`);
+    }
+
     // 4. Zoompan (must come before scale/pad — it changes frame size)
     const outputDurSec = clipDur / speed;
     const clipDurationFrames = outputDurSec * fps;
@@ -523,10 +788,20 @@ export function buildVideoFilter(
         filters.push(zoompan);
     }
 
-    // 5. Scale + pad to output resolution
-    filters.push(`scale=${outW}:${outH}:force_original_aspect_ratio=decrease`);
-    filters.push(`pad=${outW}:${outH}:(ow-iw)/2:(oh-ih)/2`);
+    // 5. Scale + crop to output resolution (cover/fill mode — no black bars)
+    //    scale with force_original_aspect_ratio=increase → video fills frame completely
+    //    crop trims any overflow to exact output dimensions
+    filters.push(`scale=${outW}:${outH}:force_original_aspect_ratio=increase`);
+    filters.push(`crop=${outW}:${outH}`);
     filters.push('setsar=1');
+
+    // 5c. Colorspace metadata — tag the output stream as BT.709 so players
+    //     interpret it correctly. Using setparams (metadata-only) instead of
+    //     the colorspace filter, which crashes on phone footage that lacks
+    //     colorspace tags (produces zero frames → "no packets" failures).
+    //     The primary color fidelity fix is the toned-down presets and
+    //     auto-grade in colorEngine/smartEngine, not pixel conversion.
+    filters.push('setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709');
 
     // 5b. Video stabilization. Single-pass `deshake` keeps the per-clip filtergraph
     //     intact (a higher-quality two-pass vidstab path can be applied by the export
@@ -585,6 +860,12 @@ export function buildVideoFilter(
                 filters.push(peFilter);
             }
         }
+    }
+
+    // 9b. Premiere Effect Controls — Motion rotation/crop, Opacity, ellipse masks
+    //     (static + keyframed). Renders so exports match the Effect Controls panel.
+    for (const f of buildEffectControlsFilters(clip, fps, outW, outH)) {
+        filters.push(f);
     }
 
     // 10. Quick sharpen / blur (before speed)
@@ -692,7 +973,7 @@ export function buildVideoFilter(
     if (clip.strobe && clip.strobe.frequency > 0) {
         // Toggle brightness between normal and near-white at given frequency
         const freq = clip.strobe.frequency;
-        filters.push(`eq=brightness='0.3*gt(sin(t*${freq}*2*PI),0)'`);
+        filters.push(`eq=brightness='0.3*gt(sin(t*${freq}*2*PI),0)':eval=frame`);
     }
 
     // Beat-reactive effects below index into clip.beatTimestamps. A stray
@@ -711,7 +992,9 @@ export function buildVideoFilter(
             const enableExpr = beatTs
                 .map(bt => `between(t,${bt.toFixed(4)},${(bt + flashDurSec).toFixed(4)})`)
                 .join('+');
-            filters.push(`eq=brightness='${intensity.toFixed(2)}*gt(${enableExpr},0)'`);
+            // Cap brightness add at ±0.4 so a flash is punchy, never pure white.
+            const bI = Math.max(-0.4, Math.min(0.4, intensity));
+            filters.push(`eq=brightness='${bI.toFixed(2)}*gt(${enableExpr},0)':eval=frame`);
         }
     }
 
@@ -724,7 +1007,9 @@ export function buildVideoFilter(
             const chromaEnableExpr = beatTs
                 .map(bt => `between(t,${bt.toFixed(4)},${(bt + chromaDurSec).toFixed(4)})`)
                 .join('+');
-            filters.push(`rgbashift=rh='${offset}*gt(${chromaEnableExpr},0)':bh='${-offset}*gt(${chromaEnableExpr},0)'`);
+            // rgbashift's rh/bh are static integers (no per-frame expression
+            // support) — time-gate the beat windows with `enable=` instead.
+            filters.push(`rgbashift=rh=${Math.round(offset)}:bh=${Math.round(-offset)}:enable='${chromaEnableExpr}'`);
         }
     }
 
@@ -890,6 +1175,22 @@ export function buildAudioFilter(
         }
     }
 
+    // ── AUTO MICRO-CROSSFADE (30ms) ─────────────────────────────────────
+    // Mirror of the same guard in buildClipAudioFilter: inject 30ms fade
+    // edges to prevent audible pops when no explicit fades are configured.
+    {
+        const outDurSec = clipDur / speed;
+        const hasFadeIn  = clip.audioEffects?.fadeInDuration  && clip.audioEffects.fadeInDuration  > 0;
+        const hasFadeOut = clip.audioEffects?.fadeOutDuration && clip.audioEffects.fadeOutDuration > 0;
+        if (!hasFadeIn) {
+            filters.push('afade=t=in:st=0:d=0.03');
+        }
+        if (!hasFadeOut) {
+            const fadeOutStart = Math.max(0, outDurSec - 0.03);
+            filters.push(`afade=t=out:st=${fadeOutStart.toFixed(4)}:d=0.03`);
+        }
+    }
+
     // 4. Volume
     const volumeMult = ((clip.volume !== undefined ? clip.volume : 100) / 100) * (clip.isMuted ? 0 : 1);
     filters.push(`volume=${volumeMult.toFixed(4)}`);
@@ -1017,6 +1318,12 @@ export function buildTransitionFilter(
     inputLabel0: string = '[v0]',
     inputLabel1: string = '[v1]',
     outputLabel: string = '[vout]',
+    maskConfig?: {
+        mode: 'chromakey' | 'ml-segment';
+        chromakey?: { color: string; similarity: number; blend: number };
+        mattePath?: string;
+        invertMask?: boolean;
+    },
 ): string {
     const dur = Math.max(0.04, durationSec).toFixed(4);
     const offset = Math.max(0, offsetSec).toFixed(4);
@@ -1025,7 +1332,6 @@ export function buildTransitionFilter(
     const BUILTIN_XFADE = new Set([
         'fade', 'fadewhite', 'fadeblack', 'dissolve',
         'wipeleft', 'wiperight', 'wipeup', 'wipedown',
-        'slideleft', 'slideright', 'slideup', 'slidedown',
         'circlecrop', 'circleopen', 'circleclose',
         'pixelize', 'radial', 'hblur',
         'smoothleft', 'smoothright', 'smoothup', 'smoothdown',
@@ -1042,6 +1348,20 @@ export function buildTransitionFilter(
         return `${inputLabel0}${inputLabel1}xfade=transition=${transitionType}:duration=${dur}:offset=${offset}${outputLabel}`;
     }
 
+    // Slide transitions with motion blur (shutter angle 360° simulation)
+    // Moved out of BUILTIN_XFADE to add directional blur during the slide.
+    const SLIDE_TYPES = new Set(['slideleft', 'slideright', 'slideup', 'slidedown']);
+    if (SLIDE_TYPES.has(transitionType)) {
+        const isHorizontal = transitionType === 'slideleft' || transitionType === 'slideright';
+        const blurX = isHorizontal ? 8 : 0;
+        const blurY = isHorizontal ? 0 : 8;
+        return [
+            `${inputLabel0}avgblur=sizeX=${blurX}:sizeY=${blurY}:planes=0x7[sl_a]`,
+            `${inputLabel1}avgblur=sizeX=${blurX}:sizeY=${blurY}:planes=0x7[sl_b]`,
+            `[sl_a][sl_b]xfade=transition=${transitionType}:duration=${dur}:offset=${offset}${outputLabel}`,
+        ].join(';');
+    }
+
     // Custom transitions that need bespoke filter chains
     switch (transitionType) {
         case 'flash':
@@ -1051,6 +1371,17 @@ export function buildTransitionFilter(
                 `${inputLabel1}fade=t=in:st=0:d=${dur}:color=white[flash1]`,
                 `[flash0][flash1]concat=n=2:v=1:a=0${outputLabel}`,
             ].join(';');
+
+        case 'white-flash': {
+            // Cinematic white flash: overlay-blended white matte with animated opacity
+            const halfDur = (parseFloat(dur) / 2).toFixed(4);
+            return [
+                `${inputLabel0}${inputLabel1}xfade=transition=dissolve:duration=${dur}:offset=${offset}[wf_base]`,
+                `color=c=white:s=1920x1080:d=${dur}[wf_white]`,
+                `[wf_white]format=rgba,geq=lum=255:a='if(lt(t,${halfDur}),255*t/${halfDur},255*(${dur}-t)/${halfDur})'[wf_alpha]`,
+                `[wf_base][wf_alpha]overlay=0:0:format=auto${outputLabel}`,
+            ].join(';');
+        }
 
         case 'glitch':
             // Glitch: chromatic aberration + noise during transition
@@ -1069,24 +1400,90 @@ export function buildTransitionFilter(
             // RGB Split: offset color channels during fade
             return `${inputLabel0}${inputLabel1}xfade=transition=fade:duration=${dur}:offset=${offset}${outputLabel}`;
 
-        case 'zoom-through':
-            // Zoom through: first clip zooms in, second zooms out
+        case 'zoom-through': {
+            // Cinematic zoom in/out with bezier easing + motion blur
+            const zoomDur = parseFloat(dur);
+            const zoomInExpr = `1+0.8*pow(on/(${Math.round(zoomDur * 30)}),2)`;
+            const zoomOutExpr = `1.8-0.8*pow(on/(${Math.round(zoomDur * 30)}),0.5)`;
             return [
-                `${inputLabel0}scale=iw*2:ih*2,crop=iw/2:ih/2[zt0]`,
-                `[zt0]${inputLabel1}xfade=transition=fade:duration=${dur}:offset=${offset}${outputLabel}`,
+                `${inputLabel0}zoompan=z='${zoomInExpr}':d=1:s=1920x1080:fps=30,avgblur=sizeX=3:sizeY=3[zt_out]`,
+                `${inputLabel1}zoompan=z='${zoomOutExpr}':d=1:s=1920x1080:fps=30,avgblur=sizeX=3:sizeY=3[zt_in]`,
+                `[zt_out][zt_in]xfade=transition=fade:duration=${dur}:offset=${offset}${outputLabel}`,
             ].join(';');
+        }
 
         case 'spin':
             // Spin: rotate during fade
             return `${inputLabel0}${inputLabel1}xfade=transition=radial:duration=${dur}:offset=${offset}${outputLabel}`;
 
-        case 'film-burn':
-            // Film burn: warm fade
-            return `${inputLabel0}${inputLabel1}xfade=transition=fadewhite:duration=${dur}:offset=${offset}${outputLabel}`;
+        case 'film-burn': {
+            // Cinematic film burn: warm orange overlay with screen blend
+            const burnDur = parseFloat(dur);
+            const halfBurn = (burnDur / 2).toFixed(4);
+            return [
+                `${inputLabel0}${inputLabel1}xfade=transition=dissolve:duration=${dur}:offset=${offset}[fb_base]`,
+                `color=c=#FF6A00:s=1920x1080:d=${dur}[fb_warm]`,
+                `[fb_warm]format=rgba,colorchannelmixer=rr=1.2:gg=0.6:bb=0.2,geq=lum=p(X,Y):a='if(lt(t,${halfBurn}),200*t/${halfBurn},200*(${dur}-t)/${halfBurn})'[fb_alpha]`,
+                `[fb_base][fb_alpha]blend=all_mode=screen:all_opacity=0.7${outputLabel}`,
+            ].join(';');
+        }
 
         case 'whip':
             // Whip pan: fast horizontal slide
             return `${inputLabel0}${inputLabel1}xfade=transition=slideleft:duration=${(parseFloat(dur) * 0.3).toFixed(4)}:offset=${offset}${outputLabel}`;
+
+        case 'subject-mask': {
+            // ── Subject Masking Transition ────────────────────────────────
+            // Three approaches, selected via maskConfig:
+            //
+            // 1. Chroma-key (Option A): Use FFmpeg's chromakey filter to knock out
+            //    a solid background color, then composite clip B behind the keyed
+            //    clip A. Works for green-screen or high-contrast solid backgrounds.
+            //
+            // 2. ML Segmentation (Option C): A pre-computed alpha matte (PNG sequence
+            //    or video) generated by an external ML tool (rembg, SAM, etc.) is
+            //    overlaid as a luma-keyed mask. The IPC 'segment-subject' handler
+            //    runs the ML model and writes the matte before render.
+            //
+            // 3. Fallback: circle-open reveal (approximates a center-out subject mask).
+
+            if (maskConfig?.mode === 'chromakey' && maskConfig.chromakey) {
+                // Option A: Chroma-key compositing
+                // Knock out the background on clip A, then overlay clip A (subject only)
+                // on top of clip B, with a dissolve fade for smoothness.
+                const ck = maskConfig.chromakey;
+                const hexColor = ck.color.replace('#', '0x');
+                const sim = ck.similarity.toFixed(2);
+                const blend = ck.blend.toFixed(2);
+                return [
+                    // Key out clip A's background → subject-only with alpha
+                    `${inputLabel0}chromakey=color=${hexColor}:similarity=${sim}:blend=${blend}[sm_fg]`,
+                    // Cross-fade clip B in behind keyed clip A
+                    `${inputLabel1}setpts=PTS-STARTPTS[sm_bg]`,
+                    `[sm_bg][sm_fg]overlay=0:0:format=auto:shortest=1${outputLabel}`,
+                ].join(';');
+            }
+
+            if (maskConfig?.mode === 'ml-segment' && maskConfig.mattePath) {
+                // Option C: Pre-computed alpha matte from ML segmentation
+                // The matte is a grayscale video/image-sequence where white = subject.
+                // Use it as a luma mask to composite clip A's subject over clip B.
+                const invert = maskConfig.invertMask ? ',negate' : '';
+                return [
+                    // Load the alpha matte, ensure it's grayscale
+                    `movie=${maskConfig.mattePath.replace(/\\/g, '/')}:loop=0,format=gray${invert}[sm_mask]`,
+                    // Use alphamerge to apply the matte to clip A
+                    `${inputLabel0}format=rgba[sm_src]`,
+                    `[sm_src][sm_mask]alphamerge[sm_keyed]`,
+                    // Composite keyed clip A over clip B
+                    `${inputLabel1}setpts=PTS-STARTPTS[sm_bg2]`,
+                    `[sm_bg2][sm_keyed]overlay=0:0:format=auto:shortest=1${outputLabel}`,
+                ].join(';');
+            }
+
+            // Fallback: radial-wipe that simulates a center-out subject reveal
+            return `${inputLabel0}${inputLabel1}xfade=transition=circleopen:duration=${dur}:offset=${offset}${outputLabel}`;
+        }
 
         default:
             // Fallback to dissolve
@@ -1108,7 +1505,7 @@ export function buildTransitionFilter(
  */
 export function buildTransitionChain(
     clipCount: number,
-    transitions: Array<{ type: string; durationSec: number }>,
+    transitions: Array<{ type: string; durationSec: number; maskConfig?: Parameters<typeof buildTransitionFilter>[6] }>,
     clipDurations: number[],
 ): string {
     if (clipCount <= 1 || transitions.length === 0) return '';
@@ -1132,6 +1529,7 @@ export function buildTransitionChain(
             inputA,
             inputB,
             output,
+            t.maskConfig,
         );
         parts.push(filter);
     }

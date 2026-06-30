@@ -9,6 +9,9 @@ try {
         windowControl: (action: 'minimize' | 'maximize' | 'close') => ipcRenderer.send('window-control', action),
         checkFileExists: (filePath: string) => ipcRenderer.invoke('check-file-exists', filePath),
 
+        // Generic invoke passthrough (used by the Project Manager's .mmm disk IO).
+        invoke: (channel: string, payload?: unknown) => ipcRenderer.invoke(channel, payload),
+
         // File operations
         selectFiles: (type?: string) => ipcRenderer.invoke('select-files', type),
         loadFolder: (folderPath: string) => ipcRenderer.invoke('load-folder', folderPath),
@@ -30,10 +33,12 @@ try {
         randomRender: (args: { filePath: string, clips: any[], settings: any }) => ipcRenderer.invoke('random-render', args),
         exportProjectSegment: (args: { filePath: string, clips: any[], settings: any }) => ipcRenderer.invoke('export-project-segment', args),
         analyzeRenderParity: (args: { clips: any[], settings: any }) => ipcRenderer.invoke('analyze-render-parity', args),
+        sendToEnder: (job: { name?: string, source?: string, clips: any[], settings: any, mediaRefs?: string[], overrides?: any }) => ipcRenderer.invoke('send-to-ender', job),
         cancelExport: () => ipcRenderer.invoke('cancel-export'),
         detectSilence: (args: { path: string; noiseDb?: number; minSilenceSec?: number }) => ipcRenderer.invoke('detect-silence', args),
         detectScenes: (args: { path: string; threshold?: number }) => ipcRenderer.invoke('detect-scenes', args),
         scoreClip: (args: { path: string; maxSec?: number }) => ipcRenderer.invoke('score-clip', args),
+        segmentSubject: (args: { path: string; model?: string }) => ipcRenderer.invoke('segment-subject', args),
         analyzeClipColor: (args: { path: string; maxSec?: number }) => ipcRenderer.invoke('analyze-clip-color', args),
         generateScopes: (args: { path: string; atSec?: number }) => ipcRenderer.invoke('generate-scopes', args),
         listLuts: () => ipcRenderer.invoke('list-luts'),

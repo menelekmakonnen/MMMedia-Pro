@@ -42,6 +42,7 @@ const SHORTCUT_GROUPS = [
             { key: 'I / O', desc: 'Set In / Out point at playhead' },
             { key: 'Delete', desc: 'Lift clip (leave gap)' },
             { key: 'Shift + Del', desc: 'Ripple Delete (close gap)' },
+            { key: 'E', desc: 'Enable / Disable selected clip(s)' },
         ],
     },
     {

@@ -1,13 +1,15 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
     MousePointer2, Scissors, Hand, Magnet, SkipBack, SkipForward, Play, Pause,
     Repeat, ZoomIn, ZoomOut, Link, Link2Off, Bookmark, Download,
     ChevronsLeft, ChevronsRight, Maximize2, MoveHorizontal, GripHorizontal,
-    Gauge, SlidersHorizontal
+    Gauge, SlidersHorizontal, ArrowRightLeft, Columns, MousePointerClick, PenTool
 } from 'lucide-react';
 import clsx from 'clsx';
 import { formatTimecode } from '../../lib/time';
+import { computeReadiness } from '../../lib/editReadiness';
+import { useClipStore } from '../../store/clipStore';
 import { useTimelineStore } from './timeline/useTimelineStore';
 import type { ActiveTool } from './timeline/types';
 
@@ -19,7 +21,9 @@ import type { ActiveTool } from './timeline/types';
  *
  * Legacy consumers still see the original SequenceTool union.
  */
-export type SequenceTool = 'select' | 'trim' | 'razor' | 'slip' | 'slide' | 'hand' | 'rate-stretch';
+export type SequenceTool =
+  | 'select' | 'trim' | 'razor' | 'slip' | 'slide' | 'hand' | 'rate-stretch'
+  | 'ripple' | 'rolling' | 'track-select' | 'pen' | 'zoom';
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -167,6 +171,16 @@ export const SequenceToolbar: React.FC<SequenceToolbarProps> = ({
     const totalTimecode = formatTimecode(maxFrame, fps);
     const zoomPercent = Math.round(scale * 100);
 
+    // ── Edit Readiness ──
+    const clips = useClipStore(s => s.clips);
+    const readiness = useMemo(() => computeReadiness(clips), [clips]);
+    const [showChecklist, setShowChecklist] = useState(false);
+
+    const scoreColor = readiness.total >= 90 ? '#22c55e'
+        : readiness.total >= 80 ? '#86efac'
+        : readiness.total >= 50 ? '#f59e0b'
+        : '#ef4444';
+
     // ── Fit-to-view handler ──
     const handleFit = useCallback(() => {
         if (onFitZoom) {
@@ -179,7 +193,7 @@ export const SequenceToolbar: React.FC<SequenceToolbarProps> = ({
     }, [onFitZoom, maxFrame, onScaleChange]);
 
     return (
-        <div className="h-9 flex items-center justify-between px-2 bg-[#111122]/90 backdrop-blur-sm border-b border-white/[0.06] flex-shrink-0 select-none z-30">
+        <div className="h-9 flex items-center justify-between px-2 bg-[#111122] border-b border-white/[0.06] flex-shrink-0 select-none z-30">
             {/* ══════ LEFT: Tool Palette ══════ */}
             <div className="flex items-center gap-0.5">
                 {/* ── Tool Radio Group ── */}
@@ -239,6 +253,46 @@ export const SequenceToolbar: React.FC<SequenceToolbarProps> = ({
                         shortcut="R"
                     >
                         <Gauge size={13} />
+                    </ToolButton>
+                    <ToolButton
+                        active={currentTool === 'ripple'}
+                        onClick={() => setTool('ripple')}
+                        title="Ripple Edit Tool"
+                        shortcut="B"
+                    >
+                        <ArrowRightLeft size={13} />
+                    </ToolButton>
+                    <ToolButton
+                        active={currentTool === 'rolling'}
+                        onClick={() => setTool('rolling')}
+                        title="Rolling Edit Tool"
+                        shortcut="N"
+                    >
+                        <Columns size={13} />
+                    </ToolButton>
+                    <ToolButton
+                        active={currentTool === 'track-select'}
+                        onClick={() => setTool('track-select')}
+                        title="Track Select Forward Tool"
+                        shortcut="A"
+                    >
+                        <MousePointerClick size={13} />
+                    </ToolButton>
+                    <ToolButton
+                        active={currentTool === 'pen'}
+                        onClick={() => setTool('pen')}
+                        title="Pen Tool (keyframes)"
+                        shortcut="P"
+                    >
+                        <PenTool size={13} />
+                    </ToolButton>
+                    <ToolButton
+                        active={currentTool === 'zoom'}
+                        onClick={() => setTool('zoom')}
+                        title="Zoom Tool"
+                        shortcut="Z"
+                    >
+                        <ZoomIn size={13} />
                     </ToolButton>
                 </div>
 
@@ -302,6 +356,21 @@ export const SequenceToolbar: React.FC<SequenceToolbarProps> = ({
                     <span className="text-[9px] text-orange-400 font-medium ml-2 tracking-wide">
                         ⏩ RATE
                     </span>
+                )}
+                {currentTool === 'ripple' && (
+                    <span className="text-[9px] text-rose-400 font-medium ml-2 tracking-wide">⇄ RIPPLE</span>
+                )}
+                {currentTool === 'rolling' && (
+                    <span className="text-[9px] text-teal-400 font-medium ml-2 tracking-wide">‖ ROLLING</span>
+                )}
+                {currentTool === 'track-select' && (
+                    <span className="text-[9px] text-fuchsia-400 font-medium ml-2 tracking-wide">➤ TRACK SELECT</span>
+                )}
+                {currentTool === 'pen' && (
+                    <span className="text-[9px] text-lime-400 font-medium ml-2 tracking-wide">✎ PEN</span>
+                )}
+                {currentTool === 'zoom' && (
+                    <span className="text-[9px] text-sky-400 font-medium ml-2 tracking-wide">🔍 ZOOM</span>
                 )}
             </div>
 
@@ -451,6 +520,63 @@ export const SequenceToolbar: React.FC<SequenceToolbarProps> = ({
                 >
                     <Download size={13} />
                 </motion.button>
+
+                <div className="w-px h-4 bg-white/[0.06]" />
+
+                {/* ── Edit Readiness Indicator ── */}
+                <div className="relative ml-auto">
+                    <button
+                        onClick={() => setShowChecklist(prev => !prev)}
+                        className="flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-white/5 transition-colors group"
+                        title={`Edit Readiness: ${readiness.total}%`}
+                    >
+                        {/* Circular progress ring */}
+                        <svg width="24" height="24" viewBox="0 0 24 24" className="-rotate-90">
+                            <circle cx="12" cy="12" r="10" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="2" />
+                            <circle
+                                cx="12" cy="12" r="10" fill="none"
+                                stroke={scoreColor}
+                                strokeWidth="2"
+                                strokeDasharray={`${readiness.total * 0.628} 62.8`}
+                                strokeLinecap="round"
+                                className={readiness.total >= 90 ? 'animate-pulse' : ''}
+                            />
+                        </svg>
+                        <span className="text-[10px] font-bold" style={{ color: scoreColor }}>
+                            {readiness.total}%
+                        </span>
+                        {readiness.total >= 90 && (
+                            <span className="text-[9px] text-emerald-400/80 font-medium hidden group-hover:block">
+                                Ready!
+                            </span>
+                        )}
+                    </button>
+
+                    {/* Checklist popover */}
+                    {showChecklist && (
+                        <div className="absolute top-full right-0 mt-1 w-64 bg-[#1a1a2e] border border-white/10 rounded-xl shadow-2xl z-50 p-3 space-y-1.5">
+                            <div className="text-[10px] font-bold text-white/70 uppercase tracking-wider mb-2">Edit Readiness</div>
+                            {readiness.checks.map((check, i) => (
+                                <div key={i} className="flex items-center gap-2 text-[10px]">
+                                    <span className={check.passed ? 'text-emerald-400' : 'text-white/20'}>
+                                        {check.passed ? '✓' : '○'}
+                                    </span>
+                                    <span className={check.passed ? 'text-white/60' : 'text-white/30'}>
+                                        {check.name}
+                                    </span>
+                                    {!check.passed && (
+                                        <span className="text-white/20 ml-auto text-[8px]">{check.tip}</span>
+                                    )}
+                                </div>
+                            ))}
+                            {readiness.total >= 90 && (
+                                <div className="mt-2 pt-2 border-t border-white/5 text-[9px] text-emerald-400/70 text-center">
+                                    🎬 Your edit is ready to publish!
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );

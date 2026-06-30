@@ -26,6 +26,8 @@ import type {
     EmphasisPoint,
 } from '../../lib/narrationAnalysis';
 import type { MergeStrategy } from '../../lib/intelligenceMerger';
+import type { TrailerSettings } from '../../lib/trailerGenerator';
+import { TrailerAudioDynamics } from './EditAudioDynamics';
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -45,6 +47,10 @@ interface NarrationIntelligenceProps {
     onMergeStrategyChange?: (strategy: MergeStrategy) => void;
     /** true when beat analysis also exists */
     hasBeatIntelligence?: boolean;
+    /** Trailer settings for Audio Dynamics controls */
+    settings?: TrailerSettings;
+    /** Settings updater for Audio Dynamics controls */
+    update?: (patch: Partial<TrailerSettings>) => void;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -152,7 +158,7 @@ function drawNarrationWaveform(
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export const NarrationIntelligence: React.FC<NarrationIntelligenceProps> = ({
+export const NarrationIntelligence = React.memo<NarrationIntelligenceProps>(({
     narrationFile,
     narrationName,
     narrationUrl,
@@ -166,6 +172,8 @@ export const NarrationIntelligence: React.FC<NarrationIntelligenceProps> = ({
     mergeStrategy,
     onMergeStrategyChange,
     hasBeatIntelligence,
+    settings,
+    update,
 }) => {
     // ── Refs ─────────────────────────────────────────────────────────────
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -572,12 +580,19 @@ export const NarrationIntelligence: React.FC<NarrationIntelligenceProps> = ({
                 </div>
             )}
 
+            {/* ═══ Audio Dynamics (moved from BIE) ═══ */}
+            {settings && update && (
+                <div className="pt-2 border-t border-white/5">
+                    <TrailerAudioDynamics settings={settings} update={update} />
+                </div>
+            )}
+
                         </div>{/* end .space-y-4 */}
                     </motion.div>
                 )}
             </AnimatePresence>
         </div>
     );
-};
+});
 
 export default NarrationIntelligence;

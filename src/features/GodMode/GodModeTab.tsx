@@ -4,6 +4,7 @@ import { Crown, Clock, Music, Upload, Play, Pause, Trash2, Loader2, Film, Wand2,
 import { useViewStore } from '../../store/viewStore';
 import { useGodModeStore } from '../../store/godModeStore';
 import { useMediaStore } from '../../store/mediaStore';
+import { useClipStore } from '../../store/clipStore';
 import { analyzeAudio } from '../../lib/audioAnalysis';
 import { TrailerSettings, DEFAULT_TRAILER_SETTINGS } from '../../lib/trailerGenerator';
 import { TEMPLATE_LIST, VIDEO_MODE_LIST, type TemplateId, type VideoMode } from '../../lib/editingModes';
@@ -125,6 +126,14 @@ export const GodModeTab: React.FC = () => {
         if (gm.audioUrl) URL.revokeObjectURL(gm.audioUrl);
         gm.setAudioGuide({ useAudioGuide: false, audioFile: null, audioUrl: null, audioAnalysis: null, audioTrimStart: 0, audioTrimEnd: 30 });
         setAudioPlaying(false);
+        // Purge auto-generated audio clips from clip store
+        const clipState = useClipStore.getState();
+        const cleaned = clipState.clips.filter(
+            (c: any) => !(c.type === 'audio' && c.origin === 'auto' && c.track === 101)
+        );
+        if (cleaned.length !== clipState.clips.length) {
+            clipState.setClips(cleaned);
+        }
     };
 
     const toggleAudio = () => {

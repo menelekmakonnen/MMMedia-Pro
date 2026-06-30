@@ -11,7 +11,8 @@ import { parseShowinfoPtsTimes } from '../src/lib/sceneDetection';
 import { parseSilenceDetect, computeHeadTailTrim } from '../src/lib/silenceRemoval';
 import { parseMetadataValues, mean as motionMean, motionToScore } from '../src/lib/clipScoring';
 import { buildDoubleExposureGraph, buildGradientDoubleExposureGraph } from '../src/lib/editEffectFilters';
-import { getTransitionFFmpegName, isApproximatedTransition } from '../src/lib/transitions';
+import { getTransitionFFmpegName, getCustomXfadeExpr, isApproximatedTransition } from '../src/lib/transitions';
+import { buildDeflickerArgs } from '../src/lib/deflickerFilter';
 import { getGridLayout } from '../src/lib/gridTemplates';
 import type { GridCellLayout } from '../src/lib/gridTemplates';
 
@@ -150,6 +151,28 @@ function createWindow() {
         console.error('[Main] Failed to initialize Bridge Server:', e);
     }
 }
+
+// ── Send to MMMedia Ender ─────────────────────────────────────────────────────
+// Hands the current edit ({ clips, settings, overrides }) off to the Ender
+// render-queue app (WS bridge on :19898, with durable mailbox fallback).
+ipcMain.handle('send-to-ender', async (_event, job: { name?: string; source?: string; clips: any[]; settings: any; mediaRefs?: string[]; overrides?: any }) => {
+    try {
+        const enderPath = join(__dirname, '../electron/enderClient.cjs');
+        const { sendToEnder } = require(enderPath);
+        const result = await sendToEnder({
+            name: job.name || 'MMMedia Pro render',
+            source: 'MMMedia Pro',
+            clips: job.clips || [],
+            settings: job.settings || {},
+            mediaRefs: job.mediaRefs || (job.clips || []).map((c: any) => c.path).filter(Boolean),
+            overrides: job.overrides || {},
+        });
+        return { success: true, ...result };
+    } catch (e: any) {
+        console.error('[Main] send-to-ender failed:', e);
+        return { success: false, error: e?.message || String(e) };
+    }
+});
 
 // Track last-used directories per picker type — each picker remembers its own folder
 let lastAudioDir = app.getPath('music');
@@ -317,6 +340,75 @@ ipcMain.handle('load-project', async () => {
         return { success: false, error: String(e) }
     }
 })
+
+// ── Project Manager: silent .mmm storage in a Documents projects folder ───────
+const PROJECTS_DIR_FILE = () => join(app.getPath('userData'), 'projects-dir.txt');
+function defaultProjectsDir(): string {
+    return join(app.getPath('documents'), 'MMMedia Projects');
+}
+function configuredProjectsDir(): string {
+    try {
+        const p = fs.readFileSync(PROJECTS_DIR_FILE(), 'utf-8').trim();
+        if (p) return p;
+    } catch { /* not set */ }
+    return defaultProjectsDir();
+}
+function ensureDir(dir: string): string {
+    try { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }
+    return dir;
+}
+
+ipcMain.handle('project:get-dir', async () => ({ dir: configuredProjectsDir() }));
+
+ipcMain.handle('project:set-dir', async (_e, dir: string) => {
+    try { fs.writeFileSync(PROJECTS_DIR_FILE(), dir, 'utf-8'); } catch { /* ignore */ }
+    return { dir: configuredProjectsDir() };
+});
+
+ipcMain.handle('project:pick-dir', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(win!, { properties: ['openDirectory', 'createDirectory'] });
+    if (canceled || filePaths.length === 0) return { canceled: true };
+    try { fs.writeFileSync(PROJECTS_DIR_FILE(), filePaths[0], 'utf-8'); } catch { /* ignore */ }
+    return { dir: filePaths[0] };
+});
+
+ipcMain.handle('project:save', async (_e, { name, content, dir }: { name: string; content: string; dir?: string }) => {
+    try {
+        const target = ensureDir(dir || configuredProjectsDir());
+        const safe = (name || 'project').replace(/[^a-z0-9-_ ]/gi, '_').slice(0, 80).trim() || 'project';
+        const filePath = join(target, `${safe}.mmm`);
+        await fs.promises.writeFile(filePath, content, 'utf-8');
+        return { success: true, filePath };
+    } catch (e) {
+        return { success: false, error: String(e) };
+    }
+});
+
+ipcMain.handle('project:list', async (_e, { dir }: { dir?: string } = {}) => {
+    try {
+        const target = ensureDir(dir || configuredProjectsDir());
+        const names = (await fs.promises.readdir(target)).filter((n) => n.toLowerCase().endsWith('.mmm'));
+        const items = await Promise.all(names.map(async (n) => {
+            const p = join(target, n);
+            let updatedAt: number | undefined;
+            try { updatedAt = (await fs.promises.stat(p)).mtimeMs; } catch { /* ignore */ }
+            return { name: n.replace(/\.mmm$/i, ''), path: p, updatedAt };
+        }));
+        items.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        return { items };
+    } catch (e) {
+        return { items: [], error: String(e) };
+    }
+});
+
+ipcMain.handle('project:load', async (_e, { path }: { path: string }) => {
+    try {
+        const content = await fs.promises.readFile(path, 'utf-8');
+        return { content };
+    } catch (e) {
+        return { error: String(e) };
+    }
+});
 
 // Manifest Handlers
 ipcMain.handle('export-manifest', async (_event, content: string) => {
@@ -706,12 +798,15 @@ async function renderGridClip(
                     inputs.push('-f', 'lavfi', '-t', (timing.outDurSec + 0.25).toFixed(4), '-i', 'anullsrc=r=48000:cl=stereo');
                     fc = `[0:v]${vf}[v]`; vmap = '[v]'; amap = '1:a';
                 }
-                const subArgs = ['-y', ...inputs, '-filter_complex', fc, '-map', vmap, '-map', amap,
+                const subFcFile = path.join(tmpDir, `mmm_grid_fc_${ci}_${si}_${Date.now()}.txt`);
+                fs.writeFileSync(subFcFile, fc, 'utf-8');
+                const subArgs = ['-y', ...inputs, '-filter_complex_script', subFcFile, '-map', vmap, '-map', amap,
                     '-t', timing.outDurSec.toFixed(4), '-r', String(fps),
                     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '15', '-pix_fmt', 'yuv420p',
                     '-c:a', 'aac', '-b:a', '320k', '-ar', '48000', '-ac', '2', subIntFile];
 
                 const r = await runFfmpegAsync(ffmpegBin, subArgs, `grid_c${ci}_s${si}`, () => {});
+                try { fs.unlinkSync(subFcFile); } catch {}
                 if (r.code !== 0 || !fs.existsSync(subIntFile)) {
                     log(`  Cell ${ci} sub-clip ${si} "${subClip.filename}" failed: ${r.stderr.slice(-150).trim()}`);
                     continue;
@@ -764,6 +859,7 @@ async function renderGridClip(
     // ── Build final grid composite ──
     // Input 0: black background; Inputs 1..N: cell intermediates
     const gridOutFile = path.join(tmpDir, `mmm_grid_final_${Date.now()}.mkv`);
+    const bgMode = grid.backgroundMode || 'black';
     const gridInputs: string[] = [
         '-f', 'lavfi', '-i', `color=c=black:s=${outW}x${outH}:d=${gridDuration.toFixed(4)}:r=${fps}`,
     ];
@@ -782,9 +878,24 @@ async function renderGridClip(
         const cellW2Even = cellW2 % 2 === 0 ? cellW2 : cellW2 + 1;
         const cellH2Even = cellH2 % 2 === 0 ? cellH2 : cellH2 + 1;
         const outLabel = k === cellIntermediates.length - 1 ? 'gv' : `ov${k}`;
-        // Scale cell intermediate to exact cell size, then overlay at position
-        fcChains.push(`[${inputIdx}:v]scale=${cellW2Even}:${cellH2Even}:force_original_aspect_ratio=decrease,pad=${cellW2Even}:${cellH2Even}:(ow-iw)/2:(oh-ih)/2,setsar=1[cs${k}]`);
-        fcChains.push(`[${prevLabel}][cs${k}]overlay=x=${ox}:y=${oy}:shortest=1[${outLabel}]`);
+
+        if (bgMode === 'blur') {
+            // Blur background: split input → blurred fill + sharp foreground, then composite
+            // 1. Split the input into two streams
+            fcChains.push(`[${inputIdx}:v]split[bg_${k}][fg_${k}]`);
+            // 2. Background: scale UP to fill the cell (crop to fit), then heavy gaussian blur
+            fcChains.push(`[bg_${k}]scale=${cellW2Even}:${cellH2Even}:force_original_aspect_ratio=increase,crop=${cellW2Even}:${cellH2Even},gblur=sigma=25,setsar=1[blur_${k}]`);
+            // 3. Foreground: scale DOWN to fit within cell (maintain aspect ratio), with transparent padding
+            fcChains.push(`[fg_${k}]scale=${cellW2Even}:${cellH2Even}:force_original_aspect_ratio=decrease,pad=${cellW2Even}:${cellH2Even}:(ow-iw)/2:(oh-ih)/2:color=0x00000000,setsar=1[sharp_${k}]`);
+            // 4. Composite sharp on top of blur to form the cell
+            fcChains.push(`[blur_${k}][sharp_${k}]overlay=0:0:format=auto[cell_${k}]`);
+            // 5. Overlay the composited cell onto the grid canvas
+            fcChains.push(`[${prevLabel}][cell_${k}]overlay=x=${ox}:y=${oy}:shortest=1[${outLabel}]`);
+        } else {
+            // Black background (original behavior): scale to fit with black padding
+            fcChains.push(`[${inputIdx}:v]scale=${cellW2Even}:${cellH2Even}:force_original_aspect_ratio=decrease,pad=${cellW2Even}:${cellH2Even}:(ow-iw)/2:(oh-ih)/2,setsar=1[cs${k}]`);
+            fcChains.push(`[${prevLabel}][cs${k}]overlay=x=${ox}:y=${oy}:shortest=1[${outLabel}]`);
+        }
         prevLabel = outLabel;
     }
 
@@ -855,6 +966,11 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
         const cleanup = () => { intermediates.forEach(f => { try { fs.unlinkSync(f); } catch {} }); };
 
         try {
+            // Reset any stale cancel flag from a previous export so it never
+            // falsely aborts this new export (fixes "Export cancelled by user"
+            // when the user didn't cancel anything).
+            activeExportProc = null;
+
             // ── Settings ──
             const exportFps = settings?.exportFps && settings.exportFps > 0 ? settings.exportFps : (settings?.fps || 30);
             const projectFps = settings?.fps || 30;
@@ -1048,12 +1164,18 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                     fc = `[0:v]${vf}[v]`; vmap = '[v]'; amap = '1:a';
                 }
                 // Intermediates are CFR, uniform, near-lossless — and HARD-CAPPED at outDurSec.
-                const args = ['-y', ...inputs, '-filter_complex', fc, '-map', vmap, '-map', amap,
+                // Write filter_complex to a file to avoid PowerShell single-quote escaping
+                // corruption — FFmpeg filter expressions (zoompan, keyframed volume/brightness)
+                // use single quotes that break when embedded in PS string literals.
+                const fcFile = path.join(tmpDir, `mmm_seg_fc_${i}_${Date.now()}.txt`);
+                fs.writeFileSync(fcFile, fc, 'utf-8');
+                const args = ['-y', ...inputs, '-filter_complex_script', fcFile, '-map', vmap, '-map', amap,
                     '-t', timing.outDurSec.toFixed(4), '-r', String(fps),
-                    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '15', '-pix_fmt', 'yuv420p',
+                    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '15', '-pix_fmt', 'yuv420p', '-colorspace', 'bt709', '-color_trc', 'bt709', '-color_primaries', 'bt709',
                     '-c:a', 'aac', '-b:a', '320k', '-ar', '48000', '-ac', '2', intFile];
 
                 const r = await runFfmpegAsync(ffmpegBin, args, `seg${i}`, () => {});
+                try { fs.unlinkSync(fcFile); } catch {}
                 if (r.code !== 0 || !fs.existsSync(intFile)) { log(`⚠ Clip ${i + 1}/${videoClips.length} "${clip.filename}" failed: ${r.stderr.slice(-200).trim()}`); continue; }
                 // ── Two-pass video stabilization (vidstabdetect -> vidstabtransform) ──
                 //    Operates on the CFR intermediate so detect & transform see identical
@@ -1135,11 +1257,14 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                                     : ['-ss', ovTiming.seekSec.toFixed(4), '-i', ov.path];
                                 ovInputs.push('-f', 'lavfi', '-t', (ovTiming.outDurSec + 0.25).toFixed(4), '-i', 'anullsrc=r=48000:cl=stereo');
                                 const ovFc = `[0:v]${ovVf}[v]`;
-                                const ovArgs = ['-y', ...ovInputs, '-filter_complex', ovFc, '-map', '[v]', '-map', '1:a',
+                                const ovFcFile = path.join(tmpDir, `mmm_ov_fc_${i}_${oi}_${Date.now()}.txt`);
+                                fs.writeFileSync(ovFcFile, ovFc, 'utf-8');
+                                const ovArgs = ['-y', ...ovInputs, '-filter_complex_script', ovFcFile, '-map', '[v]', '-map', '1:a',
                                     '-t', ovTiming.outDurSec.toFixed(4), '-r', String(fps),
                                     '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '15', '-pix_fmt', 'yuva420p',
                                     '-c:a', 'aac', '-b:a', '128k', '-ar', '48000', '-ac', '2', ovIntFile];
                                 const ovR = await runFfmpegAsync(ffmpegBin, ovArgs, `ov_${i}_${oi}`, () => {});
+                                try { fs.unlinkSync(ovFcFile); } catch {}
                                 if (ovR.code !== 0 || !fs.existsSync(ovIntFile)) {
                                     log(`⚠ Overlay ${oi} for clip ${i} failed: ${ovR.stderr.slice(-200).trim()}`);
                                     continue;
@@ -1213,7 +1338,7 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
             // boundaries hard-cut so they group into robust concat runs instead.
             const MIN_TRANS_CLIP = 0.45; // seconds — BOTH neighbors must exceed this for a transition
             const MAX_XFADES = 20;       // absolute cap on chained xfades (drift/freeze guard)
-            type Boundary = { name: string | null; dur: number };
+            type Boundary = { name: string | null; dur: number; expr?: string | null };
             const boundaries: Boundary[] = [];
             for (let i = 0; i < N - 1; i++) {
                 const ct = renderedClips[i]?.transition;
@@ -1228,7 +1353,8 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                 const D = Math.min(durSec, 0.4 * shorter);
                 if (D < 1 / fps) { boundaries.push({ name: null, dur: 0 }); continue; }
                 const name = getTransitionFFmpegName(type as any) || 'fade';
-                boundaries.push({ name, dur: parseFloat(D.toFixed(4)) });
+                const expr = getCustomXfadeExpr(type as any);
+                boundaries.push({ name, dur: parseFloat(D.toFixed(4)), expr });
             }
             // Hard-cap the xfade chain depth: keep transitions on the longest-neighbor
             // boundaries and convert the rest to cuts (which group into stable concat runs).
@@ -1306,7 +1432,10 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                         const offset = Math.max(0, cum - D);
                         const ov = r === runV.length - 1 ? 'xv_out' : `xv${r}`;
                         const oa = r === runV.length - 1 ? 'xa_out' : `xa${r}`;
-                        chains.push(`${prevV}${runV[r]}xfade=transition=${b.name}:duration=${D.toFixed(4)}:offset=${offset.toFixed(4)}[${ov}]`);
+                        const xfadeParam = b.expr
+                            ? `transition=custom:expr='${b.expr}':duration=${D.toFixed(4)}:offset=${offset.toFixed(4)}`
+                            : `transition=${b.name}:duration=${D.toFixed(4)}:offset=${offset.toFixed(4)}`;
+                        chains.push(`${prevV}${runV[r]}xfade=${xfadeParam}[${ov}]`);
                         chains.push(`${prevA}${runA[r]}acrossfade=d=${D.toFixed(4)}:c1=qsin:c2=qsin[${oa}]`);
                         prevV = `[${ov}]`; prevA = `[${oa}]`; cum = cum + runDur[r] - D;
                     }
@@ -1319,6 +1448,7 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
             let finalA = stitchA;
             if (audioClips.length > 0) {
                 const bgLabels: string[] = [];
+                let longestBgDur = 0; // Track the longest background audio duration
                 audioClips.forEach((c: any, k: number) => {
                     const idx = bgStart + k;
                     const ts = (c.trimStartFrame ?? 0) / projectFps;
@@ -1326,7 +1456,14 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                     const selectedDur = Math.max(0, te - ts);
                     const slotStart = Math.max(0, (c.startFrame ?? 0) / projectFps);
                     const slotDur = Math.max(0, ((c.endFrame ?? 0) - (c.startFrame ?? 0)) / projectFps);
-                    const wantedDur = slotDur > 0 ? slotDur : selectedDur;
+                    // Safety net: if the audio should span the whole video but its
+                    // endFrame was set too short, clamp to the total video duration.
+                    const totalVideoDur = outDurs.reduce((a, b) => a + b, 0) - boundaries.reduce((a, b) => a + (b.dur || 0), 0);
+                    const shouldSpanFull = c.loopToTimeline || (c.origin === 'auto' && c.track === 101);
+                    const wantedDur = shouldSpanFull
+                        ? Math.max(slotDur, totalVideoDur, selectedDur)
+                        : (slotDur > 0 ? slotDur : selectedDur);
+                    longestBgDur = Math.max(longestBgDur, wantedDur + slotStart);
                     const vol = (c.volume ?? 100) / 100;
                     let f = `[${idx}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,`;
                     if (te > ts) f += `atrim=start=${ts.toFixed(4)}:end=${te.toFixed(4)},`;
@@ -1346,7 +1483,33 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                     f += `volume=${vol.toFixed(4)}[bg${k}]`;
                     chains.push(f); bgLabels.push(`[bg${k}]`);
                 });
-                chains.push(`[${stitchA}]${bgLabels.join('')}amix=inputs=${bgLabels.length + 1}:duration=first:dropout_transition=0[mixa]`);
+
+                // ── Duration strategy ──
+                // If the background audio is longer than the video, use `duration=longest`
+                // so the full song plays, and pad the video with a freeze of the last frame.
+                // Otherwise, use `duration=first` so the video dictates the length.
+                const totalVideoDur = outDurs.reduce((a, b) => a + b, 0) - boundaries.reduce((a, b) => a + (b.dur || 0), 0);
+                const audioOutlastsVideo = longestBgDur > totalVideoDur + 0.5;
+                const amixDuration = audioOutlastsVideo ? 'longest' : 'first';
+
+                if (audioOutlastsVideo) {
+                    // Pad the stitched video to cover the audio duration.
+                    // The generation pipeline's backfill should prevent large gaps, but
+                    // this handles edge cases where video is still slightly shorter.
+                    const padDur = Math.ceil(longestBgDur - totalVideoDur);
+                    chains.push(`[${stitchV}]tpad=stop_mode=clone:stop_duration=${padDur}[vpad]`);
+                    stitchV = 'vpad';
+                    // Also pad the stitched audio with silence so amix inputs are balanced.
+                    chains.push(`[${stitchA}]apad=whole_dur=${longestBgDur.toFixed(4)}[apad]`);
+                    stitchA = 'apad';
+                    if (padDur > 3) {
+                        log(`⚠ Audio (${longestBgDur.toFixed(1)}s) outlasts video (${totalVideoDur.toFixed(1)}s) — padding video with last-frame freeze +${padDur}s (consider regenerating for better coverage)`);
+                    } else {
+                        log(`Audio (${longestBgDur.toFixed(1)}s) outlasts video (${totalVideoDur.toFixed(1)}s) — padding video with last-frame freeze +${padDur}s`);
+                    }
+                }
+
+                chains.push(`[${stitchA}]${bgLabels.join('')}amix=inputs=${bgLabels.length + 1}:duration=${amixDuration}:dropout_transition=0[mixa]`);
                 finalA = 'mixa';
                 log(`Mixing ${bgLabels.length} background track(s)`);
             }
@@ -1377,7 +1540,12 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                 '-c:v', resolvedCodec, '-pix_fmt', 'yuv420p', '-colorspace', 'bt709', '-color_trc', 'bt709', '-color_primaries', 'bt709',
                 '-max_muxing_queue_size', '1024', '-movflags', '+faststart', ...qa, filePath];
 
-            const totalExpected = outDurs.reduce((a, b) => a + b, 0) - boundaries.reduce((a, b) => a + (b.dur || 0), 0);
+            const videoDuration = outDurs.reduce((a, b) => a + b, 0) - boundaries.reduce((a, b) => a + (b.dur || 0), 0);
+            const totalExpected = stitchV === 'vpad' ? Math.max(videoDuration, audioClips.length > 0 ? (() => {
+                const te = (audioClips[0].trimEndFrame ?? audioClips[0].endFrame ?? 0) / projectFps;
+                const ts = (audioClips[0].trimStartFrame ?? 0) / projectFps;
+                return Math.max(0, te - ts);
+            })() : videoDuration) : videoDuration;
             log(`Final encode → ${resolvedCodec} | expected ~${totalExpected.toFixed(1)}s`);
             const r = await runFfmpegAsync(ffmpegBin, finalArgs, 'seg_final', (line: string) => {
                 const m = line.match(/time=(\d+):(\d+):([0-9.]+)/);
@@ -1436,6 +1604,9 @@ ipcMain.handle('export-project', async (event, { filePath, clips: rawClips, sett
         fs.writeFileSync(renderLogPath, `=== MMMedia Pro Render Log (v2 — Rebuilt Engine) ===\nStarted: ${new Date().toISOString()}\nOutput: ${filePath}\n\n`);
 
         try {
+            // Reset stale cancel flag from previous export
+            activeExportProc = null;
+
             // ── 1. SORT, FILTER, NORMALIZE ──
             let clips = rawClips
                 .filter((c: any) => !c.disabled)
@@ -1846,6 +2017,9 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
         fs.writeFileSync(renderLogPath, `=== MMMedia Pro Render Log (Monolithic Engine) ===\nStarted: ${new Date().toISOString()}\nOutput: ${filePath}\n\n`);
 
         try {
+            // Reset stale cancel flag from previous export
+            activeExportProc = null;
+
             // ── 1. NORMALIZE, FILTER, VALIDATE ──
             let clips = rawClips
                 .filter((c: any) => !c.disabled)
@@ -1869,7 +2043,7 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
 
             // Dedup audio clips
             const audioClips = clips.filter((c: any) => c.type === 'audio');
-            const videoClips = clips.filter((c: any) => c.type !== 'audio');
+            const allVideoClips = clips.filter((c: any) => c.type !== 'audio');
             if (audioClips.length > 1) {
                 const seen = new Set<string>();
                 const deduped = audioClips.filter((c: any) => {
@@ -1878,12 +2052,19 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
                     seen.add(k);
                     return true;
                 });
-                clips = [...videoClips, ...deduped];
+                clips = [...allVideoClips, ...deduped];
             }
+
+            // Separate PIP overlay clips from regular video clips
+            const pipClips = allVideoClips.filter((c: any) => c.compositeOverlay === true);
+            const videoClips = allVideoClips.filter((c: any) => !c.compositeOverlay);
 
             log(`── Clip data (${rawClips.length} raw → ${clips.length} filtered) ──`);
             videoClips.forEach((c: any, i: number) => {
                 log(`  V[${i}] "${c.filename}" startF=${c.startFrame} endF=${c.endFrame} trimStart=${c.trimStartFrame} trimEnd=${c.trimEndFrame} srcDur=${c.sourceDurationFrames} speed=${c.speed} vol=${c.volume} muted=${c.isMuted}`);
+            });
+            pipClips.forEach((c: any, i: number) => {
+                log(`  PIP[${i}] "${c.filename}" startF=${c.startFrame} endF=${c.endFrame} scale=${c.compositeScale} x=${c.compositeX} y=${c.compositeY} track=${c.track}`);
             });
             audioClips.forEach((c: any, i: number) => {
                 log(`  A[${i}] "${c.filename}" trimStart=${c.trimStartFrame} trimEnd=${c.trimEndFrame} endFrame=${c.endFrame} vol=${c.volume} track=${c.track} path=${c.path?.substring(0, 80)}`);
@@ -1924,6 +2105,8 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
 
 
             clips.forEach((clip: any, index: number) => {
+                // Skip PIP overlay clips — they are composited as post-process after stitching
+                if (clip.compositeOverlay === true) return;
                 const seekTo = (clip.trimStartFrame ?? 0) / projectFps;
                 const sourceDuration = probeResults[index].duration;
 
@@ -1994,7 +2177,23 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
                             log(`  ⚠ Audio "${clip.filename}": trim data yielded 0s, using probed duration ${audioDur.toFixed(1)}s`);
                         }
                     }
-                    const wantedDur = timelineDur > 0 ? timelineDur : audioDur;
+                    // Safety net: if the audio should span the whole video but its
+                    // endFrame was set too short, compute the total video timeline
+                    // from all non-audio clips and ensure wantedDur covers it.
+                    const shouldSpanFull = clip.loopToTimeline || (clip.origin === 'auto' && clip.track === 101);
+                    let wantedDur = timelineDur > 0 ? timelineDur : audioDur;
+                    if (shouldSpanFull) {
+                        // FIX: Use the max endFrame (overall timeline end), NOT the
+                        // max individual clip span — the old reduce computed the longest
+                        // single clip duration, not the last frame on the timeline.
+                        const totalVidDur = clips
+                            .filter((cc: any) => cc.type !== 'audio')
+                            .reduce((max: number, cc: any) => Math.max(max, (cc.endFrame ?? 0) / projectFps), 0);
+                        if (totalVidDur > wantedDur) {
+                            log(`  ⚠ Audio \"${clip.filename}\": endFrame-based duration ${wantedDur.toFixed(1)}s < video ${totalVidDur.toFixed(1)}s — clamping up`);
+                            wantedDur = totalVidDur;
+                        }
+                    }
                     let audioFilter = `[${index}:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,atrim=start=0:duration=${audioDur.toFixed(4)},asetpts=PTS-STARTPTS,`;
                     const shouldLoop = clip.loopToTimeline || (clip.origin === 'auto' && clip.track === 101);
                     if (shouldLoop && audioDur > 0.01 && wantedDur > audioDur + 0.01) {
@@ -2166,6 +2365,77 @@ ipcMain.handle('export-project-monolithic', async (event, { filePath, clips: raw
                 );
                 finalVideoMap = 'concat_v';
                 finalAudioMap = 'concat_a';
+            }
+
+            // ── 4b. PIP OVERLAY COMPOSITING ──
+            // After the main video stitching, overlay any PIP clips on top of the
+            // final video stream. Each PIP is added as its own FFmpeg input, scaled
+            // to compositeScale% of the output, positioned by compositeX/Y, and
+            // enabled only for its time window via the overlay enable expression.
+            if (pipClips.length > 0) {
+                log(`Compositing ${pipClips.length} PIP overlay(s) onto stitched video`);
+
+                // We need the total video duration (in seconds) of the stitched base
+                // to compute PIP enable windows against.
+                for (let pi = 0; pi < pipClips.length; pi++) {
+                    const pip = pipClips[pi];
+                    const pipSpeed = pip.speed || 1.0;
+                    const pipSeek = (pip.trimStartFrame ?? 0) / projectFps;
+                    const pipTimelineDur = ((pip.endFrame ?? 0) - (pip.startFrame ?? 0)) / projectFps;
+                    const pipSrcDur = pipTimelineDur * pipSpeed;
+
+                    // Skip sub-frame PIP clips
+                    if (pipTimelineDur < (2 / fps)) {
+                        log(`  PIP clip ${pi} "${pip.filename}" too short (${pipTimelineDur.toFixed(4)}s) — skipping`);
+                        continue;
+                    }
+
+                    // Add PIP source as a new FFmpeg input
+                    const pipInputIdx = inputArgs.length / 2; // Each input is -ss + -i = 2 args (or just -i = 1 pair)
+                    // Count actual inputs by counting -i occurrences
+                    const pipInputNum = inputArgs.filter(a => a === '-i').length;
+                    inputArgs.push('-ss', pipSeek.toFixed(4), '-i', pip.path);
+
+                    // Scale PIP to compositeScale% of output dimensions
+                    const scale = (pip.compositeScale || 30) / 100;
+                    const pipW = Math.round(outW * scale);
+                    const pipH = Math.round(outH * scale);
+
+                    // Position: compositeX/Y are center-point percentages
+                    const posX = (pip.compositeX || 50) / 100;
+                    const posY = (pip.compositeY || 50) / 100;
+                    const pixelX = Math.round(posX * outW - pipW / 2);
+                    const pixelY = Math.round(posY * outH - pipH / 2);
+
+                    // PIP time window relative to the stitched video timeline
+                    const pipStartSec = (pip.startFrame ?? 0) / projectFps;
+                    const pipEndSec = (pip.endFrame ?? 0) / projectFps;
+
+                    // Prepare PIP video: trim, scale, speed adjust
+                    const pipLabel = `pip_${pi}`;
+                    const pipScaledLabel = `pip_${pi}_s`;
+                    let pipVf = `[${pipInputNum}:v]trim=start=0:duration=${pipSrcDur.toFixed(4)},setpts=PTS-STARTPTS`;
+
+                    // Rotation support for PIP
+                    const rot = pip.rotation || 0;
+                    if (rot === 90) pipVf += ',transpose=1';
+                    else if (rot === 180) pipVf += ',transpose=1,transpose=1';
+                    else if (rot === 270) pipVf += ',transpose=2';
+
+                    pipVf += `,scale=${pipW}:${pipH}:force_original_aspect_ratio=decrease,pad=${pipW}:${pipH}:(ow-iw)/2:(oh-ih)/2,setsar=1`;
+                    pipVf += `,setpts=${(1 / pipSpeed).toFixed(4)}*PTS[${pipScaledLabel}]`;
+                    filterChains.push(pipVf);
+
+                    // Apply overlay on the current final video stream
+                    const prevFinal = finalVideoMap;
+                    const newFinal = `vid_pip_${pi}`;
+                    filterChains.push(
+                        `[${prevFinal}][${pipScaledLabel}]overlay=${pixelX}:${pixelY}:enable='between(t,${pipStartSec.toFixed(4)},${pipEndSec.toFixed(4)})'[${newFinal}]`
+                    );
+                    finalVideoMap = newFinal;
+
+                    log(`  PIP clip ${pi}: "${pip.filename}" | ${pipW}x${pipH} at (${pixelX},${pixelY}) | t=${pipStartSec.toFixed(2)}-${pipEndSec.toFixed(2)}s | scale=${(scale * 100).toFixed(0)}%`);
+                }
             }
 
             // ── 5. BACKGROUND AUDIO MIXING ──
@@ -2588,6 +2858,102 @@ ipcMain.handle('detect-scenes', async (_e, { path: raw, threshold = 0.3, maxSec 
     } catch (e: any) { return { success: false, error: e?.message || String(e) }; }
 });
 
+// ─── ML Subject Segmentation ─────────────────────────────────────────────────
+// Generates a grayscale alpha matte video for subject isolation transitions.
+// Pipeline:
+//   1. Try rembg (Python ML tool) → produces clean AI-segmented matte
+//   2. Fallback to FFmpeg edge-detection → produces a contrast-based approximate matte
+//
+// The matte is saved next to the source video as `<name>_matte.mp4` and its path
+// is returned so the subject-mask transition filter can consume it via `movie=`.
+ipcMain.handle('segment-subject', async (_e, { path: raw, model = 'u2net' }: any) => {
+    const path = require('path');
+    try {
+        const ffmpegBin = resolveFFmpegBin();
+        const p = normalizeClipPath(raw || '');
+        if (!p || !fs.existsSync(p)) return { success: false, error: 'File not found' };
+
+        const dir = path.dirname(p);
+        const base = path.basename(p, path.extname(p));
+        const mattePath = path.join(dir, `${base}_matte.mp4`);
+
+        // ── Attempt 1: rembg (Python ML segmentation) ────────────────────
+        // rembg uses U2-Net / IS-Net / SAM models for background removal.
+        // We extract frames, run rembg on each, then reassemble as a matte.
+        try {
+            const framesDir = path.join(dir, `${base}_frames_tmp`);
+            const matteDir = path.join(dir, `${base}_matte_tmp`);
+            fs.mkdirSync(framesDir, { recursive: true });
+            fs.mkdirSync(matteDir, { recursive: true });
+
+            // Extract frames at 10fps for speed
+            const extractResult = await runFfmpegAsync(ffmpegBin, [
+                '-i', p, '-vf', 'fps=10,scale=512:-1',
+                path.join(framesDir, 'frame_%04d.png'),
+            ], 'extract-frames', () => {});
+            if (extractResult.code !== 0) throw new Error('Frame extraction failed');
+
+            // Run rembg on the frames directory
+            const { execSync } = require('child_process');
+            execSync(`rembg p -m ${model} "${framesDir}" "${matteDir}"`, {
+                timeout: 120000,
+                stdio: 'pipe',
+            });
+
+            // Reassemble matte frames into a video
+            const assembleResult = await runFfmpegAsync(ffmpegBin, [
+                '-framerate', '10',
+                '-i', path.join(matteDir, 'frame_%04d.png'),
+                '-vf', 'format=gray,scale=1920:1080',
+                '-c:v', 'libx264', '-crf', '18', '-pix_fmt', 'yuv420p',
+                '-y', mattePath,
+            ], 'assemble-matte', () => {});
+
+            // Clean up temp directories
+            try { fs.rmSync(framesDir, { recursive: true, force: true }); } catch {}
+            try { fs.rmSync(matteDir, { recursive: true, force: true }); } catch {}
+
+            if (assembleResult.code === 0 && fs.existsSync(mattePath)) {
+                return { success: true, mattePath, method: 'rembg', model };
+            }
+            throw new Error('Matte assembly failed');
+        } catch (mlErr: any) {
+            // rembg not installed or failed — fall through to FFmpeg fallback
+            console.log('[segment-subject] rembg unavailable, falling back to FFmpeg:', mlErr?.message);
+        }
+
+        // ── Attempt 2: FFmpeg edge-detection fallback ────────────────────
+        // Creates an approximate subject matte using contrast thresholding:
+        // 1. Convert to grayscale
+        // 2. Apply edge detection
+        // 3. Dilate edges to fill the subject area
+        // 4. Apply gaussian blur for soft edges
+        // 5. Threshold to produce a binary-ish mask
+        const fallbackResult = await runFfmpegAsync(ffmpegBin, [
+            '-i', p,
+            '-vf', [
+                'format=gray',
+                'edgedetect=mode=colormix:high=0.1:low=0.05',
+                'gblur=sigma=8',
+                'lutrgb=r=val*4:g=val*4:b=val*4',       // amplify
+                'gblur=sigma=3',
+                'lutyuv=y=if(gt(val\\,80)\\,255\\,0)',    // threshold
+                'gblur=sigma=5',                          // smooth edges
+            ].join(','),
+            '-c:v', 'libx264', '-crf', '18', '-pix_fmt', 'yuv420p',
+            '-an', '-y', mattePath,
+        ], 'ffmpeg-matte', () => {});
+
+        if (fallbackResult.code === 0 && fs.existsSync(mattePath)) {
+            return { success: true, mattePath, method: 'ffmpeg-edge', model: 'none' };
+        }
+
+        return { success: false, error: 'Both rembg and FFmpeg matte generation failed' };
+    } catch (e: any) {
+        return { success: false, error: e?.message || String(e) };
+    }
+});
+
 ipcMain.handle('analyze-clip-color', async (_e, { path: raw, maxSec = 30 }: any) => {
     try {
         const ffmpegBin = resolveFFmpegBin();
@@ -2702,7 +3068,7 @@ ipcMain.handle('generate-preview-proxy', async (_event, { clip: rawClip, setting
         const args: string[] = [
             '-y',
             ...inputs,
-            '-filter_complex', `[0:v]${vf}[v_out]${probe.hasAudio && !isImage ? `;[0:a]${af}[a_out]` : ''}`,
+            '-filter_complex_script', (() => { const _fcFile = path.join(require('os').tmpdir(), `mmm_qr_fc_${Date.now()}.txt`); fs.writeFileSync(_fcFile, `[0:v]${vf}[v_out]${probe.hasAudio && !isImage ? `;[0:a]${af}[a_out]` : ''}`, 'utf-8'); return _fcFile; })(),
             '-map', '[v_out]',
             ...(probe.hasAudio && !isImage ? ['-map', '[a_out]'] : ['-an']),
             '-t', timing.outDurSec.toFixed(4),
@@ -2754,6 +3120,46 @@ ipcMain.handle('invalidate-preview-proxy', async (_event, { hash }) => {
         return { success: true };
     } catch (err: any) {
         return { success: false, error: err.message };
+    }
+});
+
+// ── Standalone Deflicker Render ──────────────────────────────────────────
+ipcMain.handle('render-deflickered', async (_event, opts: {
+    inputPath: string;
+    outputPath: string;
+    layers: 3 | 5;
+    includeAudio: boolean;
+    fps: number;
+}) => {
+    const { inputPath, outputPath, layers, includeAudio, fps } = opts;
+    if (!inputPath || !fs.existsSync(inputPath)) {
+        return { success: false, error: 'Input file not found' };
+    }
+    try {
+        const args = buildDeflickerArgs(inputPath, outputPath, layers || 3, fps || 30, includeAudio !== false);
+        const ffmpegBin = resolveFFmpegBin();
+        const renderLogPath = join(app.getPath('userData'), 'render_log_segment.txt');
+        const log = (msg: string) => {
+            try { fs.appendFileSync(renderLogPath, `[${new Date().toISOString()}] ${msg}\n`); } catch {}
+            console.log('[Deflicker]', msg);
+        };
+        log(`[Deflicker] Rendering: ${inputPath} → ${outputPath} (${layers} layers, audio=${includeAudio})`);
+        await new Promise<void>((resolve, reject) => {
+            const { spawn } = require('child_process');
+            const proc = spawn(ffmpegBin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+            let stderr = '';
+            proc.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
+            proc.on('close', (code: number) => {
+                if (code === 0) resolve();
+                else reject(new Error(`FFmpeg exited with code ${code}: ${stderr.slice(-500)}`));
+            });
+            proc.on('error', reject);
+        });
+        log(`[Deflicker] Render complete: ${outputPath}`);
+        return { success: true, outputPath };
+    } catch (e: any) {
+        console.log(`[Deflicker] Render failed: ${e.message}`);
+        return { success: false, error: e.message || 'Deflicker render failed' };
     }
 });
 

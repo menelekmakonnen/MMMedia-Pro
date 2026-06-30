@@ -35,6 +35,14 @@ export const useTimelineStore = create<TimelineState>()(
   prerenderEnabled: false,
   prerenderCache: {},
 
+  // Guide overlay state
+  guides: [],
+  showGuides: false,
+
+  // Track targeting / sync lock (Premiere track-header toggles)
+  targetedTrackIds: new Set<number>([1, 2]), // V1 + A1 targeted by default
+  syncLockedTrackIds: new Set<number>(),
+
   // ── Actions ───────────────────────────────────────────────────────
   setTracks: (tracks) => set({ tracks }),
   setPlayheadFrame: (frame) => set({ playheadFrame: Math.max(0, frame) }),
@@ -94,6 +102,22 @@ export const useTimelineStore = create<TimelineState>()(
     next.splice(toIndex, 0, moved);
     return { tracks: next };
   }),
+
+  // ── Guide overlay actions ─────────────────────────────────────────
+  addGuide: (axis, position) => set((s) => ({ guides: [...s.guides, { id: crypto.randomUUID(), axis, position }] })),
+  removeGuide: (id) => set((s) => ({ guides: s.guides.filter((g) => g.id !== id) })),
+  updateGuidePosition: (id, position) => set((s) => ({ guides: s.guides.map((g) => g.id === id ? { ...g, position } : g) })),
+  toggleGuides: () => set((s) => ({ showGuides: !s.showGuides })),
+  toggleTargetTrack: (id) => set((s) => {
+    const next = new Set(s.targetedTrackIds);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return { targetedTrackIds: next };
+  }),
+  toggleSyncLock: (id) => set((s) => {
+    const next = new Set(s.syncLockedTrackIds);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return { syncLockedTrackIds: next };
+  }),
     }),
     {
       name: 'mmmedia-timeline-ui',
@@ -105,6 +129,7 @@ export const useTimelineStore = create<TimelineState>()(
         snapEnabled: s.snapEnabled,
         pixelsPerFrame: s.pixelsPerFrame,
         prerenderEnabled: s.prerenderEnabled,
+        showGuides: s.showGuides,
       }),
     },
   ),

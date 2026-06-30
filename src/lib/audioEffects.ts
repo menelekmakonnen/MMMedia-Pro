@@ -32,6 +32,8 @@ export interface AudioEffects {
     echo: boolean;
     echoDelay: number;           // ms (50-1000)
     echoDecay: number;           // 0.1-0.9
+    // Pitch Shifting (for SFX variety — prevents listener fatigue)
+    pitchShift: number;  // semitones: -12 to +12 (0 = no shift)
 }
 
 export const DEFAULT_AUDIO_EFFECTS: AudioEffects = {
@@ -55,6 +57,7 @@ export const DEFAULT_AUDIO_EFFECTS: AudioEffects = {
     echo: false,
     echoDelay: 250,
     echoDecay: 0.4,
+    pitchShift: 0,
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -135,6 +138,16 @@ export function buildAudioEffectsFilter(effects: AudioEffects, clipDurationSec: 
         filters.push(`alimiter=limit=${lim.toFixed(4)}:level=disabled`);
     }
 
+    // ── Pitch Shift ─────────────────────────────────────────────────────────
+    // Semitone-based, preserves duration via asetrate+atempo
+
+    if (effects.pitchShift && effects.pitchShift !== 0) {
+        const ratio = Math.pow(2, effects.pitchShift / 12);
+        filters.push(`asetrate=44100*${ratio.toFixed(6)}`);
+        filters.push(`aresample=44100`);
+        filters.push(`atempo=${(1 / ratio).toFixed(6)}`);
+    }
+
     // ── Fades ───────────────────────────────────────────────────────────────
 
     if (effects.fadeInDuration > 0) {
@@ -177,6 +190,7 @@ export function isDefaultAudioEffects(effects: AudioEffects): boolean {
         !effects.loudnessNorm &&
         effects.fadeInDuration === 0 &&
         effects.fadeOutDuration === 0 &&
-        !effects.echo
+        !effects.echo &&
+        effects.pitchShift === 0
     );
 }

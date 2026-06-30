@@ -17,7 +17,7 @@ import type { TransitionType } from '../../types';
 // Any value in TRANSITION_XFADE_MAP must be one of these, or the export errors.
 const VALID_XFADE = new Set([
     'fade', 'fadeblack', 'fadewhite', 'fadegrays', 'distance', 'dissolve', 'pixelize',
-    'radial', 'hblur', 'zoomin',
+    'radial', 'hblur', 'zoomin', 'custom',
     'wipeleft', 'wiperight', 'wipeup', 'wipedown',
     'slideleft', 'slideright', 'slideup', 'slidedown',
     'smoothleft', 'smoothright', 'smoothup', 'smoothdown',

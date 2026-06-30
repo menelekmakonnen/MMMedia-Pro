@@ -1,0 +1,92 @@
+{
+  "schema_version": "1.0",
+  "mode_id": "interview_blur_reveal",
+  "name": "Interview — Blur Reveal",
+  "family": "Interview / Talking-Head",
+  "derived_from": [
+    "OWUSUAA INTERVIEW NEW"
+  ],
+  "summary": "Interview with masked background defocus and reveal framing — blur the surroundings to isolate the subject, then rack focus / reveal for emphasis.",
+  "best_for": "Stylized portrait interviews, emotional or premium tone.",
+  "canvas": {
+    "resolution": "1920x1080",
+    "aspect": "16:9",
+    "fps": 29.97
+  },
+  "pacing": {
+    "cuts_per_min": [
+      10,
+      18
+    ],
+    "logic": "silence_removal",
+    "avg_clip_sec": [
+      3.0,
+      6.0
+    ]
+  },
+  "source_layout": {
+    "cameras": 1,
+    "shot": "medium-close, separable subject/background",
+    "broll": "optional"
+  },
+  "reframe": {
+    "method": "AE.ADBE Motion",
+    "scale_range_pct": [
+      100,
+      130
+    ],
+    "pattern": "punch-ins paired with focus shifts"
+  },
+  "effect_stack": [
+    {
+      "match_name": "AE.ADBE AEMask",
+      "role": "isolate subject from background"
+    },
+    {
+      "match_name": "AE.ADBE Gaussian Blur 2",
+      "role": "background defocus / reveal"
+    },
+    {
+      "match_name": "AE.ADBE Opacity",
+      "role": "reveal / blend layers"
+    },
+    {
+      "match_name": "AE.ADBE Motion",
+      "role": "reframe"
+    }
+  ],
+  "transitions": {
+    "philosophy": "Choose the transition that fits the moment; never default to a hard cut.",
+    "library": [
+      "focus-pull (blur) transition",
+      "soft dissolve",
+      "reframe-covered cut"
+    ],
+    "default": "focus-pull (blur) transition",
+    "notes": "Use the blur itself as the transition between beats; dissolve on topic changes."
+  },
+  "color": {
+    "approach": "slightly cinematic, lifted blacks optional",
+    "lumetri": "soft contrast + subtle warmth"
+  },
+  "audio": {
+    "dialogue": "primary",
+    "music": "low emotive bed common",
+    "use_jl_cuts": true
+  },
+  "titles_graphics": {
+    "lower_thirds": "name+role",
+    "captions": "optional"
+  },
+  "toggles": [
+    "focus_pull_transitions",
+    "vignette",
+    "emotive_bed",
+    "captions"
+  ],
+  "generator_rules": [
+    "Mask subject; apply graded background blur for separation.",
+    "Use blur ramps as transitions on emphasis beats.",
+    "Keep mask tracking clean on subject motion."
+  ]
+}

@@ -4,11 +4,13 @@ import { useClipStore } from '../../store/clipStore';
 import { useProjectStore } from '../../store/projectStore';
 import { useViewStore } from '../../store/viewStore';
 import { useMediaStore } from '../../store/mediaStore';
+import { useProjectsStore } from '../../store/projectsStore';
+import { ProjectDrawer } from '../../components/ProjectDrawer';
 import { generateManifest } from '../../lib/manifestBridge';
 import { buildMediaFile } from '../../lib/mediaProbe';
 import {
     Trash2, Film, PlayCircle, HardDriveDownload, Calendar, AlertCircle,
-    Save, FolderUp, Clock, Layers, AlertTriangle, Sparkles, Search, SortDesc, Play
+    Save, FolderUp, Clock, Layers, AlertTriangle, Sparkles, Search, SortDesc, Play, FolderOpen
 } from 'lucide-react';
 import clsx from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -123,9 +125,16 @@ export const EditsTab: React.FC = () => {
         const mediaStore = useMediaStore.getState();
 
         // ── 1. Restore source files into Media Manager ──────────────
-        const foldersToLoad = edit.sourceFolders?.length
-            ? edit.sourceFolders
-            : extractFoldersFromClips(edit.clips);
+        // Scope the restore to the folders THIS edit's clips actually live in.
+        // We derive them from the clips themselves rather than trusting
+        // `edit.sourceFolders`, which historically captured the global list of
+        // every folder ever opened (mediaStore.recentFolders) — that made loading
+        // one edit pull in every past project's sources. Fall back to the stored
+        // folders only when the clips carry no usable paths.
+        const clipFolders = extractFoldersFromClips(edit.clips);
+        const foldersToLoad = clipFolders.length > 0
+            ? clipFolders
+            : (edit.sourceFolders ?? []);
 
         if (foldersToLoad.length > 0) {
             mediaStore.clearLibrary();
@@ -172,10 +181,36 @@ export const EditsTab: React.FC = () => {
         setClips(edit.clips);
         updateEditLastOpened(edit.id);
 
-        // ── 5. Navigate to Producer tab for re-editing ─────────────
-        setActiveTab('trailer');
+        // ── 5. Select this edit's source files in the Media Library ──
+        // Match by path (file ids are re-derived from the path on reload), so the
+        // Import/Media Library page opens with exactly this edit's clips selected
+        // and ready — not every file in the restored folders.
+        const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase();
+        const editPaths = new Set(edit.clips.map((c) => c.path).filter(Boolean).map((p) => norm(p as string)));
+        const loadedFiles = useMediaStore.getState().files;
+        const selectIds = loadedFiles.filter((f) => f.path && editPaths.has(norm(f.path))).map((f) => f.id);
+        if (selectIds.length > 0) mediaStore.selectAllFiles(selectIds);
+        else mediaStore.clearSelection();
+
+        // ── 6. Navigate to the Import / Media Library page ──────────
+        setActiveTab('media');
         setRelinkState(null);
-        toast.success(`Restored project "${edit.name}" — ${edit.clipCount} clips`);
+        toast.success(`Loaded "${edit.name}" — ${selectIds.length} source clip(s) selected and ready`);
+    }, [setClips, setActiveTab, updateEditLastOpened]);
+
+    // Open Project — the new flow that replaces "Open in Timeline". Finds (or
+    // synthesizes) the .mmm project for this edit, reloads its media + segment
+    // decisions, restores the edit's clips, and opens the project workspace.
+    const handleOpenProject = useCallback(async (edit: SavedEdit) => {
+        const ps = useProjectsStore.getState();
+        const project = ps.ensureProjectForEdit(edit);
+        try {
+            await ps.loadProject(project);
+        } catch { /* folders may be missing; continue with the edit's clips */ }
+        setClips(edit.clips);
+        updateEditLastOpened(edit.id);
+        setActiveTab('import-manager');
+        toast.success(`Opened project "${project.name}"`);
     }, [setClips, setActiveTab, updateEditLastOpened]);
 
     const handleLoadToTimeline = useCallback(async (edit: SavedEdit) => {
@@ -262,6 +297,7 @@ export const EditsTab: React.FC = () => {
 
     return (
         <div className="w-full h-full overflow-y-auto custom-scrollbar">
+            <ProjectDrawer side="right" />
             <div className="max-w-6xl mx-auto p-8 flex flex-col gap-6 h-full">
                 {/* Header */}
                 <div className="flex justify-between items-start">
@@ -332,7 +368,7 @@ export const EditsTab: React.FC = () => {
                                     >
                                         {/* Thumbnail — 4:5 vertical */}
                                         <div className="relative aspect-[4/5] border-b border-white/5 flex flex-col justify-end overflow-hidden group/thumb cursor-pointer"
-                                            onClick={() => handleLoadToTimeline(edit)}
+                                            onClick={() => handleOpenProject(edit)}
                                             onMouseEnter={(e) => {
                                                 const vid = e.currentTarget.querySelector('video');
                                                 if (vid) { vid.play().catch(() => {}); }
@@ -406,9 +442,9 @@ export const EditsTab: React.FC = () => {
 
                                         {/* Actions */}
                                         <div className="p-3 flex flex-col gap-2">
-                                            <button onClick={() => handleLoadToTimeline(edit)}
+                                            <button onClick={() => handleOpenProject(edit)}
                                                 className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-white/5 hover:bg-primary text-white/80 hover:text-white text-xs font-bold transition-all border border-white/5 group/btn">
-                                                <Film size={14} className="group-hover/btn:animate-pulse" /> Open in Timeline
+                                                <FolderOpen size={14} className="group-hover/btn:animate-pulse" /> Open Project
                                             </button>
                                             <div className="flex gap-2">
                                                 <button onClick={() => {
