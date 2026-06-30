@@ -361,6 +361,26 @@ export const TimelineClip: React.FC<TimelineClipProps> = memo(({
             ⚡ DF
           </span>
         )}
+        {(clip.parametricEffects?.length ?? 0) > 0 && (
+          <span className="text-[8px] font-bold text-purple-400/80 bg-purple-500/15 px-1 rounded">
+            ✦ {clip.parametricEffects!.length}FX
+          </span>
+        )}
+        {clip.shake && (
+          <span className="text-[8px] font-bold text-orange-400/80 bg-orange-500/15 px-1 rounded">
+            ↯
+          </span>
+        )}
+        {clip.audioEffects?.limiter && (
+          <span className="text-[8px] font-bold text-cyan-400/80 bg-cyan-500/15 px-1 rounded">
+            🔊
+          </span>
+        )}
+        {clip.audioEffects?.ringOut && (
+          <span className="text-[8px] font-bold text-pink-400/80 bg-pink-500/15 px-1 rounded">
+            🎵
+          </span>
+        )}
         {showSpeed && (
           <span className="text-[9px] font-mono bg-black/30 px-1 rounded">
             {clip.speed}×

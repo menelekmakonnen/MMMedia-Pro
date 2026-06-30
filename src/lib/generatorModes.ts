@@ -46,6 +46,12 @@ export interface ModeToggle {
     default: boolean;
     /** Lucide icon name (resolved in the UI). */
     icon?: string;
+    /** When true, the toggle includes a frequency slider (0-100%) controlling
+     *  how often the effect is applied across clips. Stored in the toggle state
+     *  as `{id}_freq` (number). */
+    hasFrequency?: boolean;
+    /** Default frequency 0-100 (only used when hasFrequency is true). */
+    defaultFrequency?: number;
 }
 
 /**
@@ -96,6 +102,24 @@ export interface ModeLook {
     rgbSplit?: { amount: number; gatedBy?: string };
     /** Global transition strategy set on the clip store (drives program-monitor blend). */
     transitionStrategy?: string;
+
+    // ── Creator Hacks (shared across all modes) ──────────────────────────────
+    /** Light bloom / glow on highlights. */
+    lightBloom?: { intensity: number; radius: number; threshold: number; gatedBy?: string };
+    /** Blurred background fill for vertical-in-horizontal. */
+    blurBackground?: { sigma: number; opacity: number; gatedBy?: string };
+    /** Audio ring-out effect at clip tails. */
+    ringOut?: { duration: number; pitchDrop: number; gatedBy?: string };
+    /** Audio hard limiter for peak prevention. */
+    hardLimiter?: { level: number; gatedBy?: string };
+    /** Smooth zoom with motion blur (via Transform effect). */
+    smoothZoom?: { shutterAngle: number; gatedBy?: string };
+    /** Motion tween transition (position/scale interpolation between clips). */
+    motionTween?: { durationFrames: number; gatedBy?: string };
+    /** Long shadow on text/title clips. */
+    longShadow?: { length: number; angle: number; opacity: number; gatedBy?: string };
+    /** Handheld camera shake preset. */
+    handheldShake?: { intensity: number; gatedBy?: string };
 }
 
 export interface GeneratorMode {
@@ -145,6 +169,76 @@ function withSfx(toggles: ModeToggle[]): ModeToggle[] {
     return [...toggles, SFX_TOGGLE];
 }
 
+// ─── Creator Hack shared toggles ─────────────────────────────────────────────
+// Derived from analysis of 83 social media editing tip transcripts.
+
+const CREATOR_HACK_TOGGLES: ModeToggle[] = [
+    {
+        id: 'bloom',
+        label: 'Light Bloom',
+        description: 'Soft dreamy glow on highlight areas — the classic social media bloom look.',
+        default: false,
+        icon: 'Sparkles',
+        hasFrequency: true,
+        defaultFrequency: 40,
+    },
+    {
+        id: 'blur_bg',
+        label: 'Blur Background',
+        description: 'Fill letterbox/pillarbox areas with a blurred, scaled-up version of the source clip.',
+        default: false,
+        icon: 'Layers',
+    },
+    {
+        id: 'ring_out',
+        label: 'Audio Ring-out',
+        description: 'Dramatic pitch-dropping audio trail-off at cut points for cinematic impact.',
+        default: false,
+        icon: 'Volume1',
+        hasFrequency: true,
+        defaultFrequency: 25,
+    },
+    {
+        id: 'hard_limiter',
+        label: 'Hard Limiter',
+        description: 'Brickwall peak limiter at -1dB — prevents audio peaking and distortion.',
+        default: true,
+        icon: 'Gauge',
+    },
+    {
+        id: 'smooth_zoom',
+        label: 'Smooth Zoom',
+        description: 'Motion-blurred zooms using Transform effect with shutter angle — buttery punch-ins.',
+        default: false,
+        icon: 'ZoomIn',
+        hasFrequency: true,
+        defaultFrequency: 50,
+    },
+    {
+        id: 'motion_tween',
+        label: 'Motion Tween',
+        description: 'Auto-animate position/scale/rotation between clip states instead of hard cuts.',
+        default: false,
+        icon: 'Waypoints',
+        hasFrequency: true,
+        defaultFrequency: 30,
+    },
+    {
+        id: 'handheld_shake',
+        label: 'Handheld Shake',
+        description: 'Subtle organic camera movement — makes static tripod footage feel handheld.',
+        default: false,
+        icon: 'Move',
+        hasFrequency: true,
+        defaultFrequency: 60,
+    },
+];
+
+/** Append SFX + Creator Hack toggles to every mode. */
+function withSharedToggles(toggles: ModeToggle[]): ModeToggle[] {
+    return [...toggles, SFX_TOGGLE, ...CREATOR_HACK_TOGGLES];
+}
+
 // ─── Mode registry ───────────────────────────────────────────────────────────
 
 export const GENERATOR_MODES: GeneratorMode[] = [
@@ -175,7 +269,7 @@ export const GENERATOR_MODES: GeneratorMode[] = [
         sfxCues: [
             { placement: 'transition', categoryId: 'transitions', subcategoryId: 'swoosh', volume: 35 },
         ],
-        toggles: withSfx([
+        toggles: withSharedToggles([
             { id: 'punch_in', label: 'Punch-in reframe', description: 'Alternate wide / push-in across cuts to disguise jump points.', default: true, icon: 'ZoomIn' },
             { id: 'light_grade', label: 'Light grade', description: 'Natural corrective color for consistent skin tones.', default: true, icon: 'Palette' },
             { id: 'broll_inserts', label: 'B-roll inserts', description: 'Allow topic B-roll to cover cuts (reserved for generation).', default: false, icon: 'Film' },
@@ -208,7 +302,7 @@ export const GENERATOR_MODES: GeneratorMode[] = [
         sfxCues: [
             { placement: 'whoosh', categoryId: 'transitions', subcategoryId: 'swoosh', volume: 30 },
         ],
-        toggles: withSfx([
+        toggles: withSharedToggles([
             { id: 'speaker_isolate', label: 'Speaker isolate', description: 'Crop/scale to single each speaker from a wide.', default: true, icon: 'Crop' },
             { id: 'reaction_shots', label: 'Reaction shots', description: 'Cut to the listener on emphatic lines (generation).', default: true, icon: 'Eye' },
             { id: 'match_grade', label: 'Match grade', description: 'Shot-match both subjects to one look.', default: true, icon: 'Palette' },
@@ -241,7 +335,7 @@ export const GENERATOR_MODES: GeneratorMode[] = [
         sfxCues: [
             { placement: 'transition', categoryId: 'transitions', subcategoryId: 'swoosh', volume: 30 },
         ],
-        toggles: withSfx([
+        toggles: withSharedToggles([
             { id: 'captions', label: 'Burned-in captions', description: 'Styled SRT captions in the safe area (required look).', default: true, icon: 'Captions' },
             { id: 'word_highlight', label: 'Word highlight', description: 'Highlight the active word as it is spoken.', default: false, icon: 'Highlighter' },
             { id: 'punch_in', label: 'Punch-in reframe', description: 'Push-ins on key phrases.', default: true, icon: 'ZoomIn' },
@@ -275,7 +369,7 @@ export const GENERATOR_MODES: GeneratorMode[] = [
         sfxCues: [
             { placement: 'transition', categoryId: 'cinematic', subcategoryId: 'drones', volume: 25 },
         ],
-        toggles: withSfx([
+        toggles: withSharedToggles([
             { id: 'focus_pull', label: 'Focus-pull transitions', description: 'Use background blur ramps as the transition.', default: true, icon: 'Aperture' },
             { id: 'vignette', label: 'Vignette', description: 'Subtle darkening + grain to draw the eye.', default: true, icon: 'Circle' },
             { id: 'cinematic_grade', label: 'Cinematic grade', description: 'Soft, lifted-black moonlit look.', default: true, icon: 'Palette' },
@@ -308,7 +402,7 @@ export const GENERATOR_MODES: GeneratorMode[] = [
         sfxCues: [
             { placement: 'ambience', categoryId: 'cinematic', subcategoryId: 'swells', volume: 22 },
         ],
-        toggles: withSfx([
+        toggles: withSharedToggles([
             { id: 'slow_push', label: 'Slow push-in', description: 'Gentle drift to keep static shots alive.', default: true, icon: 'ZoomIn' },
             { id: 'cinematic_grade', label: 'Cinematic grade', description: 'Filmic editorial tone.', default: true, icon: 'Palette' },
             { id: 'broll_montage', label: 'B-roll montage', description: 'Cut to B-roll on musical phrases (generation).', default: true, icon: 'Film' },
@@ -343,7 +437,7 @@ export const GENERATOR_MODES: GeneratorMode[] = [
             { placement: 'transition', categoryId: 'transitions', subcategoryId: 'swoosh', volume: 38 },
             { placement: 'impact', categoryId: 'ui-tech', subcategoryId: 'beeps', volume: 28, gatedBy: 'keyword_capsules' },
         ],
-        toggles: withSfx([
+        toggles: withSharedToggles([
             { id: 'keyword_capsules', label: 'Keyword capsules', description: 'Surface spoken keywords as caption pills.', default: true, icon: 'Captions' },
             { id: 'zoom_emphasis', label: 'Zoom-blur emphasis', description: 'Zoom-through transition on emphatic beats.', default: true, icon: 'ZoomIn' },
             { id: 'branded_grade', label: 'Branded grade', description: 'Polished teal-orange color.', default: true, icon: 'Palette' },
@@ -378,7 +472,7 @@ export const GENERATOR_MODES: GeneratorMode[] = [
             { placement: 'whoosh', categoryId: 'transitions', subcategoryId: 'riser', volume: 55, gatedBy: 'riser_sfx' },
             { placement: 'impact', categoryId: 'impacts', subcategoryId: 'hit', volume: 60, gatedBy: 'logo_impact' },
         ],
-        toggles: withSfx([
+        toggles: withSharedToggles([
             { id: 'riser_sfx', label: 'Riser', description: 'Build a riser into the logo reveal.', default: true, icon: 'TrendingUp' },
             { id: 'logo_impact', label: 'Logo impact', description: 'Bass hit on the final logo lockup.', default: true, icon: 'Zap' },
             { id: 'brand_color', label: 'Brand color', description: 'Enforce the brand palette via tint/ramps.', default: true, icon: 'Palette' },
@@ -415,7 +509,7 @@ export const GENERATOR_MODES: GeneratorMode[] = [
             { placement: 'whoosh', categoryId: 'transitions', subcategoryId: 'swoosh', volume: 40 },
             { placement: 'impact', categoryId: 'impacts', subcategoryId: 'bass-drop', volume: 45, gatedBy: 'impacts' },
         ],
-        toggles: withSfx([
+        toggles: withSharedToggles([
             { id: 'cinematic_looks', label: 'Cinematic looks', description: 'Strong scene-specific color grade.', default: true, icon: 'Palette' },
             { id: 'rgb_split', label: 'RGB split', description: 'Chromatic separation on hits.', default: true, icon: 'Split' },
             { id: 'motion_blur', label: 'Motion blur', description: 'Shutter-style smear on movement.', default: true, icon: 'Wind' },
@@ -452,7 +546,7 @@ export const GENERATOR_MODES: GeneratorMode[] = [
             { placement: 'transition', categoryId: 'transitions', subcategoryId: 'swoosh', volume: 45 },
             { placement: 'impact', categoryId: 'impacts', subcategoryId: 'hit', volume: 42, gatedBy: 'impacts' },
         ],
-        toggles: withSfx([
+        toggles: withSharedToggles([
             { id: 'zoom_punch', label: 'Zoom punch', description: 'Snap punch-in on every hit.', default: true, icon: 'ZoomIn' },
             { id: 'shake', label: 'Camera shake', description: 'Shake on hits.', default: true, icon: 'Vibrate' },
             { id: 'motion_blur', label: 'Motion blur', description: 'Movement smear between cuts.', default: true, icon: 'Wind' },
@@ -488,7 +582,7 @@ export const GENERATOR_MODES: GeneratorMode[] = [
         sfxCues: [
             { placement: 'whoosh', categoryId: 'transitions', subcategoryId: 'swoosh', volume: 42 },
         ],
-        toggles: withSfx([
+        toggles: withSharedToggles([
             { id: 'stabilize', label: 'Stabilize', description: 'Smooth handheld footage first.', default: true, icon: 'Move' },
             { id: 'push_in', label: 'Push-in', description: 'Gentle push-ins between whips.', default: false, icon: 'ZoomIn' },
             { id: 'lifestyle_grade', label: 'Lifestyle grade', description: 'Warm, bright Instagram look.', default: true, icon: 'Palette' },
@@ -523,7 +617,7 @@ export const GENERATOR_MODES: GeneratorMode[] = [
             { placement: 'transition', categoryId: 'transitions', subcategoryId: 'swoosh', volume: 48 },
             { placement: 'impact', categoryId: 'impacts', subcategoryId: 'hit', volume: 45, gatedBy: 'impacts' },
         ],
-        toggles: withSfx([
+        toggles: withSharedToggles([
             { id: 'zoom_punch', label: 'Zoom punch', description: 'Snap punch-in on each beat.', default: true, icon: 'ZoomIn' },
             { id: 'motion_blur', label: 'Motion blur', description: 'Movement smear.', default: true, icon: 'Wind' },
             { id: 'bold_grade', label: 'Bold grade', description: 'High-contrast, saturated.', default: true, icon: 'Palette' },
@@ -560,7 +654,7 @@ export const GENERATOR_MODES: GeneratorMode[] = [
             { placement: 'transition', categoryId: 'foley-body', subcategoryId: 'body-movement', volume: 35 },
             { placement: 'impact', categoryId: 'impacts', subcategoryId: 'thud', volume: 30, gatedBy: 'rep_accents' },
         ],
-        toggles: withSfx([
+        toggles: withSharedToggles([
             { id: 'alignment_grid', label: 'Alignment grid', description: 'Posture/alignment reference grid overlay.', default: true, icon: 'Grid3x3' },
             { id: 'magnify', label: 'Magnify cues', description: 'Zoom the working joint/muscle on form cues.', default: true, icon: 'Search' },
             { id: 'slowmo', label: 'Slow-mo technique', description: 'Ramp into slow-mo for technique moments.', default: true, icon: 'Gauge' },
@@ -598,7 +692,7 @@ export const GENERATOR_MODES: GeneratorMode[] = [
             { placement: 'whoosh', categoryId: 'transitions', subcategoryId: 'swoosh', volume: 40 },
             { placement: 'impact', categoryId: 'cinematic', subcategoryId: 'cinematic-hit', volume: 42, gatedBy: 'impacts' },
         ],
-        toggles: withSfx([
+        toggles: withSharedToggles([
             { id: 'kinetic_typography', label: 'Kinetic typography', description: 'Animated brand type to the beat (generation).', default: true, icon: 'Type' },
             { id: 'brand_grade', label: 'Brand grade', description: 'Cohesive cinematic color stack.', default: true, icon: 'Palette' },
             { id: 'motion_blur', label: 'Motion blur', description: 'Movement realism on moves.', default: true, icon: 'Wind' },
@@ -627,6 +721,19 @@ export function getModesByFamily(family: GeneratorModeFamily): GeneratorMode[] {
 /** Default toggle state for a mode (id → boolean). */
 export function defaultToggleState(mode: GeneratorMode): Record<string, boolean> {
     const state: Record<string, boolean> = {};
-    for (const t of mode.toggles) state[t.id] = t.default;
+    for (const t of mode.toggles) {
+        state[t.id] = t.default;
+    }
+    return state;
+}
+
+/** Default frequency values for toggles that have hasFrequency. */
+export function defaultFrequencyState(mode: GeneratorMode): Record<string, number> {
+    const state: Record<string, number> = {};
+    for (const t of mode.toggles) {
+        if (t.hasFrequency && t.defaultFrequency !== undefined) {
+            state[`${t.id}_freq`] = t.defaultFrequency;
+        }
+    }
     return state;
 }

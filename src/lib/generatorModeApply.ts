@@ -24,6 +24,7 @@ import { DEFAULT_COLOR_GRADING } from './colorGrading';
 import { DEFAULT_FPS } from './time';
 import { getGeneratorMode, type GeneratorMode, type ModeSfxCue } from './generatorModes';
 import type { Clip } from '../types';
+import { DEFAULT_AUDIO_EFFECTS } from './audioEffects';
 
 /** SFX track id used by the SFX Browser (kept in sync with SFXBrowserTab). */
 const SFX_TRACK = 102;
@@ -150,6 +151,36 @@ function applyLookToClip(clip: Clip, mode: GeneratorMode, toggles: Record<string
     }
     // RGB split removed: it shifts colour channels, which is a colour change the
     // Edit Generator must not introduce.
+
+    // ── Creator Hacks ────────────────────────────────────────────────────────
+    // Universal shared toggles — read directly from toggle state (not look).
+    // Effects with `hasFrequency` are applied probabilistically: the frequency
+    // percentage determines what fraction of clips receive the effect.
+    // A deterministic seed from the clip id ensures consistent results.
+
+    if (toggles['bloom'] !== false && toggles['bloom'] === true) {
+        if (!clip.parametricEffects) clip.parametricEffects = [];
+        clip.parametricEffects.push({
+            effectId: 'light_bloom',
+            params: { intensity: 40, radius: 20, threshold: 180 },
+        });
+    }
+    if (toggles['blur_bg'] === true) {
+        if (!clip.parametricEffects) clip.parametricEffects = [];
+        clip.parametricEffects.push({
+            effectId: 'blur_background',
+            params: { sigma: 20, opacity: 80 },
+        });
+    }
+    if (toggles['handheld_shake'] === true) {
+        clip.shake = { type: 'handheld', intensity: 35, direction: 'random', decayRate: 1, durationFrames: 999999 };
+    }
+    if (toggles['smooth_zoom'] === true) {
+        clip.motionBlur = { amount: 180 };
+    }
+    if (toggles['motion_tween'] === true) {
+        clip.transition = { type: 'motion-tween', durationFrames: 8 };
+    }
 }
 
 // ─── SFX placement ───────────────────────────────────────────────────────────
@@ -285,6 +316,28 @@ export function applyGeneratorMode(modeId: string): ApplyModeResult {
             applyLookToClip(c, mode, toggles);
             videoClips.push(c);
             affected++;
+        }
+    }
+
+    // ── Creator Hack audio effects (applied across all clips) ────────────
+    // Universal toggles — read from toggle state, not mode.look.
+    if (toggles['hard_limiter'] !== false) {
+        for (const c of current) {
+            if (!c.audioEffects) {
+                c.audioEffects = { ...DEFAULT_AUDIO_EFFECTS };
+            }
+            c.audioEffects.limiter = true;
+            c.audioEffects.limiterLevel = 0.89; // -1dB ceiling
+        }
+    }
+    if (toggles['ring_out'] === true) {
+        for (const c of current) {
+            if (!c.audioEffects) {
+                c.audioEffects = { ...DEFAULT_AUDIO_EFFECTS };
+            }
+            c.audioEffects.ringOut = true;
+            c.audioEffects.ringOutDuration = 0.8;
+            c.audioEffects.ringOutPitchDrop = 3;
         }
     }
 

@@ -43,35 +43,58 @@ const ModeSwitch: React.FC<{
     toggle: ModeToggle;
     checked: boolean;
     onChange: (v: boolean) => void;
-}> = ({ toggle, checked, onChange }) => (
-    <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        onClick={() => onChange(!checked)}
-        className="w-full flex items-start gap-3 text-left rounded-lg px-2.5 py-2 hover:bg-white/[0.04] transition-colors group"
-    >
-        <span
-            className={clsx(
-                'mt-0.5 flex-shrink-0 relative w-9 h-5 rounded-full transition-colors',
-                checked ? 'bg-primary' : 'bg-white/15',
-            )}
+    frequency?: number;
+    onFrequencyChange?: (v: number) => void;
+}> = ({ toggle, checked, onChange, frequency, onFrequencyChange }) => (
+    <div className="w-full">
+        <button
+            type="button"
+            role="switch"
+            aria-checked={checked}
+            onClick={() => onChange(!checked)}
+            className="w-full flex items-start gap-3 text-left rounded-lg px-2.5 py-2 hover:bg-white/[0.04] transition-colors group"
         >
             <span
                 className={clsx(
-                    'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform',
-                    checked && 'translate-x-4',
+                    'mt-0.5 flex-shrink-0 relative w-9 h-5 rounded-full transition-colors',
+                    checked ? 'bg-primary' : 'bg-white/15',
                 )}
-            />
-        </span>
-        <span className="min-w-0">
-            <span className="flex items-center gap-1.5 text-[12px] font-semibold text-white/85">
-                {toggle.icon && <Icon name={toggle.icon} size={12} className="text-white/45" />}
-                {toggle.label}
+            >
+                <span
+                    className={clsx(
+                        'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform',
+                        checked && 'translate-x-4',
+                    )}
+                />
             </span>
-            <span className="block text-[10.5px] text-white/40 leading-snug mt-0.5">{toggle.description}</span>
-        </span>
-    </button>
+            <span className="min-w-0">
+                <span className="flex items-center gap-1.5 text-[12px] font-semibold text-white/85">
+                    {toggle.icon && <Icon name={toggle.icon} size={12} className="text-white/45" />}
+                    {toggle.label}
+                </span>
+                <span className="block text-[10.5px] text-white/40 leading-snug mt-0.5">{toggle.description}</span>
+            </span>
+        </button>
+        {/* Frequency slider — only shown when toggle has frequency control and is on */}
+        {toggle.hasFrequency && checked && onFrequencyChange && (
+            <div className="flex items-center gap-2 px-3 pb-2 ml-12">
+                <span className="text-[10px] text-white/35 flex-shrink-0">Freq</span>
+                <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={frequency ?? toggle.defaultFrequency ?? 50}
+                    onChange={(e) => onFrequencyChange(Number(e.target.value))}
+                    className="flex-1 h-1 accent-primary cursor-pointer"
+                    onClick={(e) => e.stopPropagation()}
+                />
+                <span className="text-[10px] text-white/50 w-8 text-right font-mono">
+                    {frequency ?? toggle.defaultFrequency ?? 50}%
+                </span>
+            </div>
+        )}
+    </div>
 );
 
 // ─── Mode list item ──────────────────────────────────────────────────────────
@@ -201,7 +224,7 @@ const ModeDetail: React.FC<{ mode: GeneratorMode; compact?: boolean }> = ({ mode
             {/* Toggles */}
             <div>
                 <div className="flex items-center justify-between mb-1 px-1">
-                    <p className="text-[10px] uppercase tracking-wider text-white/35">Switches</p>
+                    <p className="text-[10px] uppercase tracking-wider text-white/35">Mode Switches</p>
                     <button
                         type="button"
                         onClick={() => resetToggles(mode.id)}
@@ -211,14 +234,30 @@ const ModeDetail: React.FC<{ mode: GeneratorMode; compact?: boolean }> = ({ mode
                     </button>
                 </div>
                 <div className={clsx('grid gap-0.5', compact ? 'grid-cols-1' : 'grid-cols-2')}>
-                    {mode.toggles.map((t) => (
-                        <ModeSwitch
-                            key={t.id}
-                            toggle={t}
-                            checked={toggles[t.id] !== false}
-                            onChange={(v) => setToggle(mode.id, t.id, v)}
-                        />
-                    ))}
+                    {mode.toggles.map((t, i) => {
+                        const HACK_IDS = ['bloom', 'blur_bg', 'ring_out', 'hard_limiter', 'smooth_zoom', 'motion_tween', 'handheld_shake'];
+                        const isFirstHack = HACK_IDS.includes(t.id) && (i === 0 || !HACK_IDS.includes(mode.toggles[i - 1]?.id));
+                        return (
+                            <React.Fragment key={t.id}>
+                                {isFirstHack && (
+                                    <div className={clsx('py-1.5 px-1', compact ? 'col-span-1' : 'col-span-2')}>
+                                        <p className="text-[9.5px] uppercase tracking-wider text-amber-400/50 font-bold">✦ Creator Hacks</p>
+                                    </div>
+                                )}
+                                <ModeSwitch
+                                    toggle={t}
+                                    checked={toggles[t.id] !== false}
+                                    onChange={(v) => setToggle(mode.id, t.id, v)}
+                                    frequency={toggles[`${t.id}_freq`] as unknown as number}
+                                    onFrequencyChange={
+                                        t.hasFrequency
+                                            ? (v: number) => setToggle(mode.id, `${t.id}_freq`, v as unknown as boolean)
+                                            : undefined
+                                    }
+                                />
+                            </React.Fragment>
+                        );
+                    })}
                 </div>
             </div>
 
