@@ -55,6 +55,9 @@ export const NLE_HOTKEYS: HotkeyDef[] = [
     { key: 'u',           action: 'toolSlide',        label: 'Slide Tool',                      category: 'tools' },
     { key: 'h',           action: 'toolHand',         label: 'Hand Tool',                       category: 'tools' },
     { key: 'r',           action: 'toolRateStretch',  label: 'Rate Stretch Tool',               category: 'tools' },
+    { key: 'n',           action: 'toolRolling',      label: 'Rolling Edit Tool',               category: 'tools' },
+    { key: 'a',           action: 'toolTrackSelect',  label: 'Track Select Forward Tool',       category: 'tools' },
+    { key: 'p',           action: 'toolPen',          label: 'Pen Tool',                        category: 'tools' },
     { key: 's',           action: 'toggleSnap',       label: 'Toggle Snap',                     category: 'tools' },
     { key: 'shift+l',     action: 'toggleLink',       label: 'Toggle Linked Selection',         category: 'tools' },
 

@@ -63,7 +63,7 @@ describe('transition export mapping (single source of truth)', () => {
         // approximations of effects FFmpeg's xfade cannot reproduce exactly.
         const approx = allTypes.filter(isApproximatedTransition).sort();
         expect(approx).toEqual(
-            ['boomerang', 'double-exposure', 'film-burn', 'flash', 'glitch', 'match-cut', 'pip',
+            ['boomerang', 'double-exposure', 'film-burn', 'flash', 'glitch', 'match-cut', 'motion-tween', 'pip',
              'rgb-split', 'seamless', 'spin', 'triple-exposure', 'vhs', 'whip', 'zoom-through'].sort()
         );
     });

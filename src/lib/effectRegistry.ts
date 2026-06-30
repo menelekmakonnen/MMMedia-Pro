@@ -537,49 +537,6 @@ export const EFFECT_REGISTRY: ParametricEffect[] = [
         ffmpegTemplate: '{{_scatter}}',
         realtimePreview: false,
     },
-
-    // ── Creator Hacks: Glow & Light ─────────────────────────────────────────
-    {
-        id: 'light_bloom',
-        name: 'Light Bloom',
-        category: 'style' as const,
-        description: 'Soft dreamy glow on highlights — duplicates layer with blur and screen blend. Popular social media editing hack.',
-        parameters: [
-            { key: 'intensity', label: 'Bloom Intensity', type: 'slider' as const, min: 0, max: 100, step: 5, default: 40, unit: '%' },
-            { key: 'radius', label: 'Bloom Radius', type: 'slider' as const, min: 5, max: 60, step: 1, default: 20, unit: 'px' },
-            { key: 'threshold', label: 'Highlight Threshold', type: 'slider' as const, min: 100, max: 250, step: 5, default: 180 },
-        ],
-        ffmpegTemplate: 'split[bloom_orig][bloom_copy];[bloom_copy]colorlevels=rimin={{threshold}}/255:gimin={{threshold}}/255:bimin={{threshold}}/255,gblur=sigma={{radius}}[bloom_blur];[bloom_orig][bloom_blur]blend=all_mode=screen:all_opacity={{intensity}}/100',
-        cssPreview: 'brightness(1.{{intensity}}) contrast(1.05)',
-        realtimePreview: true,
-    },
-    {
-        id: 'blur_background',
-        name: 'Blur Background Fill',
-        category: 'blur' as const,
-        description: 'Auto-fills letterbox/pillarbox areas with a blurred, scaled-up version of the source — the classic vertical-in-horizontal hack.',
-        parameters: [
-            { key: 'sigma', label: 'Blur Amount', type: 'slider' as const, min: 5, max: 40, step: 1, default: 20, unit: 'px' },
-            { key: 'opacity', label: 'Background Opacity', type: 'slider' as const, min: 30, max: 100, step: 5, default: 80, unit: '%' },
-        ],
-        ffmpegTemplate: 'split[bg_orig][bg_copy];[bg_copy]scale=iw*3:ih*3,crop=iw:ih,gblur=sigma={{sigma}},colorchannelmixer=aa={{opacity}}/100[bg_blur];[bg_blur][bg_orig]overlay=(W-w)/2:(H-h)/2',
-        cssPreview: 'blur({{sigma}}px)',
-        realtimePreview: true,
-    },
-    {
-        id: 'long_shadow',
-        name: 'Long Shadow',
-        category: 'style' as const,
-        description: 'Dramatic long shadow text effect at a configurable angle and length — popular for title cards.',
-        parameters: [
-            { key: 'length', label: 'Shadow Length', type: 'slider' as const, min: 5, max: 200, step: 5, default: 50, unit: 'px' },
-            { key: 'angle', label: 'Angle', type: 'slider' as const, min: 0, max: 360, step: 15, default: 135, unit: '°' },
-            { key: 'opacity', label: 'Shadow Opacity', type: 'slider' as const, min: 10, max: 100, step: 5, default: 60, unit: '%' },
-        ],
-        ffmpegTemplate: 'drawbox=x=0:y=0:w=iw:h=ih:color=black@{{opacity}}/100:thickness=fill',
-        cssPreview: 'drop-shadow({{length}}px {{length}}px 0 rgba(0,0,0,{{opacity}}/100))',
-        realtimePreview: true,
-    },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -814,15 +771,6 @@ export function resolveParametricEffect(
     if (effectId === 'mosaic') {
         return buildMosaicFilter(Number(resolved['size']));
     }
-    // ── Special-case: light_bloom — composite filter chain ────────────────
-    if (effectId === 'light_bloom') {
-        const intensity = Number(resolved['intensity']) || 40;
-        const radius = Number(resolved['radius']) || 20;
-        const threshold = Number(resolved['threshold']) || 180;
-        const threshNorm = (threshold / 255).toFixed(4);
-        return `split[bloom_orig][bloom_copy];[bloom_copy]colorlevels=rimin=${threshNorm}:gimin=${threshNorm}:bimin=${threshNorm},gblur=sigma=${radius}[bloom_blur];[bloom_orig][bloom_blur]blend=all_mode=screen:all_opacity=${intensity / 100}`;
-    }
-
     if (effectId === 'fisheye') {
         return buildFisheyeFilter(Number(resolved['amount']));
     }
