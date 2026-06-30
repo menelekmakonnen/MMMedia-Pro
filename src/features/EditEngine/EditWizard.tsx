@@ -43,6 +43,7 @@ import type { PresetCategory } from './sequencePresets';
 import { PreviewBubble } from '../../components/PreviewBubble';
 import { DurationPresetPreview, SpeedCurvePreview, BoomerangPreview, ZoomValuePreview, ZoomSpeedPreview, BeatDropPreview, ShakePolicyPreview, ShakeTypePreview, DoubleExposurePreview, MotionBlurPreview, GlowPreview, VibrationFlashPreview, SlowmoPreview, RgbSplitPreview, HueCyclePreview, VhsPreview, DoubleExposurePolicyPreview, MotionBlurPolicyPreview, GlowPolicyPreview, VibrationFlashPolicyPreview, SlowmoPolicyPreview, RgbSplitPolicyPreview, HueCyclePolicyPreview, VhsPolicyPreview, DoubleExposureShapePreview } from '../../components/EffectPreviews';
 import { DOUBLE_EXPOSURE_GRADIENTS, gradientToCss } from '../../lib/doubleExposureGradients';
+import { EditorialAssist } from '../SequenceView/EditorialAssist';
 
 interface SliderProps {
     label: string; icon: React.ElementType; value: number;
@@ -1309,6 +1310,11 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                     )}
                 </div>
 
+
+                {/* ── Editorial Intelligence (moved from Sequence page) ── */}
+                <div className="rounded-xl border border-white/5 bg-black/30 overflow-hidden">
+                    <EditorialAssist />
+                </div>
 
                 <div className="bg-black/40 rounded-xl border border-white/5 p-4 relative overflow-hidden space-y-4">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 blur-[50px] pointer-events-none rounded-full" />

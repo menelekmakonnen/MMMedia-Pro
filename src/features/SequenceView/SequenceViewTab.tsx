@@ -22,10 +22,7 @@ import { useSequenceViewStore } from '../../store/sequenceViewStore';
 import { EffectsBrowser } from './effects/EffectsBrowser';
 import { LumetriColorPanel } from './color/LumetriColorPanel';
 import { ScopePanel } from './scopes/ScopePanel';
-import { Sparkles, BarChart2, PanelLeftClose, PanelLeftOpen, Zap, Clapperboard, Wand2, Palette } from 'lucide-react';
-import { EditorialAssist } from './EditorialAssist';
-import { VisualHookPanel } from './VisualHookPanel';
-import { GeneratorModePanel } from '../EditEngine/GeneratorModePanel';
+import { Sparkles, BarChart2, PanelLeftClose, PanelLeftOpen, Palette } from 'lucide-react';
 import {
     splitAtPlayhead,
     deleteSelectedClips,
@@ -66,6 +63,7 @@ export const SequenceViewTab: React.FC = () => {
     const [currentGlobalFrame, setCurrentGlobalFrame] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
     const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
+    const [scopeOpen, setScopeOpen] = useState(false);
     // Latest play/pause handler, callable from the (memoised) keyboard effect.
     const handlePlayPauseRef = useRef<() => void>(() => {});
 
@@ -778,54 +776,6 @@ export const SequenceViewTab: React.FC = () => {
                                 Effects
                             </button>
                             <button
-                                onClick={() => setLeftPanelTab('scopes')}
-                                className={clsx(
-                                    'flex-1 flex items-center justify-center gap-1 py-1.5 text-[10px] font-semibold transition-colors',
-                                    leftPanelTab === 'scopes'
-                                        ? 'text-emerald-300 border-b-2 border-emerald-500 bg-emerald-500/5'
-                                        : 'text-white/35 hover:text-white/60'
-                                )}
-                            >
-                                <BarChart2 size={11} />
-                                Scopes
-                            </button>
-                            <button
-                                onClick={() => setLeftPanelTab('hooks')}
-                                className={clsx(
-                                    'flex-1 flex items-center justify-center gap-1 py-1.5 text-[10px] font-semibold transition-colors',
-                                    leftPanelTab === 'hooks'
-                                        ? 'text-amber-300 border-b-2 border-amber-500 bg-amber-500/5'
-                                        : 'text-white/35 hover:text-white/60'
-                                )}
-                            >
-                                <Zap size={11} />
-                                Hooks
-                            </button>
-                            <button
-                                onClick={() => setLeftPanelTab('editorial')}
-                                className={clsx(
-                                    'flex-1 flex items-center justify-center gap-1 py-1.5 text-[10px] font-semibold transition-colors',
-                                    leftPanelTab === 'editorial'
-                                        ? 'text-pink-300 border-b-2 border-pink-500 bg-pink-500/5'
-                                        : 'text-white/35 hover:text-white/60'
-                                )}
-                            >
-                                <Clapperboard size={11} />
-                                Editorial
-                            </button>
-                            <button
-                                onClick={() => setLeftPanelTab('modes')}
-                                className={clsx(
-                                    'flex-1 flex items-center justify-center gap-1 py-1.5 text-[10px] font-semibold transition-colors',
-                                    leftPanelTab === 'modes'
-                                        ? 'text-cyan-300 border-b-2 border-cyan-500 bg-cyan-500/5'
-                                        : 'text-white/35 hover:text-white/60'
-                                )}
-                            >
-                                <Wand2 size={11} />
-                                Modes
-                            </button>
-                            <button
                                 onClick={() => setLeftPanelTab('color')}
                                 className={clsx(
                                     'flex-1 flex items-center justify-center gap-1 py-1.5 text-[10px] font-semibold transition-colors',
@@ -849,21 +799,6 @@ export const SequenceViewTab: React.FC = () => {
                         <div className="flex-1 overflow-hidden">
                             {leftPanelTab === 'effects' && <EffectsBrowser />}
                             {leftPanelTab === 'color' && <LumetriColorPanel />}
-                            {leftPanelTab === 'editorial' && <EditorialAssist />}
-                            {leftPanelTab === 'modes' && <GeneratorModePanel variant="compact" />}
-                            {leftPanelTab === 'scopes' && <ScopePanel />}
-                            {leftPanelTab === 'hooks' && (
-                                <VisualHookPanel
-                                    onApplyHook={(overlay) => {
-                                        const firstClip = clips.find(c => c.type !== 'audio');
-                                        if (firstClip) {
-                                            const existing = firstClip.textOverlays || [];
-                                            updateClip(firstClip.id, { textOverlays: [...existing, overlay] });
-                                        }
-                                    }}
-                                    onClose={() => setLeftPanelTab('effects')}
-                                />
-                            )}
                         </div>
                         {/* Resize handle (right edge) */}
                         <div
@@ -892,42 +827,64 @@ export const SequenceViewTab: React.FC = () => {
                     <button
                         onClick={toggleLeftPanel}
                         className="flex-shrink-0 w-6 flex flex-col items-center justify-center bg-[#0d0d1a] border-r border-white/[0.06] text-white/25 hover:text-white/60 hover:bg-white/[0.03] transition-colors"
-                        title="Open Effects / Scopes panel"
+                        title="Open Effects / Color panel"
                     >
                         <PanelLeftOpen size={12} />
                     </button>
                 )}
 
-                {/* Program Monitor */}
-                <ProgramMonitor
-                    activeVisualClip={activeVisualClip as any}
-                    activeVisualClips={activeVisualClips}
-                    currentGlobalFrame={currentGlobalFrame}
-                    isPlaying={isPlaying}
-                    onPlayPause={handlePlayPause}
-                    fps={fps}
-                    aspectRatio={settings.aspectRatio}
-                    clipOpacity={clipOpacity}
-                    videoARef={videoARef}
-                    videoBRef={videoBRef}
-                    activeBuffer={activeBufferRef.current}
-                    currentZoom={currentZoom}
-                    seqObjectFit={seqObjectFit}
-                    transitionStyle={transitionStyle}
-                    masterVolume={masterVolume}
-                    isMasterMuted={isMasterMuted}
-                    trackMutes={trackMutes}
-                    setMasterVolume={setMasterVolume}
-                    setIsMasterMuted={setIsMasterMuted}
-                    showVolumeBar={showVolumeBar}
-                    setShowVolumeBar={setShowVolumeBar}
-                    volumeBarTimeoutRef={volumeBarTimeoutRef}
-                    bgAudioClips={bgAudioClips}
-                    bgAudioRefs={bgAudioRefs}
-                    exactProxyAvailable={!!(activeVisualClip && useTimelineStore.getState().prerenderCache[activeVisualClip.id])}
-                    maxFrame={maxFrameId}
-                    onSeek={setCurrentGlobalFrame}
-                />
+                {/* ── Program Monitor + Scopes Stack ── */}
+                <div className="flex-1 flex flex-col min-w-0 min-h-0">
+                    {/* Scopes — stacked above monitor, collapsible */}
+                    {scopeOpen && (
+                        <div className="flex-shrink-0 border-b border-white/[0.06]" style={{ height: '35%', minHeight: 120 }}>
+                            <ScopePanel />
+                        </div>
+                    )}
+                    {/* Scope toggle strip */}
+                    <button
+                        onClick={() => setScopeOpen(p => !p)}
+                        className={clsx(
+                            'flex items-center justify-center gap-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.15em] transition-colors flex-shrink-0 border-b border-white/[0.04]',
+                            scopeOpen
+                                ? 'text-emerald-400/60 bg-emerald-500/[0.04] hover:bg-emerald-500/[0.08]'
+                                : 'text-white/20 hover:text-white/40 hover:bg-white/[0.02]',
+                        )}
+                    >
+                        <BarChart2 size={9} />
+                        {scopeOpen ? 'Hide Scopes' : 'Show Scopes'}
+                    </button>
+                    {/* Program Monitor */}
+                    <ProgramMonitor
+                        activeVisualClip={activeVisualClip as any}
+                        activeVisualClips={activeVisualClips}
+                        currentGlobalFrame={currentGlobalFrame}
+                        isPlaying={isPlaying}
+                        onPlayPause={handlePlayPause}
+                        fps={fps}
+                        aspectRatio={settings.aspectRatio}
+                        clipOpacity={clipOpacity}
+                        videoARef={videoARef}
+                        videoBRef={videoBRef}
+                        activeBuffer={activeBufferRef.current}
+                        currentZoom={currentZoom}
+                        seqObjectFit={seqObjectFit}
+                        transitionStyle={transitionStyle}
+                        masterVolume={masterVolume}
+                        isMasterMuted={isMasterMuted}
+                        trackMutes={trackMutes}
+                        setMasterVolume={setMasterVolume}
+                        setIsMasterMuted={setIsMasterMuted}
+                        showVolumeBar={showVolumeBar}
+                        setShowVolumeBar={setShowVolumeBar}
+                        volumeBarTimeoutRef={volumeBarTimeoutRef}
+                        bgAudioClips={bgAudioClips}
+                        bgAudioRefs={bgAudioRefs}
+                        exactProxyAvailable={!!(activeVisualClip && useTimelineStore.getState().prerenderCache[activeVisualClip.id])}
+                        maxFrame={maxFrameId}
+                        onSeek={setCurrentGlobalFrame}
+                    />
+                </div>
 
                 {/* ── Right Sidebar: Inspector (always visible) ── */}
                 <div

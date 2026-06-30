@@ -14,7 +14,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type SequenceSubTab = 'upload' | 'media' | 'edit';
-export type LeftPanelTab = 'effects' | 'scopes' | 'hooks' | 'editorial' | 'modes' | 'color';
+export type LeftPanelTab = 'effects' | 'scopes' | 'color';
 
 export interface SourceMonitorClip {
     id: string;
