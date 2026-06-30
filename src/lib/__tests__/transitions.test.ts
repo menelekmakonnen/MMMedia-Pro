@@ -58,11 +58,13 @@ describe('transition export mapping (single source of truth)', () => {
     });
 
     it('flags the impact + intelligent transitions as approximated, and nothing else', () => {
-        // 7 "impact" looks + the 2 "intelligent" transitions (match-cut, seamless)
-        // are approximations of effects FFmpeg's xfade cannot reproduce exactly.
+        // The "impact" looks (incl. boomerang/double-exposure/triple-exposure/vhs)
+        // + the 2 "intelligent" transitions (match-cut, seamless) are
+        // approximations of effects FFmpeg's xfade cannot reproduce exactly.
         const approx = allTypes.filter(isApproximatedTransition).sort();
         expect(approx).toEqual(
-            ['film-burn', 'flash', 'glitch', 'match-cut', 'rgb-split', 'seamless', 'spin', 'whip', 'zoom-through'].sort()
+            ['boomerang', 'double-exposure', 'film-burn', 'flash', 'glitch', 'match-cut', 'pip',
+             'rgb-split', 'seamless', 'spin', 'triple-exposure', 'vhs', 'whip', 'zoom-through'].sort()
         );
     });
 

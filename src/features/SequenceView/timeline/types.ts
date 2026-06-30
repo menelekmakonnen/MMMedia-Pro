@@ -70,6 +70,8 @@ export interface TimelineState {
   showAudioMeters: boolean;
   /** Markers panel visibility (Window ▸ Markers). */
   markersPanelOpen: boolean;
+  /** Adjustment Layer creation dialog (File ▸ New ▸ Adjustment Layer). */
+  adjustmentDialogOpen: boolean;
 
   // Actions
   setTracks: (tracks: Track[]) => void;
@@ -99,4 +101,5 @@ export interface TimelineState {
   toggleSyncLock: (id: number) => void;
   toggleAudioMeters: () => void;
   toggleMarkersPanel: () => void;
+  setAdjustmentDialogOpen: (open: boolean) => void;
 }

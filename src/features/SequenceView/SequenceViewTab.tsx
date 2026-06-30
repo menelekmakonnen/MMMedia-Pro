@@ -13,6 +13,7 @@ import { EffectControlsPanel } from './inspector/EffectControlsPanel';
 import { ClipSpeedDurationDialog } from './inspector/ClipSpeedDurationDialog';
 import { MarkersPanel } from './MarkersPanel';
 import { SourceMonitor } from './SourceMonitor';
+import { AdjustmentLayerDialog } from './AdjustmentLayerDialog';
 import { SequenceMenuBar } from './SequenceMenuBar';
 import { Sliders, SlidersHorizontal } from 'lucide-react';
 
@@ -457,7 +458,7 @@ export const SequenceViewTab: React.FC = () => {
 
         for (const track of videoTracks) {
             const clip = track.clips.find(
-                c => !c.disabled && currentGlobalFrame >= c.startFrame && currentGlobalFrame < c.endFrame
+                c => !c.disabled && !c.isAdjustmentLayer && currentGlobalFrame >= c.startFrame && currentGlobalFrame < c.endFrame
             );
             if (clip) return clip;
         }
@@ -472,7 +473,7 @@ export const SequenceViewTab: React.FC = () => {
         const result: Clip[] = [];
         for (const track of videoTracks) {
             for (const clip of track.clips) {
-                if (!clip.disabled && currentGlobalFrame >= clip.startFrame && currentGlobalFrame < clip.endFrame) {
+                if (!clip.disabled && !clip.isAdjustmentLayer && currentGlobalFrame >= clip.startFrame && currentGlobalFrame < clip.endFrame) {
                     result.push(clip);
                 }
             }
@@ -1020,6 +1021,9 @@ export const SequenceViewTab: React.FC = () => {
 
             {/* Source monitor + 3-point editing (opens on Media double-click) */}
             <SourceMonitor />
+
+            {/* Adjustment Layer creation dialog (File ▸ New ▸ Adjustment Layer) */}
+            <AdjustmentLayerDialog />
         </div>
     );
 };

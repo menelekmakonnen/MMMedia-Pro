@@ -125,6 +125,8 @@ export const SequenceMenuBar: React.FC = () => {
     {
       title: 'File',
       items: [
+        { label: 'New: Adjustment Layer…', run: () => useTimelineStore.getState().setAdjustmentDialogOpen(true) },
+        { separator: true, label: '' },
         { label: 'Import: Final Cut Pro XML…', shortcut: '⌃I', run: importProject },
         { label: 'Import: Premiere Project (.prproj)…', run: importProject },
         { separator: true, label: '' },

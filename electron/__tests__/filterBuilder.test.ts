@@ -136,12 +136,13 @@ describe('shouldUseIntermediateForReverse', () => {
 });
 
 describe('buildVideoFilter', () => {
-    it('includes trim, setpts, scale, pad, fps for basic clip', () => {
+    it('includes trim, setpts, scale, crop, fps for basic clip', () => {
         const result = buildVideoFilter(baseClip, baseSettings, baseProbe);
         expect(result).toContain('trim=');
         expect(result).toContain('setpts=PTS-STARTPTS');
         expect(result).toContain('scale=1920:1080');
-        expect(result).toContain('pad=1920:1080');
+        // Cover/fill mode (no black bars): scale-up then crop to exact size.
+        expect(result).toContain('crop=1920:1080');
         expect(result).toContain('fps=fps=30');
     });
     it('includes reverse filter for short reversed clips', () => {

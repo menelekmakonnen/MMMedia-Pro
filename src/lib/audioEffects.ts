@@ -34,6 +34,10 @@ export interface AudioEffects {
     echoDecay: number;           // 0.1-0.9
     // Pitch Shifting (for SFX variety — prevents listener fatigue)
     pitchShift: number;  // semitones: -12 to +12 (0 = no shift)
+    // Ring-out effect (dramatic audio trail-off at cut points)
+    ringOut: boolean;
+    ringOutDuration: number;     // seconds (0.3-2.0)
+    ringOutPitchDrop: number;    // semitones to drop (0-12)
 }
 
 export const DEFAULT_AUDIO_EFFECTS: AudioEffects = {
@@ -58,6 +62,9 @@ export const DEFAULT_AUDIO_EFFECTS: AudioEffects = {
     echoDelay: 250,
     echoDecay: 0.4,
     pitchShift: 0,
+    ringOut: false,
+    ringOutDuration: 0.8,
+    ringOutPitchDrop: 3,
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -163,6 +170,22 @@ export function buildAudioEffectsFilter(effects: AudioEffects, clipDurationSec: 
 
     if (effects.echo) {
         filters.push(`aecho=0.8:0.88:${effects.echoDelay}:${effects.echoDecay}`);
+    }
+
+    // ── Ring-out ──────────────────────────────────────────────────────────
+    if (effects.ringOut && effects.ringOutDuration > 0) {
+        // Ring-out creates a dramatic "audio trail-off" at the end of clips.
+        // It combines a volume fade-out with a pitch drop for that cinematic effect.
+        const dur = effects.ringOutDuration;
+        const pitchDrop = effects.ringOutPitchDrop || 3;
+        // Apply pitch shift ramp + fade over the last N seconds
+        // asetrate shifts pitch, atempo compensates duration, afade handles volume
+        const pitchFactor = Math.pow(2, -pitchDrop / 12);
+        filters.push(`afade=t=out:st=${Math.max(0, clipDurationSec - dur)}:d=${dur}`);
+        // Only apply pitch drop if non-zero — avoids introducing artifacts
+        if (pitchDrop > 0) {
+            filters.push(`asetrate=44100*${pitchFactor.toFixed(4)},aresample=44100,atempo=${(1 / pitchFactor).toFixed(4)}`);
+        }
     }
 
     return filters.join(',');

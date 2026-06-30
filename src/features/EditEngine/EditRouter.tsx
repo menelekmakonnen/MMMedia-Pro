@@ -505,22 +505,29 @@ export const EditRouter: React.FC = () => {
         // match on ALL of these changed neither focal length nor angle → a jump
         // cut, so they get separated. Degrades to shot-type-only when the richer
         // signals are absent (backward compatible with the old behaviour).
-        if (newSettings.shotDiversityEnabled) {
+        // Triple toggle: 'off' (no de-cluster) · 'partial' (separate same-scale
+        // neighbours only — a light pass) · 'all' (full shot grammar + 30° angle
+        // bucket — aggressive). Falls back to the legacy boolean.
+        const diversityMode: 'off' | 'partial' | 'all' =
+            (newSettings.shotDiversityMode as any) ?? (newSettings.shotDiversityEnabled ? 'all' : 'off');
+        if (diversityMode !== 'off') {
             const smart = useTrailerSmartStore.getState();
             const shotMap = new Map<string, string>();
             for (const f of workingPool as any[]) {
                 const r = smart.getResult(f.id);
                 if (!r?.shotType) continue;
                 const dirBucket =
-                    typeof r.dominantMotionDirection === 'number'
+                    diversityMode === 'all' && typeof r.dominantMotionDirection === 'number'
                         ? Math.round(r.dominantMotionDirection / 30) % 12 // 30° angle buckets
                         : '';
-                const grammar = shotGrammarKey({ shotScale: r.shotType, cameraMotion: r.cameraMovement }) ?? r.shotType;
+                const grammar = diversityMode === 'all'
+                    ? (shotGrammarKey({ shotScale: r.shotType, cameraMotion: r.cameraMovement }) ?? r.shotType)
+                    : r.shotType; // partial: coarser key (shot scale only)
                 shotMap.set(f.id, `${grammar}|${dirBucket}`);
             }
             if (shotMap.size > 0) {
                 clips = deClusterShotTypes(clips as any, shotMap) as any;
-                console.log('[EditRouter] Shot-grammar (30°-rule) de-cluster applied across', shotMap.size, 'classified sources');
+                console.log(`[EditRouter] 30°-rule de-cluster (${diversityMode}) across`, shotMap.size, 'classified sources');
             }
         }
 

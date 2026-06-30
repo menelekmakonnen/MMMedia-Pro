@@ -261,6 +261,25 @@ export const TimelineTrack: React.FC<TimelineTrackProps> = memo(({
           />
         ))}
       </div>
+
+      {/* Track height resize handle (drag the bottom edge of the header) */}
+      {!track.locked && (
+        <div
+          className="absolute left-0 bottom-0 w-[200px] h-1.5 cursor-row-resize z-30 hover:bg-primary/40"
+          title="Drag to resize track height"
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const startY = e.clientY;
+            const startH = track.height;
+            (e.target as HTMLElement).setPointerCapture(e.pointerId);
+            const move = (ev: PointerEvent) => updateTrack(track.id, { height: Math.max(36, Math.min(240, startH + (ev.clientY - startY))) });
+            const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', up);
+          }}
+        />
+      )}
     </div>
   );
 });

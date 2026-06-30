@@ -4,6 +4,8 @@ import { Upload, Grid, List, Search, Wand2, Film, FolderOpen, Smartphone, Monito
 import clsx from 'clsx';
 import { useClipStore, Clip } from '../../store/clipStore';
 import { useMediaStore, MediaFile } from '../../store/mediaStore';
+import { YouTubeImport } from './YouTubeImport';
+import { ImportManagerTab } from './ImportManagerTab';
 import { useViewStore } from '../../store/viewStore';
 import { useUserStore } from '../../store/userStore';
 import { useGodModeStore } from '../../store/godModeStore';
@@ -159,6 +161,8 @@ export const MediaManagerTab: React.FC = () => {
                     ...(file.sourcePanX ? { sourcePanX: file.sourcePanX } : {}),
                     ...(file.sourcePanY ? { sourcePanY: file.sourcePanY } : {}),
                     ...(file.usageWeight && file.usageWeight !== 1 ? { usageWeight: file.usageWeight, usageMode: file.usageMode } : {}),
+                    // Inherit source-level deflicker so flagged footage is always deflickered
+                    ...(file.deflicker ? { deflicker: { enabled: true, includeAudio: file.deflickerAudio ?? true, layers: 3 as const } } : {}),
                 });
             } else if (file.type === 'audio') {
                 addClip({
@@ -422,6 +426,7 @@ export const MediaManagerTab: React.FC = () => {
             ...(targetFile.sourcePanX ? { sourcePanX: targetFile.sourcePanX } : {}),
             ...(targetFile.sourcePanY ? { sourcePanY: targetFile.sourcePanY } : {}),
             ...(targetFile.usageWeight && targetFile.usageWeight !== 1 ? { usageWeight: targetFile.usageWeight, usageMode: targetFile.usageMode } : {}),
+            ...(targetFile.deflicker ? { deflicker: { enabled: true, includeAudio: targetFile.deflickerAudio ?? true, layers: 3 as const } } : {}),
         });
     };
 
@@ -559,6 +564,25 @@ export const MediaManagerTab: React.FC = () => {
     };
 
     const showSidebar = true; // Always show sidebar
+    const [showManager, setShowManager] = useState(false);
+
+    // Import Manager is a subtab of this page (rendered inline, not a separate page).
+    if (showManager) {
+        return (
+            <div className="h-full w-full flex flex-col overflow-hidden">
+                <div className="px-8 pt-6 pb-2 flex items-center gap-2 flex-shrink-0 border-b border-white/5">
+                    <button onClick={() => setShowManager(false)}
+                        className="px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/80 border border-white/5 transition-all">
+                        Media Library
+                    </button>
+                    <button className="px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider bg-primary/20 text-primary-300 border border-primary/30">
+                        Import Manager
+                    </button>
+                </div>
+                <div className="flex-1 min-h-0"><ImportManagerTab /></div>
+            </div>
+        );
+    }
 
     return (
         <div className="h-full w-full flex flex-col overflow-hidden">
@@ -576,6 +600,12 @@ export const MediaManagerTab: React.FC = () => {
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
+                        <button onClick={() => setShowManager(true)}
+                            className="px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider bg-white/5 text-white/50 hover:bg-primary/20 hover:text-primary-300 border border-white/5 hover:border-primary/30 transition-all"
+                            title="Open the Import Manager">
+                            Import Manager
+                        </button>
+                        <div className="w-px h-5 bg-white/10 mx-1" />
                         <button onClick={() => setViewMode('grid')}
                             className={clsx("p-2 rounded-lg transition-all border", viewMode === 'grid' ? 'bg-primary/20 text-primary border-primary/30' : 'bg-white/5 text-white/40 border-white/5 hover:bg-white/10 hover:text-white/80')}
                             title="Grid View"><Grid size={16} /></button>
@@ -609,26 +639,11 @@ export const MediaManagerTab: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Quick Actions */}
-                <div className="flex items-center gap-3 py-2">
-                    <span className="text-[10px] font-black text-white/30 uppercase tracking-widest mr-1">Quick:</span>
-                    <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-                        onClick={() => { if (hasSelection) selectAllFiles(selectedFileIds); setActiveTab('import-manager'); }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/15 hover:bg-primary/25 text-primary-300 hover:text-primary-200 transition-all border border-primary/20 hover:border-primary/40 text-[10px] font-bold uppercase tracking-wider">
-                        <SlidersHorizontal size={12} /> Manager
-                    </motion.button>
-                    <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => { useGodModeStore.getState().setEnabled(true); setActiveTab('trailer'); }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-300/70 hover:text-yellow-200 transition-all border border-yellow-500/10 hover:border-yellow-500/30 text-[10px] font-bold uppercase tracking-wider">
-                        <Crown size={12} /> God Mode
-                    </motion.button>
-                    <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => setActiveTab('trailer')}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-primary/20 text-white/50 hover:text-primary-300 transition-all border border-white/5 hover:border-primary/30 text-[10px] font-bold uppercase tracking-wider">
-                        <Wand2 size={12} /> Edit Engine
-                    </motion.button>
-                    <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => setActiveTab('timeline')}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-accent/20 text-white/50 hover:text-accent transition-all border border-white/5 hover:border-accent/30 text-[10px] font-bold uppercase tracking-wider">
-                        <Film size={12} /> Timeline Editor
-                    </motion.button>
+                {/* YouTube import (replaces the old Quick options) */}
+                <div className="flex items-center gap-3 py-2 flex-wrap">
+                    <span className="text-[10px] font-black text-white/30 uppercase tracking-widest mr-1">YouTube:</span>
+                    <div className="flex-1 min-w-[240px] max-w-[360px]"><YouTubeImport kind="video" /></div>
+                    <div className="flex-1 min-w-[240px] max-w-[360px]"><YouTubeImport kind="audio" /></div>
                     {files.length > 0 && (
                         <>
                             <div className="w-px h-5 bg-white/10 mx-1" />

@@ -1,178 +1,99 @@
 // ══════════════════════════════════════════════════════════════════════════════
-// deflickerFilter.ts — FFmpeg filter graph for temporal-averaging deflicker
+// deflickerFilter.ts — FFmpeg temporal-averaging deflicker
 //
-// Removes LED/fluorescent light flicker by stacking N copies of the same clip
-// at decreasing opacity with 1-frame temporal offsets. The temporal averaging
-// smooths out flicker cycles (typically 50/60 Hz) that appear as rolling bands
-// or brightness pulsing in video footage.
+// Removes LED/fluorescent/screen flicker by blending each output frame with its
+// neighbours — a weighted temporal average that smooths the brightness pulsing
+// (typically 50/60 Hz) that shows up as rolling bands or flicker.
 //
-// 3-layer (standard):  100% + 66% (offset +1fr) + 33% (offset +2fr)
-// 5-layer (heavy):     100% + 80% (offset +1fr) + 60% (+2fr) + 40% (+3fr) + 20% (+4fr)
+// This is the exact Premiere Pro "manual deflicker" technique expressed as a
+// single FFmpeg `tmix` filter:
+//
+//   Premiere: stack 3 copies of the clip on 3 video tracks, set the middle to
+//   66% opacity (offset +1 frame) and the top to 33% opacity (offset +2 frames),
+//   then nest. Normal-blend compositing top-over-bottom collapses to a weighted
+//   average of three consecutive frames:
+//
+//     out = 0.33·f(n+2) + 0.66·0.67·f(n+1) + 0.34·0.67·f(n)
+//         = 0.2278·f(n) + 0.4422·f(n+1) + 0.33·f(n+2)
+//
+//   …which is precisely `tmix=frames=3:weights=0.2278 0.4422 0.33`.
+//
+// Expressing it as `tmix` (instead of split/offset/blend in a filter_complex)
+// means deflicker composes into the normal single-input `-vf` chain, so it bakes
+// into ordinary timeline renders AND standalone renders, on both the internal
+// engine and Ender (which vendors this module).
 // ══════════════════════════════════════════════════════════════════════════════
 
 export type DeflickerLayers = 3 | 5;
 
 /**
- * Opacities for each overlay layer (base layer is always 100% / implicit).
- * These produce a weighted temporal average that preserves detail while
- * smoothing flicker.  The base is the "loudest" frame; each subsequent
- * offset frame contributes less.
+ * tmix weights for each preset, derived by collapsing the Premiere opacity-stack
+ * compositing into a single weighted temporal average. Each weight set sums to
+ * 1.0 (oldest frame → newest frame).
+ *
+ *  3-layer (standard): opacities 100% / 66% / 33%  → 0.2278 0.4422 0.33
+ *  5-layer (heavy):    opacities 100/80/60/40/20%  → 0.0384 0.1536 0.288 0.32 0.20
  */
-const LAYER_OPACITIES: Record<DeflickerLayers, number[]> = {
-    3: [0.66, 0.33],           // 2 overlay layers on top of the base
-    5: [0.80, 0.60, 0.40, 0.20], // 4 overlay layers on top of the base
+const TMIX_WEIGHTS: Record<DeflickerLayers, number[]> = {
+    3: [0.2278, 0.4422, 0.33],
+    5: [0.0384, 0.1536, 0.288, 0.32, 0.20],
 };
 
 /**
- * Build the FFmpeg `-filter_complex` graph string for deflickering.
+ * Build the single `tmix` video filter that performs deflicker.
  *
- * The technique:
- *   1. Split the input into N streams
- *   2. Offset each overlay stream by 1, 2, … N-1 frames using `setpts`
- *   3. Blend each overlay onto the base at decreasing opacity using `blend`
+ * Returns a plain filter string (e.g. `tmix=frames=3:weights=0.2278 0.4422 0.33`)
+ * suitable for pushing straight into a comma-joined `-vf` chain. tmix preserves
+ * frame count, resolution and duration — it only blends each frame with its
+ * temporal neighbours.
  *
- * @param layers  Number of temporal layers (3 or 5)
- * @param fps     Project frame rate (used to compute 1-frame PTS offset)
- * @returns       A complete filter_complex string for a single-input graph
- *
- * @example
- *   // 3-layer:
- *   // [0:v]split=3[df_base][df_s1][df_s2];
- *   // [df_s1]setpts=PTS+(1/30)/TB[df_off1];
- *   // [df_s2]setpts=PTS+(2/30)/TB[df_off2];
- *   // [df_base][df_off1]blend=all_mode=normal:all_opacity=0.66[df_m1];
- *   // [df_m1][df_off2]blend=all_mode=normal:all_opacity=0.33[df_out]
+ * @param layers  3 (standard) or 5 (heavy) temporal taps
  */
-export function buildDeflickerGraph(layers: DeflickerLayers, fps: number): string {
-    const opacities = LAYER_OPACITIES[layers];
-    const totalStreams = 1 + opacities.length; // base + overlays
-    const frameDuration = 1 / fps;             // seconds per frame
-
-    const parts: string[] = [];
-
-    // 1. Split input into N streams
-    const splitLabels = [`[df_base]`];
-    for (let i = 1; i < totalStreams; i++) {
-        splitLabels.push(`[df_s${i}]`);
-    }
-    parts.push(`[0:v]split=${totalStreams}${splitLabels.join('')}`);
-
-    // 2. Offset each overlay stream by i frames
-    for (let i = 1; i < totalStreams; i++) {
-        const offsetSec = (i * frameDuration).toFixed(6);
-        parts.push(`[df_s${i}]setpts=PTS+${offsetSec}/TB[df_off${i}]`);
-    }
-
-    // 3. Blend each overlay onto the accumulator
-    let accLabel = 'df_base';
-    for (let i = 0; i < opacities.length; i++) {
-        const overlayIdx = i + 1;
-        const outLabel = i === opacities.length - 1 ? 'df_out' : `df_m${overlayIdx}`;
-        parts.push(
-            `[${accLabel}][df_off${overlayIdx}]blend=all_mode=normal:all_opacity=${opacities[i]}[${outLabel}]`
-        );
-        accLabel = outLabel;
-    }
-
-    return parts.join(';\n');
+export function buildDeflickerVf(layers: DeflickerLayers = 3): string {
+    const weights = TMIX_WEIGHTS[layers] ?? TMIX_WEIGHTS[3];
+    return `tmix=frames=${weights.length}:weights=${weights.join(' ')}`;
 }
 
 /**
- * Build the full FFmpeg arguments for a standalone deflicker render.
+ * Build the full FFmpeg arguments for a standalone deflicker render
+ * (Import Manager → "Render Deflickered Video", no other edits applied).
  *
- * @param inputPath   Absolute path to the source video
- * @param outputPath  Absolute path for the deflickered output
- * @param layers      Number of temporal layers
- * @param fps         Project frame rate
- * @param includeAudio Whether to include the original audio track
- * @returns           Array of FFmpeg argument strings
+ * @param inputPath    Absolute path to the source video
+ * @param outputPath   Absolute path for the deflickered output
+ * @param layers       Number of temporal taps (3 or 5)
+ * @param _fps         Unused (kept for call-site compatibility — tmix works on
+ *                     the frame sequence, no explicit fps needed)
+ * @param includeAudio Whether to keep the original audio track
  */
 export function buildDeflickerArgs(
     inputPath: string,
     outputPath: string,
     layers: DeflickerLayers,
-    fps: number,
+    _fps: number,
     includeAudio: boolean,
 ): string[] {
-    const graph = buildDeflickerGraph(layers, fps);
-
+    // `-vf` filters the auto-selected video stream; default stream selection also
+    // carries one audio stream (re-encoded to AAC) unless `-an` strips it. We avoid
+    // explicit `-map` so there's no `-vf`/`-map` interaction to get wrong.
     const args: string[] = [
         '-i', inputPath,
-        '-filter_complex', `${graph}`,
-        '-map', '[df_out]',
+        '-vf', buildDeflickerVf(layers || 3),
     ];
 
     if (includeAudio) {
-        args.push('-map', '0:a?', '-c:a', 'copy');
+        args.push('-c:a', 'aac', '-b:a', '192k');
     } else {
         args.push('-an');
     }
 
-    // Output encoding
     args.push(
         '-c:v', 'libx264',
         '-preset', 'medium',
         '-crf', '18',
         '-pix_fmt', 'yuv420p',
-        '-y',                  // Overwrite
+        '-y',
         outputPath,
     );
 
     return args;
-}
-
-/**
- * Build a per-clip deflicker filter chain that can be prepended to
- * an existing `-vf` or `-filter_complex` pipeline.
- *
- * This returns just the split/offset/blend portion without input/output
- * label assignments, suitable for embedding into a larger filter graph
- * managed by filterBuilder.ts.
- *
- * @param inputLabel   The label of the incoming video stream (e.g. '[v_in]')
- * @param outputLabel  The label for the deflickered output (e.g. '[v_df]')
- * @param layers       Number of temporal layers
- * @param fps          Project frame rate
- */
-export function buildDeflickerChain(
-    inputLabel: string,
-    outputLabel: string,
-    layers: DeflickerLayers,
-    fps: number,
-): string {
-    const opacities = LAYER_OPACITIES[layers];
-    const totalStreams = 1 + opacities.length;
-    const frameDuration = 1 / fps;
-
-    const parts: string[] = [];
-
-    // Strip brackets for label construction
-    const inLabel = inputLabel.replace(/[\[\]]/g, '');
-    const outLabel = outputLabel.replace(/[\[\]]/g, '');
-
-    // 1. Split
-    const splitLabels = [`[${inLabel}_base]`];
-    for (let i = 1; i < totalStreams; i++) {
-        splitLabels.push(`[${inLabel}_s${i}]`);
-    }
-    parts.push(`${inputLabel}split=${totalStreams}${splitLabels.join('')}`);
-
-    // 2. Offset
-    for (let i = 1; i < totalStreams; i++) {
-        const offsetSec = (i * frameDuration).toFixed(6);
-        parts.push(`[${inLabel}_s${i}]setpts=PTS+${offsetSec}/TB[${inLabel}_off${i}]`);
-    }
-
-    // 3. Blend
-    let accLabel = `${inLabel}_base`;
-    for (let i = 0; i < opacities.length; i++) {
-        const overlayIdx = i + 1;
-        const curOutLabel = i === opacities.length - 1 ? outLabel : `${inLabel}_m${overlayIdx}`;
-        parts.push(
-            `[${accLabel}][${inLabel}_off${overlayIdx}]blend=all_mode=normal:all_opacity=${opacities[i]}[${curOutLabel}]`
-        );
-        accLabel = curOutLabel;
-    }
-
-    return parts.join(';\n');
 }

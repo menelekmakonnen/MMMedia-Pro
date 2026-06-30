@@ -17,7 +17,7 @@
  */
 import { useEffect, useRef } from 'react';
 import { useClipStore } from '../../../store/clipStore';
-import { useTimelineStore } from '../timeline/useTimelineStore';
+import { useTimelineStore, normalizeTracks } from '../timeline/useTimelineStore';
 import type { Track } from '../timeline/types';
 
 const VIDEO_COLORS = ['#6366f1', '#8b5cf6', '#a78bfa', '#7c3aed', '#6d28d9'];
@@ -69,13 +69,14 @@ export function useDeriveTracks(): void {
   useEffect(() => {
     const existing = useTimelineStore.getState().tracks;
 
-    // Required ids = canonical defaults + pre-provisioned multi-track workspace
-    // + every track referenced by a clip.
-    // Pre-provision 10 video (V1=1, V2=3..V10=11) + 10 audio (A1=2, A2-A10=101..109)
-    // so editors have room for layering B-roll and sound design from the start.
+    // Required ids = the core tracks only + every track a clip actually uses.
+    // We DON'T pre-provision a wall of empty tracks (it buried the core V1/A1
+    // off-screen). Default to V1 (1), A1 (2) and A2/music (101); the user adds
+    // more with the + buttons when they need to layer.
     const needed = new Set<number>([
-        1, 3, 4, 5, 6, 7, 8, 9, 10, 11,       // V1..V10
-        2, 101, 102, 103, 104, 105, 106, 107, 108, 109, // A1..A10
+        1,    // V1 — primary video
+        2,    // A1 — linked / dialogue audio
+        101,  // A2 — music
     ]);
     for (const c of clips) needed.add((c as { track?: number }).track ?? 1);
 
@@ -102,7 +103,11 @@ export function useDeriveTracks(): void {
       next.sort((a, b) => orderKey(a.id) - orderKey(b.id));
     }
 
-    const sig = next.map((t) => t.id).join(',');
+    // Sort into Premiere stacking order and label by position (V1 bottom, A1 top
+    // of audio), so labels are always correct regardless of internal track ids.
+    next = normalizeTracks(next);
+
+    const sig = next.map((t) => `${t.id}:${t.name}`).join(',');
     if (sig !== lastSigRef.current) {
       lastSigRef.current = sig;
       useTimelineStore.getState().setTracks(next);

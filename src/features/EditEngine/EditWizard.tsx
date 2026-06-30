@@ -10,7 +10,6 @@ import type { TransitionType, SpeedCurvePreset, ShakeType, ShakePolicy, BeatDrop
 import { TrailerSmartPanel } from './EditSmartPanel';
 import { SmartChoicesStrip } from './SmartChoicesStrip';
 import { runSmartAnalysis } from '../../lib/smartEngine';
-import { TrailerAudioDynamics } from './EditAudioDynamics';
 import { SpeedCurveVisualizer } from './SpeedCurveVisualizer';
 import { ShakePreview } from './ShakePreview';
 // BeatSensitivityGraph and InteractiveWaveform superseded by UnifiedBeatVisualizer
@@ -20,7 +19,7 @@ import { usePresetUsageStore } from '../../store/presetUsageStore';
 import { useAudioAnalysisCache } from '../../store/audioAnalysisCache';
 import { useExportSettingsStore } from '../../store/exportSettingsStore';
 import { TransitionCard } from './TransitionCard';
-import { ColorPresetCard } from './ColorPresetCard';
+import { DEFAULT_COLOR_GRADING } from '../../lib/colorGrading';
 import { VisualFXCard } from './VisualFXCard';
 import { NarrationIntelligence } from './NarrationIntelligence';
 import { useNarrationStore } from '../../store/narrationStore';
@@ -410,6 +409,41 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
     const [effectsOpen, setEffectsOpen] = useState(true);
     const [transitionsOpen, setTransitionsOpen] = useState(true);
     const [colorOpen, setColorOpen] = useState(true);
+
+    // ── Edit Generator colour: only Vibrance, Desaturation, Noir. Each maps to
+    //    the Sequence-page colour-grade model (ColorGrading), stored as the
+    //    sequence-wide globalColorGrading so the render never invents colours. ──
+    const colorState = {
+        v: { on: !!(settings as any).colorVibranceEnabled, amt: (settings as any).colorVibranceAmt ?? 0.5 },
+        d: { on: !!(settings as any).colorDesatEnabled, amt: (settings as any).colorDesatAmt ?? 0.5 },
+        n: { on: !!(settings as any).colorNoirEnabled, amt: (settings as any).colorNoirAmt ?? 0.5 },
+    };
+    const buildColorGrade = (st: typeof colorState) => {
+        if (!st.v.on && !st.d.on && !st.n.on) return undefined;
+        const g: any = { ...DEFAULT_COLOR_GRADING };
+        if (st.v.on) g.vibrance = 1 + st.v.amt;                  // 1 → 2 (more vibrant)
+        if (st.d.on) g.saturation = Math.max(0, 1 - st.d.amt);   // 1 → 0 (desaturate)
+        if (st.n.on) { g.saturation = 0; g.contrast = 1 + st.n.amt * 0.6; } // B&W + contrast
+        return g;
+    };
+    const setColor = (patch: Partial<typeof colorState>) => {
+        const st = {
+            v: { ...colorState.v, ...(patch.v || {}) },
+            d: { ...colorState.d, ...(patch.d || {}) },
+            n: { ...colorState.n, ...(patch.n || {}) },
+        };
+        update({
+            colorVibranceEnabled: st.v.on, colorVibranceAmt: st.v.amt,
+            colorDesatEnabled: st.d.on, colorDesatAmt: st.d.amt,
+            colorNoirEnabled: st.n.on, colorNoirAmt: st.n.amt,
+            globalColorGrading: buildColorGrade(st),
+        } as any);
+    };
+    const COLOR_OPTS = [
+        { k: 'v' as const, label: 'Vibrance', desc: 'Boost colour intensity' },
+        { k: 'd' as const, label: 'Desaturation', desc: 'Pull colour toward grey' },
+        { k: 'n' as const, label: 'Noir', desc: 'High-contrast black & white' },
+    ];
 
     // Restore persisted audio URL on mount
     const audioRestoredRef = useRef(false);
@@ -1261,9 +1295,6 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                         {([
                             { m: 'trailer' as const, label: 'Trailer', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="2" y="4" width="20" height="16" rx="2" stroke="currentColor" strokeWidth="1.5"/><line x1="7" y1="4" x2="7" y2="20" stroke="currentColor" strokeWidth="1" opacity="0.5"/><line x1="12" y1="4" x2="12" y2="20" stroke="currentColor" strokeWidth="1.5"/><line x1="17" y1="4" x2="17" y2="20" stroke="currentColor" strokeWidth="1" opacity="0.5"/><polygon points="10,9 10,15 14,12" fill="currentColor" opacity="0.7"/></svg> },
                             { m: 'music-video' as const, label: 'Music Video', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M3 12h2l2-4 2 8 2-6 2 4 2-2h2l2-3 2 6h1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><circle cx="18" cy="16" r="2" stroke="currentColor" strokeWidth="1.5"/><line x1="20" y1="8" x2="20" y2="16" stroke="currentColor" strokeWidth="1.5"/></svg> },
-                            { m: 'showreel' as const, label: 'Showreel', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5"/><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.5"/><line x1="12" y1="3" x2="12" y2="9" stroke="currentColor" strokeWidth="1" opacity="0.4"/><line x1="12" y1="15" x2="12" y2="21" stroke="currentColor" strokeWidth="1" opacity="0.4"/><line x1="3" y1="12" x2="9" y2="12" stroke="currentColor" strokeWidth="1" opacity="0.4"/><line x1="15" y1="12" x2="21" y2="12" stroke="currentColor" strokeWidth="1" opacity="0.4"/></svg> },
-                            { m: 'video-essay' as const, label: 'Video Essay', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 19V5a2 2 0 012-2h8l6 6v10a2 2 0 01-2 2H6a2 2 0 01-2-2z" stroke="currentColor" strokeWidth="1.5"/><path d="M14 3v6h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><line x1="8" y1="13" x2="16" y2="13" stroke="currentColor" strokeWidth="1" opacity="0.5"/><line x1="8" y1="16" x2="13" y2="16" stroke="currentColor" strokeWidth="1" opacity="0.5"/></svg> },
-                            { m: 'short-film' as const, label: 'Short Film', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="3" y="8" width="18" height="13" rx="1" stroke="currentColor" strokeWidth="1.5"/><path d="M3 8l3-5h12l3 5" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><line x1="7" y1="3" x2="9" y2="8" stroke="currentColor" strokeWidth="1" opacity="0.5"/><line x1="12" y1="3" x2="13" y2="8" stroke="currentColor" strokeWidth="1" opacity="0.5"/><line x1="17" y1="3" x2="17" y2="8" stroke="currentColor" strokeWidth="1" opacity="0.5"/></svg> },
                             { m: 'social-media' as const, label: 'Social Media', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="6" y="2" width="12" height="20" rx="2" stroke="currentColor" strokeWidth="1.5"/><polygon points="10,9 10,15 15,12" fill="currentColor" opacity="0.7"/><path d="M17 6l2-2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.6"/></svg> },
                             { m: 'bts' as const, label: 'BTS', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="2" y="9" width="15" height="11" rx="2" stroke="currentColor" strokeWidth="1.5"/><path d="M17 13l4-2.5v7L17 15" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><circle cx="9" cy="14.5" r="2.5" stroke="currentColor" strokeWidth="1" opacity="0.4"/></svg> },
                         ]).map(({ m, label, icon }) => (
@@ -1313,24 +1344,23 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                         );
                     })()}
 
-                    {/* ── Music-video specific options ── */}
-                    {(settings.generatorMode === 'music-video') && (
-                        <div className="flex flex-wrap gap-1.5 pt-3 border-t border-white/5 mt-3">
-                            {([['mvIntroEnabled', 'Intro'], ['mvOutroEnabled', 'Outro Shrink'], ['mvBtsSlot', 'BTS Slot']] as const).map(([key, label]) => (
-                                <button key={key} onClick={() => update({ [key]: !(settings[key] ?? true) } as any)}
-                                    className={clsx("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border transition-all",
-                                        (settings[key] ?? true)
-                                            ? "bg-emerald-600/20 border-emerald-500/40 text-emerald-200"
-                                            : "bg-white/5 border-white/5 text-white/40 hover:bg-white/10")}>
-                                    {label}
-                                </button>
-                            ))}
-                            <button onClick={() => update({ mvBeatAnchor: (settings.mvBeatAnchor ?? 'downbeat') === 'downbeat' ? 'beat' : 'downbeat' })}
-                                className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase border bg-white/5 border-white/10 text-white/60 hover:bg-white/10">
-                                Anchor: {(settings.mvBeatAnchor ?? 'downbeat') === 'downbeat' ? 'Downbeats' : 'Beats'}
-                            </button>
+                    {/* 30° rule (shot diversity) — triple toggle: off / partial / all */}
+                    <div className="flex items-center gap-2 pt-3 border-t border-white/5 mt-3">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-white/50">30° Rule</span>
+                        <div className="flex rounded-lg overflow-hidden border border-white/10">
+                            {(['off', 'partial', 'all'] as const).map((m) => {
+                                const cur = ((settings as any).shotDiversityMode as 'off' | 'partial' | 'all' | undefined)
+                                    ?? ((settings as any).shotDiversityEnabled ? 'all' : 'off');
+                                return (
+                                    <button key={m} onClick={() => update({ shotDiversityMode: m, shotDiversityEnabled: m !== 'off' } as any)}
+                                        className={clsx('px-3 py-1 text-[10px] font-bold uppercase transition-colors',
+                                            cur === m ? 'bg-purple-600 text-white' : 'bg-white/5 text-white/40 hover:bg-white/10')}>
+                                        {m}
+                                    </button>
+                                );
+                            })}
                         </div>
-                    )}
+                    </div>
                 </div>
 
 
@@ -1993,8 +2023,6 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                                         min={0} max={100} step={5} unit="%" onChange={(v) => update({ vibrationFlashIntensity: v })} />
                                 </EffectPolicyControl>
                             </div>
-
-                            <TrailerAudioDynamics settings={settings} update={update} />
                         </div>
                     )}
                 </div>
@@ -3061,34 +3089,38 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
                 {/* ═══════════════════════════ COLOR ═══════════════════════════ */}
                 <CollapsibleSection title="Color" icon={Palette} iconColor="text-pink-400" isOpen={colorOpen} onToggle={() => setColorOpen(!colorOpen)}
                     badge={(() => {
-                        const active = ['colorPerSection', 'desaturationBuildup', 'beatFlashEnabled', 'tealOrangeGrade', 'coolShadows', 'warmHighlights', 'highContrast', 'vintageFade', 'monochromeGrade']
-                            .filter(k => !!(settings as any)[k]);
-                        return active.length > 0 ? `${active.length} active` : undefined;
+                        const n = [colorState.v.on, colorState.d.on, colorState.n.on].filter(Boolean).length;
+                        return n > 0 ? `${n} active` : undefined;
                     })()}
                     badgeColor="bg-pink-500/20 text-pink-300">
 
-                    <div className="grid grid-cols-3 gap-2">
-                        {([
-                            { id: 'colorPerSection', label: 'Auto Grade', description: 'Different color grading per audio segment', gradient: 'linear-gradient(135deg, #3b82f6, #8b5cf6, #ec4899)' },
-                            { id: 'desaturationBuildup', label: 'Desat Build', description: 'Fade to B&W during buildup sections', gradient: 'linear-gradient(135deg, #888, #333)' },
-                            { id: 'beatFlashEnabled', label: 'Beat Flash', description: 'White flash on beat impacts', gradient: 'linear-gradient(135deg, #fbbf24, #fff, #fbbf24)' },
-                            { id: 'tealOrangeGrade', label: 'Teal & Orange', description: 'Classic cinematic — warm skin tones, cool shadows', gradient: 'linear-gradient(135deg, #0d9488, #f97316)' },
-                            { id: 'coolShadows', label: 'Cool Shadows', description: 'Blue-tinted shadows for moody/night feel', gradient: 'linear-gradient(135deg, #1e3a5f, #3b82f6, #111)' },
-                            { id: 'warmHighlights', label: 'Warm Highlights', description: 'Golden/amber highlight push', gradient: 'linear-gradient(135deg, #78350f, #f59e0b, #fde68a)' },
-                            { id: 'highContrast', label: 'High Contrast', description: 'Boosted blacks and whites — punchy look', gradient: 'linear-gradient(135deg, #000, #fff, #000)' },
-                            { id: 'vintageFade', label: 'Vintage Fade', description: 'Lifted blacks, warm tint, reduced saturation', gradient: 'linear-gradient(135deg, #92714f, #c4a882, #8b7355)' },
-                            { id: 'monochromeGrade', label: 'Monochrome', description: 'Full black & white grade', gradient: 'linear-gradient(135deg, #222, #999, #444)' },
-                        ] as const).map(opt => (
-                            <ColorPresetCard
-                                key={opt.id}
-                                id={opt.id}
-                                label={opt.label}
-                                description={opt.description}
-                                previewGradient={opt.gradient}
-                                active={!!(settings as any)[opt.id]}
-                                onToggle={() => update({ [opt.id]: !(settings as any)[opt.id] })}
-                            />
-                        ))}
+                    <p className="text-[10px] text-white/35 mb-2">Vibrance, Desaturation and Noir only — each maps to the Sequence page colour grade.</p>
+                    <div className="space-y-2">
+                        {COLOR_OPTS.map((opt) => {
+                            const st = colorState[opt.k];
+                            return (
+                                <div key={opt.k} className={clsx('rounded-lg border p-2.5 transition-colors', st.on ? 'border-pink-500/40 bg-pink-500/[0.07]' : 'border-white/5 bg-white/[0.02]')}>
+                                    <button onClick={() => setColor({ [opt.k]: { on: !st.on, amt: st.amt } } as any)} className="w-full flex items-center justify-between">
+                                        <span className="text-left">
+                                            <span className="block text-[11px] font-bold text-white/80">{opt.label}</span>
+                                            <span className="block text-[9px] text-white/35">{opt.desc}</span>
+                                        </span>
+                                        <span className={clsx('w-9 h-5 rounded-full relative transition-colors flex-shrink-0', st.on ? 'bg-pink-500' : 'bg-black border border-white/20')}>
+                                            <span className={clsx('w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform', st.on ? 'translate-x-4' : 'translate-x-0.5')} />
+                                        </span>
+                                    </button>
+                                    {st.on && (
+                                        <div className="flex items-center gap-2 mt-2">
+                                            <span className="text-[9px] text-white/40 w-10">Amount</span>
+                                            <input type="range" min={0} max={1} step={0.05} value={st.amt}
+                                                onChange={(e) => setColor({ [opt.k]: { on: true, amt: parseFloat(e.target.value) } } as any)}
+                                                className="flex-1 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-pink-500" />
+                                            <span className="text-[9px] font-mono text-white/45 w-8 text-right">{Math.round(st.amt * 100)}%</span>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
                 </CollapsibleSection>
 

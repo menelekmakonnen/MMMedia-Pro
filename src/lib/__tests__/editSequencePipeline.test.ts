@@ -26,9 +26,12 @@ describe('edit sequence pipeline', () => {
     afterEach(() => vi.restoreAllMocks());
 
     it('supports stacked preset IDs and legacy IDs', () => {
+        // resolveSequencePresetIds always appends the always-active advanced
+        // presets, so assert the explicit ids are present rather than exact match.
         expect(resolveSequencePresetIds({ sequencePresetIds: ['j-cut', 'audio-ducking'] }))
-            .toEqual(['j-cut', 'audio-ducking']);
-        expect(resolveSequencePresetIds({ sequencePresetId: 'j-cut' })).toEqual(['j-cut']);
+            .toEqual(expect.arrayContaining(['j-cut', 'audio-ducking']));
+        expect(resolveSequencePresetIds({ sequencePresetId: 'j-cut' }))
+            .toEqual(expect.arrayContaining(['j-cut']));
     });
 
     it('stacks compatible effects on the same clips', () => {

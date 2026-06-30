@@ -47,6 +47,8 @@ export interface MediaFile {
     tags?: { people?: string[]; scene?: string; location?: string; color?: string };
     /** Source is marked for deflickering — clips created from this file auto-inherit deflicker config */
     deflicker?: boolean;
+    /** Whether the deflickered output keeps the original audio (default true) */
+    deflickerAudio?: boolean;
     // ── Source-level framing (zoom + reposition) ──────────────────────────
     sourceZoom?: number;     // 100 = no zoom (default), 150 = 1.5x crop, etc.
     sourcePanX?: number;     // -100 to 100, horizontal offset from center (default 0)

@@ -23,6 +23,7 @@ export const TRANSITION_CATEGORIES: Record<string, { label: string; transitions:
     blur:        { label: 'Blur',        transitions: ['hblur'] },
     impact:      { label: 'Impact',      transitions: ['flash', 'glitch', 'rgb-split', 'zoom-through', 'spin', 'film-burn', 'whip', 'boomerang', 'double-exposure', 'triple-exposure', 'vhs'] },
     intelligent: { label: 'Intelligent', transitions: ['match-cut', 'seamless'] },
+    motion:      { label: 'Motion',      transitions: ['motion-tween'] },
 };
 
 // ═══════════════════════════════════════════════════════
@@ -38,6 +39,7 @@ export const TRANSITION_CATEGORIES: Record<string, { label: string; transitions:
 const CUSTOM_TRANSITIONS: ReadonlySet<TransitionType> = new Set([
     'flash', 'glitch', 'rgb-split', 'zoom-through', 'spin', 'film-burn', 'whip',
     'match-cut', 'seamless', 'pip', 'boomerang', 'double-exposure', 'triple-exposure', 'vhs',
+    'motion-tween',
 ]);
 
 /**
@@ -117,6 +119,9 @@ export const TRANSITION_META: Record<TransitionType, { label: string; icon: stri
     // ── Cinematic Pro Transitions ──
     'white-flash':       { label: 'White Flash',      icon: '✦',   isCustom: true, description: 'Cinematic white flash with overlay blend mode' },
     'subject-mask':      { label: 'Subject Mask',     icon: '🎭',  isCustom: true, description: 'Subject isolation mask reveal transition' },
+
+    // ── Motion ──
+    'motion-tween':      { label: 'Motion Tween',     icon: '↝',   isCustom: true, description: 'Auto-animates position/scale/rotation between two clip states for a smooth interpolated transition' },
 };
 
 // ═══════════════════════════════════════════════════════
@@ -257,6 +262,8 @@ export const TRANSITION_XFADE_MAP: Record<TransitionType, string | null> = {
     // ── Cinematic Pro Transitions ──
     'white-flash': 'custom',    // custom white flash with animated opacity overlay
     'subject-mask': 'circleopen', // subject mask approximated as circle-open reveal
+    // ── Motion ──
+    'motion-tween': 'custom',   // position/scale/rotation keyframe interpolation via overlay
 };
 
 /**

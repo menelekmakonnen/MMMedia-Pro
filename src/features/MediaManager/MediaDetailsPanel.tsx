@@ -1,10 +1,13 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Clip, useClipStore } from '../../store/clipStore';
 import { useMediaStore, MediaFile } from '../../store/mediaStore';
-import { Wand2, FileVideo, FileAudio, Image as ImageIcon, X, RotateCw, Scissors, RotateCcw, ChevronRight, ChevronLeft, Check, SlidersHorizontal, RefreshCw } from 'lucide-react';
+import { Wand2, FileVideo, FileAudio, Image as ImageIcon, X, RotateCw, Scissors, RotateCcw, ChevronRight, ChevronLeft, Check, SlidersHorizontal, RefreshCw, Play } from 'lucide-react';
 import clsx from 'clsx';
 import { SegmentEditor } from './SegmentEditor';
 import { useViewStore } from '../../store/viewStore';
+import { useProjectStore } from '../../store/projectStore';
+import { toast } from '../../components/Toast';
+import { v4 as uuidv4 } from 'uuid';
 
 interface MediaDetailsPanelProps {
     clip: Clip | null;
@@ -597,30 +600,114 @@ export const MediaDetailsPanel: React.FC<MediaDetailsPanelProps> = ({ clip, medi
                     </div>
                 )}
 
-                {/* Deflicker Source Toggle */}
+                {/* ── Deflicker (source-level) ─────────────────────────────── */}
                 {clip.type === 'video' && mediaFile && (
-                    <button
-                        onClick={() => {
-                            const { files } = useMediaStore.getState();
-                            const updated = files.map(f =>
-                                f.id === mediaFile.id ? { ...f, deflicker: !f.deflicker } : f
-                            );
-                            useMediaStore.setState({ files: updated });
-                        }}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-medium transition-all ${
-                            mediaFile.deflicker
-                                ? 'bg-amber-500/20 border-amber-500/30 text-amber-300'
-                                : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
-                        }`}
-                    >
-                        <span className="flex items-center gap-2">
-                            <span>⚡</span>
-                            <span>Deflicker Source</span>
-                        </span>
-                        <span className="text-[10px]">
-                            {mediaFile.deflicker ? '✓ Active — all edits will use deflickered version' : 'Off'}
-                        </span>
-                    </button>
+                    <div className="space-y-2">
+                        {/* Master toggle */}
+                        <button
+                            onClick={() => {
+                                const { files } = useMediaStore.getState();
+                                const updated = files.map(f =>
+                                    f.id === mediaFile.id ? { ...f, deflicker: !f.deflicker } : f
+                                );
+                                useMediaStore.setState({ files: updated });
+                            }}
+                            className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-medium transition-all ${
+                                mediaFile.deflicker
+                                    ? 'bg-amber-500/20 border-amber-500/30 text-amber-300'
+                                    : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10'
+                            }`}
+                        >
+                            <span className="flex items-center gap-2">
+                                <span>⚡</span>
+                                <span>Deflicker Source</span>
+                            </span>
+                            <span className="text-[10px]">
+                                {mediaFile.deflicker ? '✓ Active — all edits use the deflickered version' : 'Off'}
+                            </span>
+                        </button>
+
+                        {mediaFile.deflicker && (
+                            <div className="space-y-2 rounded-lg border border-amber-500/15 bg-amber-500/[0.04] p-2">
+                                {/* Include audio toggle */}
+                                <button
+                                    onClick={() => {
+                                        const { files } = useMediaStore.getState();
+                                        const updated = files.map(f =>
+                                            f.id === mediaFile.id ? { ...f, deflickerAudio: !(f.deflickerAudio ?? true) } : f
+                                        );
+                                        useMediaStore.setState({ files: updated });
+                                    }}
+                                    className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 text-xs text-white/70 transition-all"
+                                >
+                                    <span>Include Audio</span>
+                                    <span className="text-[10px] text-amber-300">{(mediaFile.deflickerAudio ?? true) ? 'On' : 'Off'}</span>
+                                </button>
+
+                                {/* View in Player — loads the deflickered clip into the player */}
+                                <button
+                                    onClick={() => {
+                                        const fps = useProjectStore.getState().settings.fps || 30;
+                                        const durationFrames = Math.floor(mediaFile.duration * fps);
+                                        const trimStartFrame = mediaFile.trimIn != null ? Math.floor(mediaFile.trimIn * fps) : 0;
+                                        const trimEndFrame = mediaFile.trimOut != null ? Math.floor(mediaFile.trimOut * fps) : durationFrames;
+                                        addClip({
+                                            id: uuidv4(),
+                                            mediaLibraryId: mediaFile.id,
+                                            type: 'video',
+                                            path: mediaFile.path,
+                                            filename: mediaFile.filename,
+                                            startFrame: 0,
+                                            endFrame: (trimEndFrame - trimStartFrame) || 150,
+                                            sourceDurationFrames: durationFrames,
+                                            trimStartFrame,
+                                            trimEndFrame,
+                                            track: 1,
+                                            speed: 1.0,
+                                            volume: 100,
+                                            reversed: false,
+                                            isMuted: false,
+                                            isPinned: false,
+                                            origin: 'manual',
+                                            locked: false,
+                                            rotation: mediaFile.rotation || 0,
+                                            sourceOrientation: mediaFile.orientation || 'horizontal',
+                                            deflicker: { enabled: true, includeAudio: mediaFile.deflickerAudio ?? true, layers: 3 },
+                                        });
+                                        useViewStore.getState().setActiveTab('videoplayer');
+                                        toast.success('Loaded deflickered clip in the player');
+                                    }}
+                                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary/15 hover:bg-primary/25 text-primary-200 border border-primary/30 text-xs font-medium transition-all"
+                                >
+                                    <Play size={14} /> View in Player
+                                </button>
+
+                                {/* Render deflickered video as-is (no other edits) */}
+                                <button
+                                    onClick={async () => {
+                                        const outPath = mediaFile.path.replace(/\.(mp4|mov|avi|mkv|webm|m4v)$/i, '_deflickered.mp4');
+                                        try {
+                                            toast.info('Rendering deflickered video…');
+                                            const res = await (window as any).ipcRenderer.invoke('render-deflickered', {
+                                                inputPath: mediaFile.path,
+                                                outputPath: outPath,
+                                                layers: 3,
+                                                includeAudio: mediaFile.deflickerAudio ?? true,
+                                                fps: useProjectStore.getState().settings.fps || 30,
+                                            });
+                                            if (res?.success) toast.success('Deflickered video saved');
+                                            else toast.error(res?.error || 'Deflicker render failed');
+                                        } catch (e: any) {
+                                            toast.error(e?.message || 'Deflicker render failed');
+                                        }
+                                    }}
+                                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-medium transition-all"
+                                >
+                                    ⚡ Render Deflickered Video
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 )}
 
                 {/* Open in Import Manager (in-depth segment curation) */}

@@ -20,7 +20,7 @@ import { useProjectStore } from '../store/projectStore';
 import { useSfxStore } from '../store/sfxStore';
 import { useGeneratorModeStore } from '../store/generatorModeStore';
 import { createSetClipsCommand } from './commandPattern';
-import { applyPreset } from './colorGradingPresets';
+import { DEFAULT_COLOR_GRADING } from './colorGrading';
 import { DEFAULT_FPS } from './time';
 import { getGeneratorMode, type GeneratorMode, type ModeSfxCue } from './generatorModes';
 import type { Clip } from '../types';
@@ -123,8 +123,14 @@ function applyLookToClip(clip: Clip, mode: GeneratorMode, toggles: Record<string
         clip.zoomEnd = look.punchIn.end;
         clip.zoomOrigin = 'center';
     }
+    // Colour grading is no longer applied by the Edit Generator. The ONLY colour
+    // change the generator may make is a mild vibrance / saturation lift across the
+    // whole edit — everything else (full grades, looks, tints, colour schemes)
+    // belongs to the Sequence page so renders never introduce colours that weren't
+    // defined there. When the look's grade toggle is on, apply vibrance/saturation
+    // only (all other colour-grading fields stay neutral).
     if (look.colorPreset && gateOn(toggles, look.colorPreset.gatedBy)) {
-        clip.colorGrading = clone(applyPreset(look.colorPreset.id));
+        clip.colorGrading = { ...clone(DEFAULT_COLOR_GRADING), saturation: 1.12, vibrance: 1.15 };
     }
     if (look.letterbox && gateOn(toggles, look.letterbox.gatedBy)) {
         clip.letterbox = true;
@@ -142,9 +148,8 @@ function applyLookToClip(clip: Clip, mode: GeneratorMode, toggles: Record<string
     if (look.motionBlur && gateOn(toggles, look.motionBlur.gatedBy)) {
         clip.motionBlur = { amount: 60 };
     }
-    if (look.rgbSplit && gateOn(toggles, look.rgbSplit.gatedBy)) {
-        clip.rgbSplit = { amount: look.rgbSplit.amount };
-    }
+    // RGB split removed: it shifts colour channels, which is a colour change the
+    // Edit Generator must not introduce.
 }
 
 // ─── SFX placement ───────────────────────────────────────────────────────────

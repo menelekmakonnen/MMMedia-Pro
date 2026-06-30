@@ -173,27 +173,8 @@ export const EditorialAssist: React.FC = () => {
                 </div>
             </Section>
 
-            {/* 2. 30° rule */}
-            <Section icon={<AlertTriangle size={11} className="text-amber-400" />} title="30° rule · jump cuts">
-                {analyzedCount < 2 ? (
-                    <p className="text-[9px] text-white/30">Run Smart Analysis on your sources to detect jump cuts (needs shot-type data).</p>
-                ) : violations.length === 0 ? (
-                    <p className="text-[9px] text-emerald-300/70">No jump cuts — every cut changes scale or angle. ✓</p>
-                ) : (
-                    <div className="space-y-1.5">
-                        <p className="text-[9px] text-amber-300/80">{violations.length} adjacent cut(s) share scale + angle:</p>
-                        {violations.slice(0, 8).map((v, i) => (
-                            <div key={i} className="flex items-center justify-between gap-2 rounded bg-amber-500/[0.06] border border-amber-500/15 px-1.5 py-1">
-                                <span className="text-[8px] text-white/45 font-mono truncate">{v.sharedKey}</span>
-                                <div className="flex gap-1 shrink-0">
-                                    <Btn onClick={() => selectPair(v.aId, v.bId)}>Select</Btn>
-                                    <Btn onClick={() => setDisabledFor([v.bId], true)} tone="warn">Drop 2nd</Btn>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </Section>
+            {/* 30° rule jump-cut list removed — the 30° rule is controlled by the
+                Off / Partial / All triple toggle in the Edit Generator. */}
 
             {/* 3. Pacing */}
             <Section icon={<Gauge size={11} className="text-cyan-400" />} title="Pacing variety">

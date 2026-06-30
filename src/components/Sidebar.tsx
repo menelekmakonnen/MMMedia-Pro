@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Sliders, FolderOpen, Film, Grid, Wand2, Share, MonitorPlay, PlayCircle, Settings, Save, Lock, Loader2, SlidersHorizontal } from 'lucide-react';
+import { Sliders, FolderOpen, Film, Grid, Wand2, Share, MonitorPlay, PlayCircle, Settings, Save, Lock, Loader2 } from 'lucide-react';
 import { useViewStore } from '../store/viewStore';
 import { useExportSettingsStore } from '../store/exportSettingsStore';
 import { TabId } from '../types';
@@ -68,7 +68,6 @@ export const Sidebar: React.FC = () => {
             <div className="space-y-0.5 w-full">
                 <NavItem id="dashboard" icon={Sliders} label="Config" />
                 <NavItem id="media" icon={FolderOpen} label="Import" />
-                <NavItem id="import-manager" icon={SlidersHorizontal} label="Manager" />
                 <NavItem id="trailer" icon={Wand2} label="Producer" />
             </div>
 

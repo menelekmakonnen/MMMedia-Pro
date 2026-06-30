@@ -248,6 +248,45 @@ export function buildDoubleExposureGraph(
 }
 
 /**
+ * True TRIPLE exposure: layer TWO second clips over the base, in order, each at
+ * its own opacity / blend mode (typically 50% then 25%). Implemented as two
+ * chained blends with per-stage unique labels (so, unlike buildDoubleExposureGraph,
+ * it can emit both stages into one filter_complex without label collisions).
+ * Each layer may optionally be confined to a moving procedural shape mask.
+ *
+ * @param overlay1Label / overlay2Label  the two overlay video inputs (e.g. '1:v', '2:v')
+ */
+export function buildTripleExposureGraph(
+    cfg: TripleExposureConfig,
+    opts: { width: number; height: number; fps: number; baseLabel: string; overlay1Label: string; overlay2Label: string; outLabel: string },
+): string[] {
+    const W = Math.round(opts.width), H = Math.round(opts.height);
+    const chains: string[] = [];
+
+    const stage = (layer: DoubleExposureConfig, inBase: string, ovLabel: string, idx: number, outLabel: string) => {
+        const mode = ffBlendMode(layer.blendMode);
+        const op = (clamp(layer.opacity, 0, 100) / 100).toFixed(3);
+        const ov = `teov${idx}`;
+        chains.push(`[${ovLabel}]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1,fps=${opts.fps},format=yuv420p[${ov}]`);
+        if (!layer.shape) {
+            chains.push(`[${inBase}][${ov}]blend=all_mode=${mode}:all_opacity=${op}[${outLabel}]`);
+            return;
+        }
+        const b1 = `teb${idx}a`, b2 = `teb${idx}b`, bl = `teblend${idx}`, mbg = `temaskbg${idx}`, mk = `temask${idx}`;
+        chains.push(`[${inBase}]split=2[${b1}][${b2}]`);
+        chains.push(`[${b1}][${ov}]blend=all_mode=${mode}:all_opacity=${op}[${bl}]`);
+        chains.push(`color=c=black:s=${W}x${H}:r=${opts.fps}[${mbg}]`);
+        chains.push(`[${mbg}]geq=lum=${shapeLumaExpr(layer.shape)}:cb=128:cr=128[${mk}]`);
+        chains.push(`[${b2}][${bl}][${mk}]maskedmerge[${outLabel}]`);
+    };
+
+    // base → +layer1 → te1 → +layer2 → out
+    stage(cfg.layer1, opts.baseLabel, opts.overlay1Label, 1, 'te1');
+    stage(cfg.layer2, 'te1', opts.overlay2Label, 2, opts.outLabel);
+    return chains;
+}
+
+/**
  * Gradient double exposure: layer one or more procedural colour gradients over
  * the base (no second clip input needed — uses FFmpeg's `gradients` source).
  * Multiple gradients are STACKED (blended in order). Renders identically in the

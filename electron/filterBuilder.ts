@@ -13,7 +13,7 @@ import type { ColorGrading } from './parametricEffects';
 import { buildSpeedRemapSetpts, curveHasSlowdown } from '../src/lib/effectsEngine';
 import { buildKeyframeExpr } from '../src/lib/keyframes';
 import { buildMotionBlurChain, buildVibrationFlashChain, buildMinterpolateChain, buildForkMergeGraph, buildRgbSplitChain, buildHueCycleChain, buildVhsChain } from '../src/lib/editEffectFilters';
-import { buildDeflickerChain, type DeflickerLayers } from '../src/lib/deflickerFilter';
+import { buildDeflickerVf } from '../src/lib/deflickerFilter';
 
 // ── Data Types ──────────────────────────────────────────────────────────────
 
@@ -675,7 +675,7 @@ function buildEffectControlsFilters(clip: ClipExportData, fps: number, outW = 19
 
         const mask = opacityC.masks?.find((m) => m.enabled !== false && (m.mode === 'ellipse' || !m.mode));
 
-        if (opacityExpr !== null || mask) {
+        if (opacityExpr !== null || mask || opacityStatic < 0.999) {
             const opPart = opacityExpr ?? opacityStatic.toFixed(4);
             let maskPart = '1';
             if (mask) {
@@ -689,9 +689,14 @@ function buildEffectControlsFilters(clip: ClipExportData, fps: number, outW = 19
                 const mOp = Math.max(0, Math.min(1, (mask.opacity ?? 100) / 100));
                 maskPart = mOp < 0.999 ? `(${base})*${mOp.toFixed(4)}` : `(${base})`;
             }
-            out.push(`format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='255*(${opPart})*(${maskPart})'`);
-        } else if (opacityStatic < 0.999) {
-            out.push(`format=yuva420p,colorchannelmixer=aa=${opacityStatic.toFixed(4)}`);
+            // Base clips have nothing beneath them in the per-clip segment render, so
+            // opacity/mask must fade toward BLACK by multiplying RGB. Writing an alpha
+            // channel (the old approach) was silently dropped when the segment flattens
+            // to yuv420p, leaving the clip fully opaque. Overlay/PiP clips never reach
+            // here (the isOverlay guard above hands them to the track compositor, which
+            // owns their real over-the-clip-below opacity).
+            const factor = `(${opPart})*(${maskPart})`;
+            out.push(`format=rgba,geq=r='r(X,Y)*(${factor})':g='g(X,Y)*(${factor})':b='b(X,Y)*(${factor})':a='255'`);
         }
     }
 
@@ -714,17 +719,6 @@ export function buildVideoFilter(
     const clipDur = timing.srcDurSec;
 
     const filters: string[] = [];
-
-    // ── Deflicker (must be first in chain — operates on raw frames) ──
-    if (clip.deflicker?.enabled) {
-        // Deflicker uses split/blend which requires filter_complex, not simple -vf.
-        // Mark clip for filter_complex processing in the caller.
-        (clip as any).__deflickerGraph = buildDeflickerChain(
-            '[v_in]', '[v_df]',
-            clip.deflicker.layers || 3,
-            fps,
-        );
-    }
 
     // 1. Trim + reset PTS.
     //    When the caller fast-seeks with `-ss` before `-i` (preSeeked), the source
@@ -1067,6 +1061,15 @@ export function buildVideoFilter(
     const isSlowed = speed < 0.98 || (clip.speedCurve ? curveHasSlowdown(clip.speedCurve) : false);
     if (clip.smoothSlowmo && isSlowed) {
         filters.push(buildMinterpolateChain(fps));
+    }
+
+    // 12b-DF. Deflicker — temporal-average blend of consecutive frames at the
+    //      output cadence (matches Premiere's "stack 3 copies at 100/66/33%
+    //      opacity, offset by 1 frame each" technique, expressed as a single
+    //      weighted `tmix`). Runs after fps/interpolation so it blends the final
+    //      displayed frames, exactly like the Premiere nested sequence would.
+    if (clip.deflicker?.enabled) {
+        filters.push(buildDeflickerVf(clip.deflicker.layers || 3));
     }
 
     // 12c. FRAME LOCK — the canvas has a fixed, defined boundary. After every

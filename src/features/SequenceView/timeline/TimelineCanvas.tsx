@@ -53,6 +53,32 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = memo(({ fps }) => {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const trackAreaRef = useRef<HTMLDivElement>(null);
+  const bodyScrollRef = useRef<HTMLDivElement>(null);
+  const centeredRef = useRef(false);
+  const hScrollRef = useRef<HTMLDivElement>(null);
+  const timelineMaxFrame = useMemo(() => clips.reduce((m, c) => Math.max(m, c.endFrame), 0), [clips]);
+
+  // Centre the V1/A1 boundary in the track view by default. With video tracks
+  // stacked above (V_n…V1) and audio below (A1…A_n), this puts the primary
+  // V1 + A1 pair in the middle of the viewport; the user can scroll up/down to
+  // every other track.
+  useEffect(() => {
+    if (centeredRef.current || tracks.length === 0) return;
+    let tries = 0;
+    const attempt = () => {
+      const body = bodyScrollRef.current;
+      const a1 = body?.querySelector('[data-track-id="2"]') as HTMLElement | null; // A1 lane
+      // Wait until the body has a real height and the A1 row exists (layout settled).
+      if (!body || !a1 || body.clientHeight === 0) {
+        if (tries++ < 40) requestAnimationFrame(attempt);
+        return;
+      }
+      const boundaryY = (a1.getBoundingClientRect().top - body.getBoundingClientRect().top) + body.scrollTop;
+      body.scrollTop = Math.max(0, boundaryY - body.clientHeight / 2);
+      centeredRef.current = true;
+    };
+    requestAnimationFrame(attempt);
+  }, [tracks.length]);
 
   // ── Marquee state ─────────────────────────────────────────────────
   const [marquee, setMarquee] = useState<{
@@ -356,10 +382,13 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = memo(({ fps }) => {
       )}
 
       {/* ── Body: tracks area (each TimelineTrack renders its own header) ── */}
-      <div className="flex-1 flex min-h-0 overflow-y-auto relative">
+      {/* Scroll container is a plain block (not a flex row) so the inner track
+          column grows to its full content height and overflow-y actually scrolls
+          through every track. */}
+      <div ref={bodyScrollRef} className="flex-1 min-h-0 overflow-y-auto relative">
         <div
           ref={trackAreaRef}
-          className="flex-1 flex flex-col min-w-0 relative"
+          className="flex flex-col min-w-0 relative min-h-full"
           onPointerDown={handleBackgroundPointerDown}
           onPointerMove={handleBackgroundPointerMove}
           onPointerUp={handleBackgroundPointerUp}
@@ -383,6 +412,38 @@ export const TimelineCanvas: React.FC<TimelineCanvasProps> = memo(({ fps }) => {
           {/* ── Overlays ── */}
           <TimelinePlayhead />
           <TimelineMarkers />
+        </div>
+      </div>
+
+      {/* ── Horizontal scrollbar (drag to scroll the timeline) ── */}
+      <div className="flex flex-shrink-0 h-2.5 bg-[#0a0a15] border-t border-white/[0.04] select-none">
+        <div className="w-[200px] flex-shrink-0" />
+        <div
+          ref={hScrollRef}
+          className="flex-1 relative cursor-pointer"
+          onPointerDown={(e) => {
+            const rect = hScrollRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            const total = Math.max(timelineMaxFrame, rect.width / ppf) || 1;
+            const apply = (clientX: number) => {
+              const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+              setScrollX(Math.max(0, ratio * total - (rect.width / ppf) / 2));
+            };
+            apply(e.clientX);
+            const move = (ev: PointerEvent) => apply(ev.clientX);
+            const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', up);
+          }}
+        >
+          {(() => {
+            const w = hScrollRef.current?.getBoundingClientRect().width ?? 1;
+            const visible = w / ppf;
+            const total = Math.max(timelineMaxFrame, visible) || 1;
+            const thumbW = Math.max(6, Math.min(100, (visible / total) * 100));
+            const thumbLeft = Math.max(0, Math.min(100 - thumbW, (scrollX / total) * 100));
+            return <div className="absolute top-0.5 bottom-0.5 bg-white/15 hover:bg-white/30 rounded-full transition-colors pointer-events-none" style={{ left: `${thumbLeft}%`, width: `${thumbW}%` }} />;
+          })()}
         </div>
       </div>
 

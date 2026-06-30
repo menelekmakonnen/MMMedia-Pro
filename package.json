@@ -48,6 +48,7 @@
         "tailwind-merge": "^3.4.0",
         "uuid": "^11.0.5",
         "ws": "^8.20.0",
+        "youtube-dl-exec": "^3.1.8",
         "zustand": "^5.0.3"
     },
     "devDependencies": {

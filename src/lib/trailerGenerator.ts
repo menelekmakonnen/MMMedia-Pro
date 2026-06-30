@@ -264,6 +264,8 @@ export interface TrailerSettings {
     shotTypePreference?: Partial<Record<import('./shotClassifier').ShotType, number>>;
     /** Enable intelligent shot diversity enforcement (no two same types adjacent). */
     shotDiversityEnabled?: boolean;
+    /** 30°-rule triple toggle: 'off' · 'partial' (same-scale only) · 'all' (full). */
+    shotDiversityMode?: 'off' | 'partial' | 'all';
     /** Group related clips into scenes and treat them as atomic units. */
     sceneGrouping?: boolean;
     /** Performance vs B-roll interleaving ratio (0-100, where 100=all performance). */
@@ -925,7 +927,7 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
         ...(s.globalChromaKey?.enabled ? { chromaKey: s.globalChromaKey } : {}),
         ...(s.globalStabilize?.enabled ? { stabilize: s.globalStabilize } : {}),
         ...(s.globalAudioEffects ? { audioEffects: s.globalAudioEffects } : {}),
-        ...((file as any).deflicker ? { deflicker: { enabled: true, includeAudio: true, layers: 3 as const } } : {}),
+        ...((file as any).deflicker ? { deflicker: { enabled: true, includeAudio: (file as any).deflickerAudio ?? true, layers: 3 as const } } : {}),
     });
 
     // Helper: finalize a clip sequence with orientation-aware zoom + transitions
@@ -1653,6 +1655,19 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
                 if (!clip.audioEffects.fadeOutDuration || clip.audioEffects.fadeOutDuration === 0) {
                     clip.audioEffects.fadeOutDuration = 0.03;
                 }
+            }
+        }
+
+        // ── AUTO HARD LIMITER (prevent peaking — top creator pain point) ──
+        // Creators consistently report peaking audio as a major issue. A brickwall
+        // limiter at -1dB (0.89 linear) catches peaks without audible pumping.
+        for (const clip of expandedClips) {
+            if (!clip.audioEffects) {
+                clip.audioEffects = { ...DEFAULT_AUDIO_EFFECTS };
+            }
+            if (!clip.audioEffects.limiter) {
+                clip.audioEffects.limiter = true;
+                clip.audioEffects.limiterLevel = 0.89; // -1dB ceiling
             }
         }
 

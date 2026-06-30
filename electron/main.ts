@@ -10,11 +10,15 @@ import { buildAtempoChain, shouldUseIntermediateForReverse, buildVideoFilter, bu
 import { parseShowinfoPtsTimes } from '../src/lib/sceneDetection';
 import { parseSilenceDetect, computeHeadTailTrim } from '../src/lib/silenceRemoval';
 import { parseMetadataValues, mean as motionMean, motionToScore } from '../src/lib/clipScoring';
-import { buildDoubleExposureGraph, buildGradientDoubleExposureGraph } from '../src/lib/editEffectFilters';
+import { buildDoubleExposureGraph, buildGradientDoubleExposureGraph, buildTripleExposureGraph } from '../src/lib/editEffectFilters';
 import { getTransitionFFmpegName, getCustomXfadeExpr, isApproximatedTransition } from '../src/lib/transitions';
 import { buildDeflickerArgs } from '../src/lib/deflickerFilter';
 import { getGridLayout } from '../src/lib/gridTemplates';
 import type { GridCellLayout } from '../src/lib/gridTemplates';
+import { registerYouTubeIpc, ffmpegDirFrom } from './youtubeDownload';
+
+// YouTube / YouTube Music download (audio + video) — IPC handler 'fetch-youtube'.
+registerYouTubeIpc(ffmpegDirFrom(ffmpegStatic as unknown as string));
 
 process.env.DIST = join(__dirname, '../dist')
 process.env.VITE_PUBLIC = app.isPackaged ? process.env.DIST : join(process.env.DIST, '../public')
@@ -1138,7 +1142,24 @@ ipcMain.handle('export-project-segment', async (event, { filePath, clips: rawCli
                 const hasDEClip = !!(de && de.overlayPath);
                 const hasDEGrad = !!(de && Array.isArray(de.gradients) && de.gradients.length > 0 && !de.overlayPath);
                 const hasDE = hasDEClip || hasDEGrad;
-                if (hasDE) {
+                const te: any = (clip as any).tripleExposure;
+                const hasTE = !!(te && te.layer1?.overlayPath && te.layer2?.overlayPath);
+                if (hasTE) {
+                    // True triple exposure: layer TWO second clips over this one
+                    // (inputs 1 & 2), chained blends at each layer's opacity/mode.
+                    const ov1Seek = Math.max(0, (te.layer1.overlayTrimStart || 0) / projectFps);
+                    const ov2Seek = Math.max(0, (te.layer2.overlayTrimStart || 0) / projectFps);
+                    inputs.push('-ss', ov1Seek.toFixed(4), '-i', te.layer1.overlayPath); // input 1 = overlay A
+                    inputs.push('-ss', ov2Seek.toFixed(4), '-i', te.layer2.overlayPath); // input 2 = overlay B
+                    const teChains = buildTripleExposureGraph(te, { width: outW, height: outH, fps, baseLabel: 'debase', overlay1Label: '1:v', overlay2Label: '2:v', outLabel: 'v' });
+                    const videoFc = `[0:v]${vf}[debase];` + teChains.join(';');
+                    if (hasAudio) {
+                        fc = `${videoFc};[0:a]${af}[a]`; vmap = '[v]'; amap = '[a]';
+                    } else {
+                        inputs.push('-f', 'lavfi', '-t', (timing.outDurSec + 0.25).toFixed(4), '-i', 'anullsrc=r=48000:cl=stereo'); // input 3 = silence
+                        fc = videoFc; vmap = '[v]'; amap = '3:a';
+                    }
+                } else if (hasDE) {
                     let deChains: string[];
                     if (hasDEClip) {
                         // True double exposure: layer a SECOND clip over this one as a

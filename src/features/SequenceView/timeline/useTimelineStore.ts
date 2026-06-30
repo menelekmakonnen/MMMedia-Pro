@@ -18,6 +18,25 @@ import type {
   ActiveTool,
 } from './types';
 
+/**
+ * Put tracks in Premiere stacking order and name them by POSITION (not by raw
+ * id): video on top with the highest number at the top and V1 at the bottom,
+ * then audio below with A1 directly under V1 increasing downward. This fixes
+ * mis-ordered inserts (new video track landing under audio) and wrong labels
+ * (id 101 → "A3", a new track → "V11").
+ */
+export function normalizeTracks(tracks: Track[]): Track[] {
+  const key = (t: Track) => (t.type === 'audio' ? 1000 + t.id : -t.id);
+  const sorted = [...tracks].sort((a, b) => key(a) - key(b));
+  const vCount = sorted.filter((t) => t.type === 'video').length;
+  let vSeen = 0;
+  let aSeen = 0;
+  return sorted.map((t) => {
+    if (t.type === 'video') { vSeen += 1; return { ...t, name: `V${vCount - vSeen + 1}` }; }
+    aSeen += 1; return { ...t, name: `A${aSeen}` };
+  });
+}
+
 export const useTimelineStore = create<TimelineState>()(
   persist(
     (set, get) => ({
@@ -44,6 +63,7 @@ export const useTimelineStore = create<TimelineState>()(
   syncLockedTrackIds: new Set<number>(),
   showAudioMeters: true,
   markersPanelOpen: false,
+  adjustmentDialogOpen: false,
 
   // ── Actions ───────────────────────────────────────────────────────
   setTracks: (tracks) => set({ tracks }),
@@ -93,7 +113,7 @@ export const useTimelineStore = create<TimelineState>()(
     tracks: s.tracks.map((t) => (t.id === id ? { ...t, ...updates } : t)),
   })),
   addTrack: (track) => set((s) => ({
-    tracks: [...s.tracks, track],
+    tracks: normalizeTracks([...s.tracks, track]),
   })),
   removeTrack: (id) => set((s) => ({
     tracks: s.tracks.filter((t) => t.id !== id),
@@ -122,6 +142,7 @@ export const useTimelineStore = create<TimelineState>()(
   }),
   toggleAudioMeters: () => set((s) => ({ showAudioMeters: !s.showAudioMeters })),
   toggleMarkersPanel: () => set((s) => ({ markersPanelOpen: !s.markersPanelOpen })),
+  setAdjustmentDialogOpen: (open) => set({ adjustmentDialogOpen: open }),
     }),
     {
       name: 'mmmedia-timeline-ui',

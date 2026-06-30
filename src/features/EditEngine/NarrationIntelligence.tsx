@@ -27,7 +27,6 @@ import type {
 } from '../../lib/narrationAnalysis';
 import type { MergeStrategy } from '../../lib/intelligenceMerger';
 import type { TrailerSettings } from '../../lib/trailerGenerator';
-import { TrailerAudioDynamics } from './EditAudioDynamics';
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -577,13 +576,6 @@ export const NarrationIntelligence = React.memo<NarrationIntelligenceProps>(({
                             );
                         })}
                     </div>
-                </div>
-            )}
-
-            {/* ═══ Audio Dynamics (moved from BIE) ═══ */}
-            {settings && update && (
-                <div className="pt-2 border-t border-white/5">
-                    <TrailerAudioDynamics settings={settings} update={update} />
                 </div>
             )}
 

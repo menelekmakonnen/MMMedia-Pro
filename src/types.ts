@@ -80,7 +80,8 @@ export type TransitionType =
     | 'triple-exposure' | 'subject-mask'
     | 'match-cut' | 'seamless'
     | 'boomerang' | 'double-exposure' | 'vhs'
-    | 'pip';
+    | 'pip'
+    | 'motion-tween';
 
 export type ShakeType = 'impact' | 'handheld' | 'earthquake' | 'vibration' | 'whip';
 export type ZoomSpeed = 'instant' | 'fast' | 'slow' | 'smooth';
@@ -367,6 +368,13 @@ export interface Clip {
     //    for the Effect Controls panel; legacy transform fields above are kept in
     //    sync on write so playback/export keep working during migration. ──
     effectControls?: import('./lib/premiere/effectControls').EffectControlsState;
+
+    // ── Adjustment Layer ──
+    /** When true this clip carries NO media of its own — it is a transparent
+     *  layer whose effects/grade apply to every clip BELOW it (lower video
+     *  tracks) within its trimmed time span. Trim it to cover a transition, part
+     *  of a clip, or the whole edit. Matches the sequence aspect ratio. */
+    isAdjustmentLayer?: boolean;
 }
 
 export type CellOrientation = 'vertical' | 'horizontal' | 'auto';

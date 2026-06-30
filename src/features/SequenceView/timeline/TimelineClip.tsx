@@ -250,8 +250,11 @@ export const TimelineClip: React.FC<TimelineClipProps> = memo(({
   const isDisabled = !!clip.disabled;
   const showSpeed = clip.speed !== 1;
 
-  const clipStyle = CLIP_STYLES[clip.type] ?? 'bg-gray-800/40 border-l-4 border-l-gray-400';
-  const textColor = CLIP_TEXT_COLOR[clip.type] ?? 'text-gray-200/80';
+  const isAdjustment = !!(clip as { isAdjustmentLayer?: boolean }).isAdjustmentLayer;
+  const clipStyle = isAdjustment
+    ? 'bg-violet-600/25 border-l-4 border-l-violet-300 border-y-violet-300/30 border-r-violet-300/30'
+    : (CLIP_STYLES[clip.type] ?? 'bg-gray-800/40 border-l-4 border-l-gray-400');
+  const textColor = isAdjustment ? 'text-violet-100/90' : (CLIP_TEXT_COLOR[clip.type] ?? 'text-gray-200/80');
 
   return (
     <div
