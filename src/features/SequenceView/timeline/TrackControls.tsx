@@ -1,7 +1,8 @@
 import React, { useState, useCallback, useRef, memo } from 'react';
-import { Plus, Film, Music } from 'lucide-react';
+import { Plus, Film, Music, Sliders, ChevronDown, ChevronRight } from 'lucide-react';
 import clsx from 'clsx';
 import { useTimelineStore } from './useTimelineStore';
+import { InlineTrackMixer } from '../audio/InlineTrackMixer';
 import type { Track } from './types';
 
 interface TrackControlsProps {
@@ -19,6 +20,7 @@ let nextAudioId = 200;
 export const TrackControls: React.FC<TrackControlsProps> = memo(({ tracks }) => {
   const addTrack = useTimelineStore((s) => s.addTrack);
   const [showAddMenu, setShowAddMenu] = useState(false);
+  const [mixerOpen, setMixerOpen] = useState(false); // folded by default
   const btnRef = useRef<HTMLButtonElement>(null);
 
   const handleAddVideo = useCallback(() => {
@@ -66,6 +68,27 @@ export const TrackControls: React.FC<TrackControlsProps> = memo(({ tracks }) => 
 
       {/* Spacer to align with track lanes — the actual headers are rendered by TimelineTrack */}
       <div className="flex-1" />
+
+      {/* Track Mixer — folded by default, sits beside the tracks it controls */}
+      <div className="border-t border-white/[0.04]">
+        <button
+          onClick={() => setMixerOpen((v) => !v)}
+          className={clsx(
+            'w-full flex items-center gap-1 px-2 py-1 text-[9px] font-bold uppercase tracking-wider transition-colors',
+            mixerOpen ? 'text-cyan-300 bg-cyan-500/[0.06]' : 'text-white/35 hover:text-white/60 hover:bg-white/[0.03]',
+          )}
+          title="Track Mixer"
+        >
+          {mixerOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+          <Sliders size={10} />
+          Track Mixer
+        </button>
+        {mixerOpen && (
+          <div className="max-h-[200px] overflow-y-auto px-1.5 py-1.5 bg-[#0a0a15]/60">
+            <InlineTrackMixer />
+          </div>
+        )}
+      </div>
 
       {/* Add track button */}
       <div className="relative p-1.5 border-t border-white/[0.04]">
