@@ -1024,7 +1024,11 @@ export function buildVideoFilter(
             const zoomEnableExpr = beatTs
                 .map(bt => `between(t,${bt.toFixed(4)},${(bt + punchDurSec).toFixed(4)})`)
                 .join('+');
-            filters.push(`scale='iw*(1+${punch.toFixed(4)}*gt(${zoomEnableExpr},0))':'ih*(1+${punch.toFixed(4)}*gt(${zoomEnableExpr},0))'`);
+            // scale's w/h expressions reference `t`, so they MUST be evaluated
+            // per-frame — without eval=frame ffmpeg rejects them at init with
+            // "Expressions with frame variables 'n','t','pos' are not valid in
+            // init eval_mode" and the whole clip's effect chain fails.
+            filters.push(`scale=w='iw*(1+${punch.toFixed(4)}*gt(${zoomEnableExpr},0))':h='ih*(1+${punch.toFixed(4)}*gt(${zoomEnableExpr},0))':eval=frame`);
             filters.push(`crop=${outW}:${outH}:'(iw-${outW})/2':'(ih-${outH})/2'`);
         }
     }

@@ -5,7 +5,7 @@ import { IMPACT_PRESETS, presetToKeyframes } from './effectsEngine';
 import { DEFAULT_AUDIO_EFFECTS } from './audioEffects';
 import { pickDoubleExposureShape } from './editEffectFilters';
 import { getGradientColors } from './doubleExposureGradients';
-import { resolveKeptRanges } from './mediaSegments';
+import { resolveKeptRanges, resolveShowRanges } from './mediaSegments';
 import type { SegmentType, AudioAnalysisResult } from './audioAnalysis';
 import { MediaFile } from '../store/mediaStore';
 import { Clip, TransitionType, ShakeType, ShakePolicy, BeatDropIntensity, TransitionStyle, BoomerangPresetId, ZoomSpeed, SpeedCurvePreset, EffectApplyPolicy } from '../types';
@@ -13,6 +13,7 @@ import { RHYTHM_PATTERNS, resolveRhythmDuration, RhythmPatternId } from './rhyth
 import { SeededRandom, generateSeed } from './random';
 import { generateGridSequence } from './gridEditEngine';
 import { selectTransition } from './transitions';
+import { buildOneTakeRamp } from './ege/oneTakeRamp';
 import { applyReturnTransitions } from './returnTransitions';
 import {
     selectContextAwareTransition,
@@ -2298,6 +2299,60 @@ export const generateTrailerSequence = (pool: MediaFile[], settings: Partial<Tra
             accumulatedFrames += cutDurationFrames;
         }
         allowDuplicates = true;
+    }
+
+    // ── SHOW SEGMENT PRE-PLACEMENT ─────────────────────────────────────────
+    // 'show' segments are forced full-length inclusions. They are placed FIRST
+    // (before the random clip loop) so the generator fills AROUND them. Long
+    // show segments receive the one-take speed ramp pattern.
+    for (const file of validPool) {
+        const showRanges = resolveShowRanges(
+            { duration: file.duration || file.sourceDurationFrames / fps, trimIn: file.trimIn, trimOut: file.trimOut },
+            (file as any).segments,
+        );
+        if (showRanges.length === 0) continue;
+
+        for (const range of showRanges) {
+            const rangeDurSec = range.endSec - range.startSec;
+            const trimStartFrame = Math.floor(range.startSec * fps);
+            const trimEndFrame = Math.floor(range.endSec * fps);
+            const remainingTargetSec = Math.max(0, (targetFrames - accumulatedFrames) / fps);
+
+            // If the show segment is short enough, place it as a single clip
+            if (rangeDurSec <= (longestClip * 2) || rangeDurSec <= remainingTargetSec) {
+                const clipFrames = Math.floor(rangeDurSec * fps);
+                const { speed, volume, isMuted } = getSpeedAndVolume(rng);
+                const clip = createClip(file, accumulatedFrames, accumulatedFrames + clipFrames, trimStartFrame, trimEndFrame, speed, volume, isMuted);
+                (clip as any)._showSegment = true;
+                sequence.push(clip);
+                recordSegmentUse(file, trimStartFrame, trimEndFrame);
+                accumulatedFrames += clipFrames;
+                clipIndex++;
+                console.log(`[TrailerGen] Show segment: "${file.filename}" ${range.startSec.toFixed(1)}-${range.endSec.toFixed(1)}s (${rangeDurSec.toFixed(1)}s) placed as single clip`);
+            } else {
+                // Long show segment → one-take speed ramp pattern
+                const targetForRamp = Math.min(remainingTargetSec, rangeDurSec * 0.6);
+                if (targetForRamp < 1) continue; // not enough space
+                const rampSegs = buildOneTakeRamp(rangeDurSec, targetForRamp, fps, {
+                    beats: (beatTimestamps || []).filter(b => b >= accumulatedFrames / fps),
+                    maxFastSpeed: 3,
+                });
+                console.log(`[TrailerGen] Show segment (ramp): "${file.filename}" ${range.startSec.toFixed(1)}-${range.endSec.toFixed(1)}s → ${rampSegs.length} sub-clips`);
+                for (const seg of rampSegs) {
+                    const segTrimStart = Math.floor((range.startSec + seg.startSec) * fps);
+                    const segTrimEnd = Math.floor((range.startSec + seg.endSec) * fps);
+                    const playbackFrames = Math.floor(((seg.endSec - seg.startSec) / seg.speed) * fps);
+                    const { volume, isMuted } = getSpeedAndVolume(rng);
+                    const clip = createClip(file, accumulatedFrames, accumulatedFrames + playbackFrames, segTrimStart, segTrimEnd, seg.speed, volume, isMuted);
+                    (clip as any)._showSegment = true;
+                    (clip as any)._rampPattern = 'one-take';
+                    sequence.push(clip);
+                    accumulatedFrames += playbackFrames;
+                    clipIndex++;
+                }
+                recordSegmentUse(file, trimStartFrame, trimEndFrame);
+            }
+        }
     }
 
     // Continue filling remaining target duration

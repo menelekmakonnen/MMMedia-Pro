@@ -24,6 +24,8 @@ export interface ClipDecision {
     speed: number;
     /** Human-readable reason this clip was chosen/placed here */
     reason?: string;
+    /** If this clip is part of a one-take speed ramp sequence */
+    rampPattern?: 'one-take';
     /** 0-based position in the sequence */
     order: number;
 }
@@ -84,7 +86,8 @@ export function extractDecisions(clips: any[], fps: number): ClipDecision[] {
             transitionDurationMs,
             effects,
             speed: clip.speed || 1,
-            reason: clip.origin === 'auto' ? 'auto-generated' : undefined,
+            reason: clip._showSegment ? 'show-segment' : clip.origin === 'auto' ? 'auto-generated' : undefined,
+            rampPattern: clip._rampPattern === 'one-take' ? 'one-take' : undefined,
             order: i,
         };
     });

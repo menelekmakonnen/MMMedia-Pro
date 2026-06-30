@@ -1,7 +1,7 @@
 import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import {
     Sparkles, Plus, Minus, Trash2, RotateCcw, Scissors, Play, Pause,
-    SkipBack, SkipForward, Volume2, VolumeX, GripHorizontal,
+    SkipBack, SkipForward, Volume2, VolumeX, GripHorizontal, Eye,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useMediaStore, type MediaFile } from '../../store/mediaStore';
@@ -13,6 +13,7 @@ import {
     keptDuration,
     makeSegment,
     type SegmentCanvas,
+    type SegmentType,
 } from '../../lib/mediaSegments';
 import { suggestSmartSegments, type SmartAnalysisLike } from '../../lib/ege/smartSegments';
 
@@ -112,7 +113,7 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({ file, variant = 'c
         return Math.max(0, Math.min(1, (clientX - r.left) / r.width)) * duration;
     }, [duration]);
 
-    const addSegment = (type: 'include' | 'exclude') => {
+    const addSegment = (type: SegmentType) => {
         const start = Math.min(currentTime, Math.max(0, duration - 0.1));
         const end = Math.min(duration, start + Math.max(1, duration * 0.1));
         addFileSegment(file.id, makeSegment(start, end, type, 'user'));
@@ -245,7 +246,7 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({ file, variant = 'c
                     Kept <span className="font-mono font-bold text-emerald-300">{fmt(keptSec)}</span> of {fmt(duration)}
                     {kept.length > 1 && <span className="text-white/30"> · {kept.length} ranges</span>}
                 </span>
-                <span className="text-white/30">{segments.filter(s => s.type === 'include').length} include · {segments.filter(s => s.type === 'exclude').length} exclude</span>
+                <span className="text-white/30">{segments.filter(s => s.type === 'include').length} include · {segments.filter(s => s.type === 'exclude').length} exclude · {segments.filter(s => s.type === 'show').length} show</span>
             </div>
 
             {/* ── Segment belt ── */}
@@ -265,7 +266,9 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({ file, variant = 'c
                     <div
                         key={seg.id}
                         className={clsx('absolute top-1 bottom-1 rounded border flex items-center justify-center group',
-                            seg.type === 'include' ? 'bg-emerald-500/25 border-emerald-400/50' : 'bg-red-500/25 border-red-400/50')}
+                            seg.type === 'include' ? 'bg-emerald-500/25 border-emerald-400/50'
+                            : seg.type === 'show' ? 'bg-amber-500/25 border-amber-400/50'
+                            : 'bg-red-500/25 border-red-400/50')}
                         style={{ left: `${pct(seg.startSec)}%`, width: `${pct(seg.endSec - seg.startSec)}%` }}
                         title={`${seg.label ?? seg.type}${seg.origin === 'smart' ? ' (Smart)' : ''}`}
                     >
@@ -277,8 +280,8 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({ file, variant = 'c
                         <span className="text-[7px] font-bold text-white/80 truncate px-2 pointer-events-none">{seg.label ?? seg.type}</span>
                         <div className="absolute top-0 right-1 hidden group-hover:flex items-center gap-0.5 z-10">
                             <button onClick={(e) => { e.stopPropagation(); toggleFileSegmentType(file.id, seg.id); }}
-                                    className="bg-black/70 rounded p-0.5 text-white/70 hover:text-white" title="Toggle include/exclude">
-                                {seg.type === 'include' ? <Minus size={8} /> : <Plus size={8} />}
+                                    className="bg-black/70 rounded p-0.5 text-white/70 hover:text-white" title="Cycle: include → exclude → show">
+                                {seg.type === 'include' ? <Minus size={8} /> : seg.type === 'show' ? <Eye size={8} /> : <Plus size={8} />}
                             </button>
                             <button onClick={(e) => { e.stopPropagation(); if (seg.origin === 'smart') recordEdit(file.id, { inSec: seg.startSec, outSec: seg.endSec }, { inSec: seg.startSec, outSec: seg.startSec }); removeFileSegment(file.id, seg.id); }}
                                     className="bg-black/70 rounded p-0.5 text-white/70 hover:text-red-400" title="Delete">
@@ -300,6 +303,10 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({ file, variant = 'c
                         className="px-2 py-1 rounded text-[9px] font-bold border border-red-500/30 text-red-300 hover:bg-red-500/10 inline-flex items-center gap-1">
                     <Scissors size={9} /> Never include
                 </button>
+                <button onClick={() => addSegment('show')}
+                        className="px-2 py-1 rounded text-[9px] font-bold border border-amber-500/30 text-amber-300 hover:bg-amber-500/10 inline-flex items-center gap-1">
+                    <Eye size={9} /> Show this
+                </button>
                 {file.type === 'video' && (
                     <button onClick={runSmart}
                             className="px-2 py-1 rounded text-[9px] font-bold border border-violet-500/40 text-violet-300 hover:bg-violet-500/10 inline-flex items-center gap-1"
@@ -315,7 +322,7 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({ file, variant = 'c
                 )}
             </div>
             <p className="text-[8px] text-white/30">
-                Add as many <span className="text-emerald-300/70">include</span> and <span className="text-red-300/70">never-include</span> segments as you need.
+                <span className="text-emerald-300/70">Include</span> marks usable ranges. <span className="text-red-300/70">Never include</span> drops footage. <span className="text-amber-300/70">Show this</span> forces the full segment into the edit (speed-ramped if long).
                 {file.smartAnalyzed && ' Drag or delete Smart segments to challenge and train the engine.'}
             </p>
         </div>

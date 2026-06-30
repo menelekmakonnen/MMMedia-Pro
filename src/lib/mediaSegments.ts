@@ -16,7 +16,7 @@
 // Pure & deterministic. No React / store / FFmpeg imports.
 // ══════════════════════════════════════════════════════════════════════════════
 
-export type SegmentType = 'include' | 'exclude';
+export type SegmentType = 'include' | 'exclude' | 'show';
 export type SegmentOrigin = 'smart' | 'user';
 
 export interface MediaSegment {
@@ -137,7 +137,8 @@ export function resolveKeptRanges(canvas: SegmentCanvas, segments: MediaSegment[
     const window = usableCanvas(canvas);
     if (window.endSec - window.startSec <= EPS) return [];
     const segs = segments ?? [];
-    const includes = segs.filter((s) => s.type === 'include').map((s) => ({ startSec: s.startSec, endSec: s.endSec }));
+    // 'show' segments are a superset of 'include' — they MUST be kept
+    const includes = segs.filter((s) => s.type === 'include' || s.type === 'show').map((s) => ({ startSec: s.startSec, endSec: s.endSec }));
     const excludes = segs.filter((s) => s.type === 'exclude').map((s) => ({ startSec: s.startSec, endSec: s.endSec }));
 
     const includeBase = includes.length > 0
@@ -145,6 +146,18 @@ export function resolveKeptRanges(canvas: SegmentCanvas, segments: MediaSegment[
         : [window];
     const holes = clipRangesToWindow(mergeRanges(excludes), window);
     return subtractRanges(includeBase, holes);
+}
+
+/**
+ * Resolve only the 'show' segments — forced full-length ranges that the
+ * generator MUST place as continuous sequences (cut to the beat). Returns
+ * ranges clipped to the usable canvas, sorted and disjoint.
+ */
+export function resolveShowRanges(canvas: SegmentCanvas, segments: MediaSegment[] | undefined): TimeRange[] {
+    const window = usableCanvas(canvas);
+    if (window.endSec - window.startSec <= EPS) return [];
+    const shows = (segments ?? []).filter((s) => s.type === 'show').map((s) => ({ startSec: s.startSec, endSec: s.endSec }));
+    return clipRangesToWindow(mergeRanges(shows), window);
 }
 
 /** Convenience: total kept seconds for a file. */
@@ -202,9 +215,14 @@ export function removeSegment(segments: MediaSegment[] | undefined, id: string):
     return (segments ?? []).filter((s) => s.id !== id);
 }
 
-/** Toggle a segment between include and exclude. */
+/** Cycle a segment through include → exclude → show → include. */
 export function toggleSegmentType(segments: MediaSegment[] | undefined, id: string): MediaSegment[] {
+    const CYCLE: Record<SegmentType, SegmentType> = {
+        include: 'exclude',
+        exclude: 'show',
+        show: 'include',
+    };
     return (segments ?? []).map((s) =>
-        s.id === id ? { ...s, type: s.type === 'include' ? 'exclude' : 'include', origin: 'user' as SegmentOrigin } : s,
+        s.id === id ? { ...s, type: CYCLE[s.type] ?? 'include', origin: 'user' as SegmentOrigin } : s,
     );
 }
