@@ -74,6 +74,9 @@ export const useTimelineStore = create<TimelineState>()(
   setPlaybackRate: (rate) => set({ playbackRate: rate, isPlaying: rate !== 0 }),
   setPrerenderEnabled: (v) => set({ prerenderEnabled: v }),
   requestPrerender: (clipId) => {
+    // Global FX Mute: skip effect-baked proxy rendering so playback uses the raw
+    // source — instant, smooth preview (the creator "Global FX Mute" hack).
+    if (get().globalFxMute) return;
     const ipc = (window as unknown as { ipcRenderer?: { generatePreviewProxy?: (a: unknown) => Promise<{ success: boolean; proxyPath?: string; error?: string }> } }).ipcRenderer;
     if (!ipc?.generatePreviewProxy) return;
     // Look up the FULL clip + project settings — Electron needs the media path,

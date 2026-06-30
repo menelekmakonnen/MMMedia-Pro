@@ -98,6 +98,8 @@ export const NLE_HOTKEYS: HotkeyDef[] = [
     { key: '\\',          action: 'zoomToFit',        label: 'Zoom to Fit',                     category: 'zoom' },
     { key: 'shift+\\',    action: 'zoomTo100',        label: 'Zoom to 100%',                    category: 'zoom' },
     { key: 'ctrl+0',      action: 'zoomTo100',        label: 'Zoom to 100% (Alt)',              category: 'zoom' },
+    { key: 'shift+=',     action: 'expandAllTracks',  label: 'Expand All Track Heights',        category: 'zoom' },
+    { key: 'shift+-',     action: 'collapseAllTracks',label: 'Minimize All Track Heights',      category: 'zoom' },
 ];
 
 // ─── Lookup Helpers ───────────────────────────────────────────────────────────

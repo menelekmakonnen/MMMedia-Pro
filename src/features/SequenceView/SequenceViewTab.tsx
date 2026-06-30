@@ -200,6 +200,15 @@ export const SequenceViewTab: React.FC = () => {
             if (e.key === 'a' && !e.ctrlKey && !e.metaKey) setActiveTool('track-select');
             if (e.key === 'n' && !e.ctrlKey && !e.metaKey) setActiveTool('rolling');
             if (e.key === 'p' && !e.ctrlKey && !e.metaKey) setActiveTool('pen');
+            // Shift + '+' / '-' = expand / collapse ALL track heights (creator hack)
+            if (e.shiftKey && (e.key === '+' || e.key === '=')) {
+                e.preventDefault();
+                useTimelineStore.getState().expandAllTracks();
+            }
+            if (e.shiftKey && (e.key === '_' || e.key === '-')) {
+                e.preventDefault();
+                useTimelineStore.getState().collapseAllTracks();
+            }
             // S key = toggle snap
             if (e.key === 's' && !e.ctrlKey && !e.metaKey) {
                 setSnapEnabled(prev => !prev);

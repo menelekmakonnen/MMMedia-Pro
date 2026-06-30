@@ -97,6 +97,7 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
     const isActA = activeBuffer === 'A';
     const showGuides = useTimelineStore((s) => s.showGuides);
     const showSafeMargins = useTimelineStore((s) => s.showSafeMargins);
+    const globalFxMute = useTimelineStore((s) => s.globalFxMute);
     const inOutRange = useTimelineStore((s) => s.inOutRange);
 
     // ── Program-monitor seek bar (scrubber) ──
@@ -459,6 +460,20 @@ export const ProgramMonitor: React.FC<ProgramMonitorProps> = ({
                         title="Toggle Ruler Guides"
                     >
                         <Ruler size={14} />
+                    </button>
+                    <button
+                        onClick={() => useTimelineStore.getState().toggleSafeMargins()}
+                        className={clsx('p-1.5 rounded transition-colors', showSafeMargins ? 'bg-yellow-500/30 text-yellow-300' : 'text-white/40 hover:text-white/60')}
+                        title="Toggle Safe Margins (Action / Title safe)"
+                    >
+                        <Frame size={14} />
+                    </button>
+                    <button
+                        onClick={() => useTimelineStore.getState().toggleGlobalFxMute()}
+                        className={clsx('p-1.5 rounded transition-colors', globalFxMute ? 'bg-orange-500/30 text-orange-300' : 'text-white/40 hover:text-white/60')}
+                        title="Global FX Mute — bypass clip effects during playback"
+                    >
+                        <Zap size={14} />
                     </button>
                     <span className="text-[9px] font-mono text-white/20">FIT</span>
                     <Maximize2 size={10} className="text-white/20" />
