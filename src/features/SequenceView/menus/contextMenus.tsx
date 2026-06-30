@@ -64,6 +64,23 @@ export function buildClipMenu(clip: Clip, selectedIds: string[]): ContextMenuIte
       onClick: () => moveClipToTrack(clip.id, String(t.id)),
     }));
 
+  // Select every clip cut from the same source media (creator hack:
+  // "Select All Matching" — then delete / recolor / retime them all at once).
+  const selectAllMatching = () => {
+    const srcId = (clip as unknown as { mediaLibraryId?: string }).mediaLibraryId;
+    const all = useClipStore.getState().clips;
+    const ids = srcId
+      ? all.filter((c) => (c as unknown as { mediaLibraryId?: string }).mediaLibraryId === srcId).map((c) => c.id)
+      : [clip.id];
+    useTimelineStore.getState().setSelectedItemIds(new Set(ids));
+    useClipStore.setState({ selectedClipIds: ids });
+  };
+  const matchCount = (() => {
+    const srcId = (clip as unknown as { mediaLibraryId?: string }).mediaLibraryId;
+    if (!srcId) return 1;
+    return useClipStore.getState().clips.filter((c) => (c as unknown as { mediaLibraryId?: string }).mediaLibraryId === srcId).length;
+  })();
+
   const speedItems: ContextMenuItem[] = SPEED_PRESETS.map((p) => ({
     label: p.label,
     onClick: () => selectedIds.forEach((id) => setClipSpeed(id, p.value)),
@@ -77,6 +94,12 @@ export function buildClipMenu(clip: Clip, selectedIds: string[]): ContextMenuIte
 
   return [
     { label: 'Split at Playhead', shortcut: 'B', icon: ic(<Scissors size={13} />), onClick: () => splitAtPlayhead(playhead) },
+    {
+      label: matchCount > 1 ? `Select All Matching (${matchCount})` : 'Select All Matching',
+      icon: ic(<Files size={13} />),
+      disabled: matchCount < 2,
+      onClick: selectAllMatching,
+    },
     { type: 'separator' },
     { label: 'Cut', shortcut: 'Ctrl+X', icon: ic(<Scissors size={13} />), onClick: () => cutSelectedClips() },
     { label: 'Copy', shortcut: 'Ctrl+C', icon: ic(<Copy size={13} />), onClick: () => copySelectedClips() },
