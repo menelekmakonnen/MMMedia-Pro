@@ -42,6 +42,8 @@ export const useTimelineStore = create<TimelineState>()(
   // Track targeting / sync lock (Premiere track-header toggles)
   targetedTrackIds: new Set<number>([1, 2]), // V1 + A1 targeted by default
   syncLockedTrackIds: new Set<number>(),
+  showAudioMeters: true,
+  markersPanelOpen: false,
 
   // ── Actions ───────────────────────────────────────────────────────
   setTracks: (tracks) => set({ tracks }),
@@ -118,6 +120,8 @@ export const useTimelineStore = create<TimelineState>()(
     next.has(id) ? next.delete(id) : next.add(id);
     return { syncLockedTrackIds: next };
   }),
+  toggleAudioMeters: () => set((s) => ({ showAudioMeters: !s.showAudioMeters })),
+  toggleMarkersPanel: () => set((s) => ({ markersPanelOpen: !s.markersPanelOpen })),
     }),
     {
       name: 'mmmedia-timeline-ui',

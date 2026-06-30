@@ -93,6 +93,64 @@ function prepareClipsForRender(raw: any[], fps: number): any[] {
   return out;
 }
 
+/** Resolve a usable filesystem path for the project's background song.
+ *  The song can be an AUDIO file OR a VIDEO file (Pro lets a video serve as the
+ *  background audio — its audio stream becomes the music bed). Returns null for
+ *  blob:/http: paths that FFmpeg can't open. */
+function resolveSongPath(): string | null {
+  const gm = useGodModeStore.getState();
+  let p: string | null =
+    gm.audioFilePath ||
+    (window as any).__godModeAudioFilePath ||
+    ((useProjectStore.getState().settings as any)?.audioFilePath ?? null) ||
+    null;
+  if (!p || p.startsWith('blob:') || p.startsWith('http:')) return null;
+  if (p.startsWith('file:///')) p = p.slice(8);
+  else if (p.startsWith('file://')) p = p.slice(7);
+  try { p = decodeURIComponent(p); } catch { /* keep */ }
+  return p;
+}
+
+/** When the timeline payload carries no audio-type clip (e.g. the edit was sent
+ *  from a context whose store never materialised the song clip — the Sequence
+ *  page uses a different timeline store than the Edit wizard), reconstruct the
+ *  background-audio clip from godModeStore exactly as EditPlayer would. This is
+ *  the nuance where "Pro classifies a VIDEO as the background audio": the song
+ *  path may be a .mp4/.mov whose audio is the bed, and Ender's audio bus reads
+ *  it the same as any audio file. Returns null if there's no resolvable song. */
+function synthesizeBgAudioClip(prepared: any[], fps: number): any | null {
+  if (prepared.some((c: any) => c.type === 'audio')) return null;
+  const gm = useGodModeStore.getState();
+  const path = resolveSongPath();
+  if (!path) return null;
+
+  const videoEnd = prepared.reduce((m: number, c: any) => Math.max(m, c.endFrame ?? 0), 0);
+  const trimStartFrame = Math.max(0, Math.floor((gm.audioTrimStart || 0) * fps));
+  const trimEndFrame = gm.audioTrimEnd
+    ? Math.floor(gm.audioTrimEnd * fps)
+    : (videoEnd > 0 ? videoEnd : Math.floor(30 * fps));
+  const endFrame = Math.max(videoEnd, trimEndFrame);
+
+  return {
+    id: `bgaudio-${Date.now()}`,
+    type: 'audio',
+    path,
+    filename: gm.audioFile || 'Background Audio',
+    startFrame: 0,
+    endFrame,
+    sourceDurationFrames: endFrame,
+    trimStartFrame,
+    trimEndFrame,
+    track: 101,            // Audio-2: background music, looped to the timeline
+    speed: 1,
+    volume: 100,
+    reversed: false,
+    loopToTimeline: true,  // Ender loops/trims this to fill the full video duration
+    locked: false,
+    origin: 'auto',
+  };
+}
+
 export interface EnderSendResult {
   success: boolean;
   transport?: 'bridge' | 'mailbox';
@@ -116,6 +174,13 @@ export async function sendCurrentProjectToEnder(overrides: Record<string, any> =
   const fps = selectedFps || settings.fps || 30;
 
   const prepared = prepareClipsForRender(getExportClips(), fps);
+
+  // ── BACKGROUND-AUDIO SAFETY NET ──────────────────────────────────────────
+  // If no audio-type clip survived into the payload, the project's background
+  // song (which may be a VIDEO file) never made it onto this store's timeline.
+  // Rebuild it from godModeStore so the music bed is always sent to Ender.
+  const bgAudio = synthesizeBgAudioClip(prepared, fps);
+  if (bgAudio) prepared.push(bgAudio);
 
   // Map Pro's project/export settings → Ender's render-core ExportSettings.
   const enderSettings = {

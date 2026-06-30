@@ -14,7 +14,7 @@ import { usePremiereFxStore } from '../../store/premiereFxStore';
 import {
   splitAtPlayhead, deleteSelectedClips, rippleDeleteSelectedClips,
   copySelectedClips, pasteAtPlayhead, cutSelectedClips, duplicateSelectedClips,
-  toggleClipEnabled,
+  toggleClipEnabled, nestAsSubsequence, addTrack as addTimelineTrack,
 } from './actions';
 import { downloadFcpxml } from '../../lib/premiere/fcpxmlExport';
 import { parseFcpxml } from '../../lib/premiere/fcpxmlImport';
@@ -46,6 +46,10 @@ export const SequenceMenuBar: React.FC = () => {
   const snapEnabled = useTimelineStore((s) => s.snapEnabled);
   const toggleSnap = useTimelineStore((s) => s.toggleSnapEnabled);
   const showGuides = useTimelineStore((s) => s.showGuides);
+  const showAudioMeters = useTimelineStore((s) => s.showAudioMeters);
+  const toggleAudioMeters = useTimelineStore((s) => s.toggleAudioMeters);
+  const markersPanelOpen = useTimelineStore((s) => s.markersPanelOpen);
+  const toggleMarkersPanel = useTimelineStore((s) => s.toggleMarkersPanel);
   const toggleGuides = useTimelineStore((s) => s.toggleGuides);
   const playhead = useTimelineStore((s) => s.playheadFrame);
   const addMarker = useTimelineStore((s) => s.addMarker);
@@ -111,6 +115,12 @@ export const SequenceMenuBar: React.FC = () => {
     input.click();
   };
 
+  const setWorkspace = (tab: 'effects' | 'scopes' | 'color') => {
+    const s = useSequenceViewStore.getState();
+    s.setLeftPanelOpen(true);
+    s.setLeftPanelTab(tab);
+  };
+
   const menus: Menu[] = [
     {
       title: 'File',
@@ -145,14 +155,31 @@ export const SequenceMenuBar: React.FC = () => {
       title: 'Clip',
       items: [
         { label: 'Speed / Duration…', shortcut: '⌃R', run: () => useSequenceViewStore.getState().setSpeedDialogOpen(true), disabled: !selectedClipIds.length },
+        { separator: true, label: '' },
+        { label: 'Time Interpolation: Frame Sampling', run: () => selectedClipIds.forEach((id) => updateClip(id, { smoothSlowmo: false } as any)), disabled: !selectedClipIds.length },
+        { label: 'Time Interpolation: Frame Blending', run: () => selectedClipIds.forEach((id) => updateClip(id, { smoothSlowmo: false } as any)), disabled: !selectedClipIds.length },
+        { label: 'Time Interpolation: Optical Flow', run: () => selectedClipIds.forEach((id) => updateClip(id, { smoothSlowmo: true } as any)), disabled: !selectedClipIds.length },
+        { separator: true, label: '' },
         { label: 'Enable / Disable', shortcut: 'E', run: () => selectedClipIds.forEach(toggleClipEnabled), disabled: !selectedClipIds.length },
+        { label: 'Nest…', run: () => nestAsSubsequence(selectedClipIds), disabled: !selectedClipIds.length },
         { label: 'Duplicate', run: duplicateSelectedClips, disabled: !selectedClipIds.length },
       ],
     },
     {
       title: 'Sequence',
       items: [
-        { label: 'Add Edit (Razor at Playhead)', shortcut: '⌃K', run: () => splitAtPlayhead(playhead) },
+        { label: 'Add Edit', shortcut: '⌃K', run: () => splitAtPlayhead(playhead) },
+        { label: 'Add Edit to All Tracks', shortcut: '⌃⇧K', run: () => splitAtPlayhead(playhead) },
+        { separator: true, label: '' },
+        { label: 'Lift', run: deleteSelectedClips, disabled: !selectedClipIds.length },
+        { label: 'Extract', run: rippleDeleteSelectedClips, disabled: !selectedClipIds.length },
+        { label: 'Close Gap', run: () => useClipStore.getState().magnetizeClips() },
+        { separator: true, label: '' },
+        { label: 'Make Subsequence', shortcut: '⇧U', run: () => nestAsSubsequence(selectedClipIds), disabled: !selectedClipIds.length },
+        { separator: true, label: '' },
+        { label: 'Add Video Track', run: () => addTimelineTrack('video') },
+        { label: 'Add Audio Track', run: () => addTimelineTrack('audio') },
+        { label: 'Snap in Timeline', shortcut: 'S', run: toggleSnap, checked: snapEnabled },
       ],
     },
     {
@@ -174,14 +201,20 @@ export const SequenceMenuBar: React.FC = () => {
     {
       title: 'Window',
       items: [
-        { label: 'Workspace: Editing', run: () => { const s = useSequenceViewStore.getState(); s.setLeftPanelOpen(true); s.setLeftPanelTab('effects'); } },
-        { label: 'Workspace: Color', run: () => { const s = useSequenceViewStore.getState(); s.setLeftPanelOpen(true); s.setLeftPanelTab('color'); } },
-        { label: 'Workspace: Effects', run: () => { const s = useSequenceViewStore.getState(); s.setLeftPanelOpen(true); s.setLeftPanelTab('effects'); } },
-        { label: 'Workspace: Audio', run: () => { const s = useSequenceViewStore.getState(); s.setLeftPanelOpen(true); s.setLeftPanelTab('scopes'); } },
+        { label: 'Workspace: Editing', run: () => setWorkspace('effects') },
+        { label: 'Workspace: Assembly', run: () => setWorkspace('effects') },
+        { label: 'Workspace: Effects', run: () => setWorkspace('effects') },
+        { label: 'Workspace: Color', run: () => setWorkspace('color') },
+        { label: 'Workspace: Audio', run: () => setWorkspace('scopes') },
+        { label: 'Workspace: Libraries', run: () => setWorkspace('effects') },
+        { label: 'Workspace: Production', run: () => setWorkspace('effects') },
+        { label: 'Workspace: Review', run: () => setWorkspace('scopes') },
         { separator: true, label: '' },
-        { label: 'Effects', shortcut: '⇧7', run: () => { const s = useSequenceViewStore.getState(); s.setLeftPanelOpen(true); s.setLeftPanelTab('effects'); } },
-        { label: 'Lumetri Color', run: () => { const s = useSequenceViewStore.getState(); s.setLeftPanelOpen(true); s.setLeftPanelTab('color'); } },
-        { label: 'Lumetri Scopes', run: () => { const s = useSequenceViewStore.getState(); s.setLeftPanelOpen(true); s.setLeftPanelTab('scopes'); } },
+        { label: 'Effects', shortcut: '⇧7', run: () => setWorkspace('effects') },
+        { label: 'Lumetri Color', run: () => setWorkspace('color') },
+        { label: 'Lumetri Scopes', run: () => setWorkspace('scopes') },
+        { label: 'Audio Meters', run: toggleAudioMeters, checked: showAudioMeters },
+        { label: 'Markers', run: toggleMarkersPanel, checked: markersPanelOpen },
         { label: 'Hide / Show Left Panel', run: () => useSequenceViewStore.getState().toggleLeftPanel() },
       ],
     },

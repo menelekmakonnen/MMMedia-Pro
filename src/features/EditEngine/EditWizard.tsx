@@ -30,7 +30,7 @@ import type { MergeStrategy } from '../../lib/intelligenceMerger';
 import clsx from 'clsx';
 import { EditLogicSidebar } from './EditLogicSidebar';
 import { useEditLogicStore } from '../../store/editLogicStore';
-import { extractDecisions } from '../../types/ClipDecision';
+import { extractDecisions, type ClipDecision } from '../../types/ClipDecision';
 
 import { useProjectStore } from '../../store/projectStore';
 import { getSubcategories } from '../../lib/generatorModeConfig';
@@ -1182,19 +1182,42 @@ export const EditWizard: React.FC<WizardProps> = ({ onGenerate, onModeChange, ac
 
         const delay = hasGeneratedOnceRef.current ? 400 : 0;
         previewTimerRef.current = setTimeout(() => {
+            let decisions: ClipDecision[] = [];
             try {
                 const previewClips = generateTrailerSequence(previewPool, {
                     ...settings,
                     fps,
                     targetDuration: settings.targetDuration || 30,
                 });
-                const decisions = extractDecisions(previewClips, fps);
-                useEditLogicStore.getState().setDecisions(decisions);
-                hasGeneratedOnceRef.current = true;
+                decisions = extractDecisions(previewClips, fps);
             } catch (err) {
-                console.warn('[EditWizard] Preview generation failed:', err);
-                useEditLogicStore.getState().setGenerating(false);
+                console.warn('[EditWizard] Preview generation failed, building fallback:', err);
             }
+
+            // Fallback: if generator failed or produced nothing, build
+            // decisions directly from the pool so the sidebar is never empty
+            if (decisions.length === 0 && previewPool.length > 0) {
+                const targetSec = settings.targetDuration || 30;
+                const clipDur = Math.max(0.3, Math.min(targetSec / previewPool.length, settings.longestClip || 2));
+                const txTypes = Array.isArray(settings.transitionTypes) && settings.transitionTypes.length > 0
+                    ? settings.transitionTypes : ['fade'];
+                decisions = previewPool.map((file, i) => ({
+                    clipId: file.id,
+                    sourceFilename: file.filename || file.path?.split(/[/\\]/).pop() || `Clip ${i + 1}`,
+                    sourcePath: file.path || '',
+                    durationSec: Math.round(clipDur * 100) / 100,
+                    trimRange: [0, Math.min(clipDur, file.duration || clipDur)] as [number, number],
+                    transitionType: i < previewPool.length - 1 ? txTypes[i % txTypes.length] : null,
+                    transitionDurationMs: settings.transitionDurationMs || 300,
+                    effects: [],
+                    speed: 1,
+                    reason: 'pool-order',
+                    order: i,
+                }));
+            }
+
+            useEditLogicStore.getState().setDecisions(decisions);
+            hasGeneratedOnceRef.current = true;
         }, delay);
 
         return () => {

@@ -66,6 +66,10 @@ export interface TimelineState {
   targetedTrackIds: Set<number>;
   /** Source patching (which source track maps onto which timeline track). */
   syncLockedTrackIds: Set<number>;
+  /** Master audio meters visibility (Window ▸ Audio Meters). */
+  showAudioMeters: boolean;
+  /** Markers panel visibility (Window ▸ Markers). */
+  markersPanelOpen: boolean;
 
   // Actions
   setTracks: (tracks: Track[]) => void;
@@ -93,4 +97,6 @@ export interface TimelineState {
   toggleGuides: () => void;
   toggleTargetTrack: (id: number) => void;
   toggleSyncLock: (id: number) => void;
+  toggleAudioMeters: () => void;
+  toggleMarkersPanel: () => void;
 }

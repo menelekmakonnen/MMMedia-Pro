@@ -11,11 +11,14 @@ import { ProgramMonitor } from './ProgramMonitor';
 import { SequenceInspector } from './SequenceInspector';
 import { EffectControlsPanel } from './inspector/EffectControlsPanel';
 import { ClipSpeedDurationDialog } from './inspector/ClipSpeedDurationDialog';
+import { MarkersPanel } from './MarkersPanel';
+import { SourceMonitor } from './SourceMonitor';
 import { SequenceMenuBar } from './SequenceMenuBar';
 import { Sliders, SlidersHorizontal } from 'lucide-react';
 
 import clsx from 'clsx';
 import { TimelineCanvas } from './timeline/TimelineCanvas';
+import { AudioMeters } from './audio/AudioMeters';
 import { KeyboardShortcutsOverlay } from './KeyboardShortcutsOverlay';
 import { useTimelineStore } from './timeline/useTimelineStore';
 import { useSequenceViewStore } from '../../store/sequenceViewStore';
@@ -68,6 +71,7 @@ export const SequenceViewTab: React.FC = () => {
     const handlePlayPauseRef = useRef<() => void>(() => {});
 
     // Sync local playhead and play/pause state with NLE Timeline Store
+    const showAudioMeters = useTimelineStore((s) => s.showAudioMeters);
     const storePlayhead = useTimelineStore((s) => s.playheadFrame);
     const storeIsPlaying = useTimelineStore((s) => s.isPlaying);
     const storeSetPlayhead = useTimelineStore((s) => s.setPlayheadFrame);
@@ -993,8 +997,13 @@ export const SequenceViewTab: React.FC = () => {
                     onMagnetize={magnetizeClips}
                 />
 
-                {/* Timeline Area */}
-                <TimelineCanvas fps={settings.fps} />
+                {/* Timeline Area + master audio meters */}
+                <div className="flex-1 flex min-h-0">
+                    <div className="flex-1 min-w-0 h-full overflow-hidden">
+                        <TimelineCanvas fps={settings.fps} />
+                    </div>
+                    {showAudioMeters && <AudioMeters />}
+                </div>
 
                 {/* Keyboard Shortcuts Helper Overlay */}
                 <KeyboardShortcutsOverlay
@@ -1005,6 +1014,12 @@ export const SequenceViewTab: React.FC = () => {
 
             {/* Clip Speed/Duration dialog (⌃R) */}
             <ClipSpeedDurationDialog />
+
+            {/* Markers panel (Window ▸ Markers) */}
+            <MarkersPanel />
+
+            {/* Source monitor + 3-point editing (opens on Media double-click) */}
+            <SourceMonitor />
         </div>
     );
 };
