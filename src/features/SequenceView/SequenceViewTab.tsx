@@ -20,8 +20,9 @@ import { KeyboardShortcutsOverlay } from './KeyboardShortcutsOverlay';
 import { useTimelineStore } from './timeline/useTimelineStore';
 import { useSequenceViewStore } from '../../store/sequenceViewStore';
 import { EffectsBrowser } from './effects/EffectsBrowser';
+import { LumetriColorPanel } from './color/LumetriColorPanel';
 import { ScopePanel } from './scopes/ScopePanel';
-import { Sparkles, BarChart2, PanelLeftClose, PanelLeftOpen, Zap, Clapperboard, Wand2 } from 'lucide-react';
+import { Sparkles, BarChart2, PanelLeftClose, PanelLeftOpen, Zap, Clapperboard, Wand2, Palette } from 'lucide-react';
 import { EditorialAssist } from './EditorialAssist';
 import { VisualHookPanel } from './VisualHookPanel';
 import { GeneratorModePanel } from '../EditEngine/GeneratorModePanel';
@@ -825,6 +826,18 @@ export const SequenceViewTab: React.FC = () => {
                                 Modes
                             </button>
                             <button
+                                onClick={() => setLeftPanelTab('color')}
+                                className={clsx(
+                                    'flex-1 flex items-center justify-center gap-1 py-1.5 text-[10px] font-semibold transition-colors',
+                                    leftPanelTab === 'color'
+                                        ? 'text-amber-300 border-b-2 border-amber-500 bg-amber-500/5'
+                                        : 'text-white/35 hover:text-white/60'
+                                )}
+                            >
+                                <Palette size={11} />
+                                Color
+                            </button>
+                            <button
                                 onClick={toggleLeftPanel}
                                 className="px-2 py-1.5 text-white/25 hover:text-white/60 transition-colors"
                                 title="Close panel"
@@ -835,6 +848,7 @@ export const SequenceViewTab: React.FC = () => {
                         {/* Content */}
                         <div className="flex-1 overflow-hidden">
                             {leftPanelTab === 'effects' && <EffectsBrowser />}
+                            {leftPanelTab === 'color' && <LumetriColorPanel />}
                             {leftPanelTab === 'editorial' && <EditorialAssist />}
                             {leftPanelTab === 'modes' && <GeneratorModePanel variant="compact" />}
                             {leftPanelTab === 'scopes' && <ScopePanel />}

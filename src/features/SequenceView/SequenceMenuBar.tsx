@@ -171,6 +171,20 @@ export const SequenceMenuBar: React.FC = () => {
         { label: 'Show Guides', run: toggleGuides, checked: showGuides },
       ],
     },
+    {
+      title: 'Window',
+      items: [
+        { label: 'Workspace: Editing', run: () => { const s = useSequenceViewStore.getState(); s.setLeftPanelOpen(true); s.setLeftPanelTab('effects'); } },
+        { label: 'Workspace: Color', run: () => { const s = useSequenceViewStore.getState(); s.setLeftPanelOpen(true); s.setLeftPanelTab('color'); } },
+        { label: 'Workspace: Effects', run: () => { const s = useSequenceViewStore.getState(); s.setLeftPanelOpen(true); s.setLeftPanelTab('effects'); } },
+        { label: 'Workspace: Audio', run: () => { const s = useSequenceViewStore.getState(); s.setLeftPanelOpen(true); s.setLeftPanelTab('scopes'); } },
+        { separator: true, label: '' },
+        { label: 'Effects', shortcut: '⇧7', run: () => { const s = useSequenceViewStore.getState(); s.setLeftPanelOpen(true); s.setLeftPanelTab('effects'); } },
+        { label: 'Lumetri Color', run: () => { const s = useSequenceViewStore.getState(); s.setLeftPanelOpen(true); s.setLeftPanelTab('color'); } },
+        { label: 'Lumetri Scopes', run: () => { const s = useSequenceViewStore.getState(); s.setLeftPanelOpen(true); s.setLeftPanelTab('scopes'); } },
+        { label: 'Hide / Show Left Panel', run: () => useSequenceViewStore.getState().toggleLeftPanel() },
+      ],
+    },
   ];
 
   return (
