@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { ExportQuality, ExportOrientation } from '../lib/exportPresets';
+import type { ExportQuality, ExportOrientation, ExportResolutionTier } from '../lib/exportPresets';
 
 export type RenderEngine = 'segment' | 'per-clip' | 'monolithic' | 'both';
 
@@ -16,6 +16,8 @@ interface ExportSettingsState {
     // Persisted user selections
     selectedPresetId: string;
     exportQuality: ExportQuality;
+    /** Master output-resolution tier — persists across the edit, set only here. */
+    exportResolutionTier: ExportResolutionTier;
     orientation: ExportOrientation;
     selectedFps: number;
     lastExportPath: string | null;
@@ -29,6 +31,7 @@ interface ExportSettingsState {
     // Actions
     setSelectedPresetId: (id: string) => void;
     setExportQuality: (quality: ExportQuality) => void;
+    setExportResolutionTier: (tier: ExportResolutionTier) => void;
     setOrientation: (orientation: ExportOrientation) => void;
     setSelectedFps: (fps: number) => void;
     setLastExportPath: (path: string | null) => void;
@@ -46,6 +49,7 @@ export const useExportSettingsStore = create<ExportSettingsState>()(
         (set) => ({
             selectedPresetId: 'hd_1080',
             exportQuality: 'standard',
+            exportResolutionTier: '1080p',
             orientation: 'landscape',
             selectedFps: 30,
             lastExportPath: null,
@@ -57,6 +61,7 @@ export const useExportSettingsStore = create<ExportSettingsState>()(
 
             setSelectedPresetId: (selectedPresetId) => set({ selectedPresetId }),
             setExportQuality: (exportQuality) => set({ exportQuality }),
+            setExportResolutionTier: (exportResolutionTier) => set({ exportResolutionTier }),
             setOrientation: (orientation) => set({ orientation }),
             setSelectedFps: (selectedFps) => set({ selectedFps }),
             setLastExportPath: (lastExportPath) => set({ lastExportPath }),

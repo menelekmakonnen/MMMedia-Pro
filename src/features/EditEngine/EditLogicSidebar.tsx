@@ -3,6 +3,7 @@ import { useEditLogicStore } from '../../store/editLogicStore';
 import type { ClipDecision } from '../../types/ClipDecision';
 import { Film, GripVertical, X, ChevronRight, ChevronLeft, Zap, Sparkles, Clock, ArrowRightLeft } from 'lucide-react';
 import clsx from 'clsx';
+import { EditPlanPanel } from './EditPlanPanel';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // EditLogicSidebar — real-time edit decision panel (premium UI)
@@ -307,8 +308,8 @@ export const EditLogicSidebar: React.FC<EditLogicSidebarProps> = React.memo(({ m
             className={clsx(
                 'flex flex-col h-full transition-all duration-300',
                 isOverlay
-                    ? 'absolute right-0 top-0 bottom-0 z-40 w-56'
-                    : 'w-60',
+                    ? 'absolute right-0 top-0 bottom-0 z-40 w-64'
+                    : 'w-[270px]',
             )}
             style={{
                 background: isOverlay
@@ -316,93 +317,8 @@ export const EditLogicSidebar: React.FC<EditLogicSidebarProps> = React.memo(({ m
                     : 'linear-gradient(180deg, rgba(8,8,18,0.95) 0%, rgba(6,6,14,0.98) 100%)',
             }}
         >
-            {/* Header — minimal, no hard border */}
-            <div className="flex items-center justify-between px-3 py-2.5">
-                <div className="flex items-center gap-1.5">
-                    <Sparkles size={10} className="text-purple-400/60" />
-                    <span className="text-[9px] font-bold text-white/35 uppercase tracking-[0.15em]">
-                        Edit Plan
-                    </span>
-                </div>
-                <div className="flex items-center gap-2">
-                    <span className="text-[8px] font-mono text-white/20">
-                        {decisions.length} · {totalDuration.toFixed(1)}s
-                    </span>
-                    <button
-                        onClick={toggleSidebar}
-                        className="text-white/15 hover:text-white/35 transition-colors"
-                        title="Hide"
-                    >
-                        <ChevronRight size={10} />
-                    </button>
-                </div>
-            </div>
-
-            {/* Soft divider */}
-            <div className="mx-4 h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
-
-            {/* Clip list */}
-            <div
-                ref={scrollRef}
-                className="flex-1 overflow-y-auto overflow-x-hidden px-1.5 py-2 custom-scrollbar"
-            >
-                {/* Empty state — should rarely appear since we generate on mount */}
-                {decisions.length === 0 && !isGenerating && (
-                    <div className="flex flex-col items-center justify-center h-full text-white/10 gap-3">
-                        <Film size={20} strokeWidth={1} />
-                        <span className="text-[9px] font-medium text-center px-4 leading-relaxed">
-                            Add videos to your library to see the edit plan
-                        </span>
-                    </div>
-                )}
-
-                {/* Generating spinner */}
-                {isGenerating && decisions.length === 0 && (
-                    <div className="flex flex-col items-center justify-center h-24 text-white/15 gap-2">
-                        <div className="w-3.5 h-3.5 border border-purple-500/30 border-t-purple-400/70 rounded-full animate-spin" />
-                        <span className="text-[8px] font-medium">Computing…</span>
-                    </div>
-                )}
-
-                {/* Decision cards */}
-                {decisions.map((decision, i) => (
-                    <React.Fragment key={decision.clipId}>
-                        <div ref={(el) => { cardRefs.current[i] = el; }}>
-                            <DecisionCard
-                                decision={decision}
-                                index={i}
-                                isActive={i === activeClipIndex}
-                                interactive={interactive}
-                                onRemove={interactive ? removeDecision : undefined}
-                                onDragStart={interactive ? handleDragStart : undefined}
-                                onDragOver={interactive ? handleDragOver : undefined}
-                                onDragEnd={interactive ? handleDragEnd : undefined}
-                            />
-                        </div>
-                        {i < decisions.length - 1 && (
-                            <TransitionConnector
-                                type={decision.transitionType}
-                                durationMs={decision.transitionDurationMs}
-                                isActive={i === activeClipIndex || i + 1 === activeClipIndex}
-                            />
-                        )}
-                    </React.Fragment>
-                ))}
-            </div>
-
-            {/* Footer — ultra-subtle stats */}
-            {decisions.length > 0 && (
-                <>
-                    <div className="mx-4 h-px bg-gradient-to-r from-transparent via-white/[0.04] to-transparent" />
-                    <div className="flex items-center justify-between px-3 py-2 text-[7px] font-mono text-white/15 tracking-wide">
-                        <span className="flex items-center gap-1">
-                            <Zap size={7} className="text-purple-400/30" />
-                            {fxCount} fx
-                        </span>
-                        <span>{txCount} trans</span>
-                    </div>
-                </>
-            )}
+            {/* Render the full Edit Plan tree */}
+            <EditPlanPanel />
         </div>
     );
 });

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useProjectStore } from '../../store/projectStore';
-import { Save, Upload, FileJson, Settings, Film, Activity, Shuffle, FolderGit2, FolderOpen, FilePlus } from 'lucide-react';
+import { Save, Upload, FileJson, Settings, Film, Activity, Shuffle, FolderGit2, FolderOpen, FilePlus, Trash2 } from 'lucide-react';
 import { useProjectsStore } from '../../store/projectsStore';
 import { getProjectsDir, pickProjectsDir } from '../../lib/projectFs';
 import { PowerMeter } from './PowerMeter';
@@ -14,6 +14,8 @@ import { toast } from '../../components/Toast';
 import { confirm } from '../../components/ConfirmDialog';
 import { useTrailerSmartStore } from '../../store/trailerSmartStore';
 import { useTimelineStore } from '../SequenceView/timeline/useTimelineStore';
+import { useExportSettingsStore } from '../../store/exportSettingsStore';
+import { RESOLUTION_TIERS } from '../../lib/exportPresets';
 import { ProjectDrawer } from '../../components/ProjectDrawer';
 import { AspectIcon, FrameRateIcon, BackgroundFillIcon } from './SettingsIcons';
 // import { useClipStore } from '../../store/clipStore'; // Dynamic import used below
@@ -58,6 +60,8 @@ export const SettingsTab: React.FC = () => {
     const fpsColor = fps >= 50 ? 'text-green-400' : fps >= 30 ? 'text-yellow-400' : 'text-red-400';
 
     const selectedTransitionDef = getTransitionById(defaultTransition);
+    const exportResolutionTier = useExportSettingsStore(s => s.exportResolutionTier);
+    const qualityTier = RESOLUTION_TIERS.find(t => t.id === exportResolutionTier);
 
     // ── New Project — reset the system: clear all media/audio + clips from the
     //    timeline/sequence and the Edit Generator, and start a fresh project. ──
@@ -78,6 +82,22 @@ export const SettingsTab: React.FC = () => {
         // Fresh project name.
         useProjectStore.getState().updateSettings({ name: 'Untitled Project' });
         toast.success('New project started — timeline, media and generator cleared');
+    };
+
+    // ── Delete Project — removes the current project's content entirely and
+    //    returns to a clean, empty project. ──
+    const handleDeleteProject = async () => {
+        const ok = await confirm(
+            `Delete “${settings.name || 'this project'}”? All media, audio, clips and generator data are removed and the project is reset. This cannot be undone.`,
+            { title: 'Delete Project?', confirmText: 'Delete Project', cancelText: 'Cancel', variant: 'danger' },
+        );
+        if (!ok) return;
+        useClipStore.getState().nukeLibrary();
+        useMediaStore.getState().clearLibrary();
+        useTrailerSmartStore.getState().reset();
+        useTimelineStore.getState().setSelectedItemIds(new Set());
+        useProjectStore.getState().updateSettings({ name: 'Untitled Project' });
+        toast.success('Project deleted — cleared to a new empty project');
     };
 
     return (
@@ -112,16 +132,6 @@ export const SettingsTab: React.FC = () => {
                             </div>
 
                             <div className="space-y-4">
-                                <div>
-                                    <label htmlFor="projectName" className="text-[10px] font-black uppercase tracking-widest text-white/40 block mb-2">Project Name</label>
-                                    <input
-                                        id="projectName"
-                                        type="text"
-                                        value={settings.name}
-                                        onChange={(e) => updateSettings({ name: e.target.value })}
-                                        className="w-full bg-black/50 border border-white/10 rounded-lg p-3 text-white text-sm font-bold outline-none focus:border-primary/50 transition-colors"
-                                    />
-                                </div>
 
                                 <div>
                                     <label className="text-[10px] font-black uppercase tracking-widest text-white/40 block mb-2">Aspect Ratio</label>
@@ -203,6 +213,18 @@ export const SettingsTab: React.FC = () => {
                                         Fill mode for videos that don't match the aspect ratio
                                     </div>
                                 </div>
+
+                                {/* Export Quality — persistent, read-only here (set on Export/Render) */}
+                                <div>
+                                    <label className="text-[10px] font-black uppercase tracking-widest text-white/40 block mb-2">Export Quality</label>
+                                    <div className="flex items-center justify-between bg-black/40 border border-white/10 rounded-lg px-3 py-2.5">
+                                        <div className="flex flex-col">
+                                            <span className="text-sm font-black text-white">{qualityTier?.label ?? '1080p'}</span>
+                                            <span className="text-[9px] uppercase tracking-wider text-white/40">{qualityTier?.sub ?? 'Full HD'} · {qualityTier?.w ?? 1920}×{qualityTier?.h ?? 1080}</span>
+                                        </div>
+                                        <span className="text-[9px] text-white/30 text-right max-w-[120px] leading-tight">Change on the Export / Render page</span>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -218,7 +240,7 @@ export const SettingsTab: React.FC = () => {
                             {/* New Project — resets the system (clears media/audio + clips) */}
                             <button
                                 onClick={handleNewProject}
-                                className="w-full flex items-center justify-center gap-2 p-3 mb-2 bg-rose-500/15 text-rose-300 border border-rose-500/25 rounded-xl hover:bg-rose-500/25 hover:text-rose-200 hover:border-rose-500/40 transition-all group"
+                                className="w-full flex items-center justify-center gap-2 p-3 mb-2 bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 rounded-xl hover:bg-emerald-500/25 hover:text-emerald-200 hover:border-emerald-500/40 transition-all group"
                             >
                                 <FilePlus size={16} className="group-hover:scale-110 transition-transform" />
                                 <span className="text-[10px] font-bold uppercase tracking-wider">New Project</span>
@@ -314,6 +336,15 @@ export const SettingsTab: React.FC = () => {
                                     <span className="text-[10px] font-bold text-center uppercase tracking-wider">Export Manifest</span>
                                 </button>
                             </div>
+
+                            {/* Delete Project — clears the current project entirely */}
+                            <button
+                                onClick={handleDeleteProject}
+                                className="w-full flex items-center justify-center gap-2 p-3 mt-2 bg-red-500/15 text-red-300 border border-red-500/25 rounded-xl hover:bg-red-500/25 hover:text-red-200 hover:border-red-500/40 transition-all group"
+                            >
+                                <Trash2 size={16} className="group-hover:scale-110 transition-transform" />
+                                <span className="text-[10px] font-bold uppercase tracking-wider">Delete Project</span>
+                            </button>
                         </div>
 
                         {/* Engine Status */}
@@ -364,6 +395,8 @@ export const SettingsTab: React.FC = () => {
 const ProjectsStorageCard: React.FC = () => {
     const projectsDir = useProjectsStore((s) => s.projectsDir);
     const setProjectsDir = useProjectsStore((s) => s.setProjectsDir);
+    const projectName = useProjectStore((s) => s.settings.name);
+    const updateSettings = useProjectStore((s) => s.updateSettings);
     const [resolved, setResolved] = useState<string | null>(null);
 
     useEffect(() => { void getProjectsDir().then(setResolved); }, [projectsDir]);
@@ -379,6 +412,19 @@ const ProjectsStorageCard: React.FC = () => {
                 <FolderGit2 size={16} className="text-primary-300" />
                 <span className="text-sm font-bold text-white">Projects Storage</span>
             </div>
+
+            {/* Project Name (moved here from General Configuration) */}
+            <div>
+                <label htmlFor="projectName" className="text-[10px] font-black uppercase tracking-widest text-white/40 block mb-2">Project Name</label>
+                <input
+                    id="projectName"
+                    type="text"
+                    value={projectName}
+                    onChange={(e) => updateSettings({ name: e.target.value })}
+                    className="w-full bg-black/50 border border-white/10 rounded-lg p-3 text-white text-sm font-bold outline-none focus:border-primary/50 transition-colors"
+                />
+            </div>
+
             <p className="text-[11px] text-white/40 leading-relaxed">
                 Your projects are saved as <span className="font-mono text-white/60">.mmm</span> files. By default they live in a
                 <span className="text-white/60"> MMMedia Projects</span> folder in your Documents. Change the destination here.

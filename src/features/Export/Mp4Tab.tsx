@@ -10,7 +10,7 @@ import { useGodModeStore } from '../../store/godModeStore';
 import { ExportProgress } from './ExportProgress';
 import { SpaceFlightBg } from './SpaceFlightBg';
 import {
-    EXPORT_PRESETS, PRESET_CATEGORIES, FPS_OPTIONS,
+    EXPORT_PRESETS, PRESET_CATEGORIES, FPS_OPTIONS, RESOLUTION_TIERS, tierBaseDims,
     getOutputDimensions, estimateFileSize,
     type ExportOrientation, type ExportQuality
 } from '../../lib/exportPresets';
@@ -61,6 +61,7 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
     const {
         selectedPresetId, setSelectedPresetId,
         exportQuality, setExportQuality,
+        exportResolutionTier, setExportResolutionTier,
         orientation, setOrientation,
         selectedFps, setSelectedFps,
         renderEngine: storeEngine, setRenderEngine,
@@ -73,7 +74,12 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
         EXPORT_PRESETS.find(p => p.id === selectedPresetId) || EXPORT_PRESETS.find(p => p.id === 'hd_1080')!,
         [selectedPresetId]);
 
-    const outputDims = useMemo(() => getOutputDimensions(selectedPreset, orientation), [selectedPreset, orientation]);
+    // Resolution is driven by the persistent master tier (source of truth); the
+    // preset only contributes codec/bitrate. Orientation transform is reused.
+    const outputDims = useMemo(() => {
+        const td = tierBaseDims(exportResolutionTier);
+        return getOutputDimensions({ ...selectedPreset, width: td.w, height: td.h }, orientation);
+    }, [selectedPreset, orientation, exportResolutionTier]);
 
     const totalDuration = useMemo(() => {
         const fps = settings.fps || 30;
@@ -150,6 +156,28 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
             </rect>
         </svg>
     );
+
+    // Animated resolution-tier icon: a monitor whose scan-line density grows with
+    // the tier, plus a bright line that sweeps down (higher tiers sweep faster).
+    const TierIcon = ({ tierIndex }: { tierIndex: number }) => {
+        const lines = 3 + tierIndex; // 720p→3 … 4320p→7
+        const gap = 12 / (lines + 1);
+        const dur = (1.8 - tierIndex * 0.22).toFixed(2); // faster at higher tiers
+        return (
+            <svg width="26" height="20" viewBox="0 0 28 22" fill="none">
+                <rect x="1" y="1" width="26" height="17" rx="2.5" stroke="currentColor" strokeWidth="1.4" />
+                <rect x="11" y="19.2" width="6" height="1.6" rx="0.8" fill="currentColor" opacity="0.6" />
+                {Array.from({ length: lines }).map((_, i) => (
+                    <line key={i} x1="4" y1={4 + gap * (i + 1)} x2="24" y2={4 + gap * (i + 1)}
+                        stroke="currentColor" strokeWidth="1" opacity="0.28" />
+                ))}
+                <rect x="3.5" y="3" width="21" height="1.6" rx="0.8" fill="currentColor" opacity="0.9">
+                    <animate attributeName="y" values="3;14.5;3" dur={`${dur}s`} repeatCount="indefinite" />
+                    <animate attributeName="opacity" values="0.9;0.4;0.9" dur={`${dur}s`} repeatCount="indefinite" />
+                </rect>
+            </svg>
+        );
+    };
 
     if (isExporting) {
         return (
@@ -388,9 +416,31 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
 
             {/* Right: Settings */}
             <div className="flex-1 flex flex-col gap-5 min-w-0">
+                {/* Master Output Quality — the persistent resolution tier for the whole edit */}
+                <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                        <div className="text-[9px] font-black uppercase tracking-widest text-white/30">Master Output Quality</div>
+                        <div className="text-[9px] text-white/25">persists across the edit</div>
+                    </div>
+                    <div className="grid grid-cols-5 gap-1.5">
+                        {RESOLUTION_TIERS.map((tier, i) => (
+                            <button key={tier.id} onClick={() => setExportResolutionTier(tier.id)}
+                                className={clsx('flex flex-col items-center justify-center gap-1 py-2.5 rounded-lg border transition-all',
+                                    exportResolutionTier === tier.id
+                                        ? 'bg-primary/20 border-primary/50 text-white shadow-lg shadow-primary/10'
+                                        : 'bg-black/20 border-white/5 text-white/45 hover:border-white/15 hover:bg-white/5 hover:text-white/70')}>
+                                <TierIcon tierIndex={i} />
+                                <span className="text-[11px] font-black leading-none">{tier.label}</span>
+                                <span className="text-[8px] font-bold uppercase tracking-wide opacity-60 leading-none">{tier.sub}</span>
+                            </button>
+                        ))}
+                    </div>
+                    <div className="text-[9px] text-white/30 text-right font-mono">Output: {outputDims.w}×{outputDims.h}</div>
+                </div>
+
                 {/* Preset cards */}
                 <div className="space-y-3">
-                    <div className="text-[9px] font-black uppercase tracking-widest text-white/30">Preset</div>
+                    <div className="text-[9px] font-black uppercase tracking-widest text-white/30">Preset <span className="text-white/20 normal-case font-normal">(codec / format)</span></div>
                     {grouped.map(group => (
                         <div key={group.id}>
                             <div className="text-[9px] font-bold uppercase tracking-wider text-white/20 mb-1.5">{group.label}</div>
@@ -402,7 +452,7 @@ export const Mp4Tab: React.FC<Props> = ({ isExporting, progress, startTime, onEx
                                                 ? 'bg-primary/15 border-primary/40 shadow-lg shadow-primary/10'
                                                 : 'bg-black/20 border-white/5 hover:border-white/15 hover:bg-white/5')}>
                                         <div className="text-[11px] font-bold text-white truncate">{p.name}</div>
-                                        <div className="text-[9px] text-white/30 mt-0.5">{p.width}×{p.height} · {p.codec === 'libx265' ? 'HEVC' : 'H.264'}</div>
+                                        <div className="text-[9px] text-white/30 mt-0.5">{p.codec === 'libx265' ? 'HEVC' : 'H.264'} · {p.bitrate > 0 ? `${(p.bitrate / 1000).toFixed(0)}M` : 'CRF'}</div>
                                     </button>
                                 ))}
                             </div>

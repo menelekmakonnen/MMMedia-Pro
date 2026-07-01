@@ -4,6 +4,26 @@
 export type ExportOrientation = 'landscape' | 'portrait' | 'square' | 'auto';
 export type ExportQuality = 'draft' | 'standard' | 'master';
 
+/**
+ * Master output-resolution tier — persists across the whole edit and is the
+ * source of truth for render dimensions. Editable only on the Export/Render page.
+ */
+export type ExportResolutionTier = '720p' | '1080p' | '1440p' | '2160p' | '4320p';
+
+export const RESOLUTION_TIERS: { id: ExportResolutionTier; label: string; sub: string; w: number; h: number }[] = [
+    { id: '720p',  label: '720p',  sub: 'HD',        w: 1280, h: 720 },
+    { id: '1080p', label: '1080p', sub: 'Full HD',   w: 1920, h: 1080 },
+    { id: '1440p', label: '1440p', sub: '2K · QHD',  w: 2560, h: 1440 },
+    { id: '2160p', label: '2160p', sub: '4K · UHD',  w: 3840, h: 2160 },
+    { id: '4320p', label: '4320p', sub: '8K',        w: 7680, h: 4320 },
+];
+
+/** Base landscape dimensions for a resolution tier (before orientation transform). */
+export function tierBaseDims(tier: ExportResolutionTier): { w: number; h: number } {
+    const t = RESOLUTION_TIERS.find((r) => r.id === tier) ?? RESOLUTION_TIERS[1];
+    return { w: t.w, h: t.h };
+}
+
 export interface ExportPreset {
     id: string;
     name: string;

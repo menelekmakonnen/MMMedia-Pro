@@ -9,7 +9,7 @@ import { useGodModeStore } from '../../store/godModeStore';
 import { generateManifest } from '../../lib/manifestBridge';
 import clsx from 'clsx';
 import { toast } from '../../components/Toast';
-import { EXPORT_PRESETS, getOutputDimensions } from '../../lib/exportPresets';
+import { EXPORT_PRESETS, getOutputDimensions, tierBaseDims } from '../../lib/exportPresets';
 import { expandClipToBoomerang, BOOMERANG_PRESETS, getBoomerangPreset } from '../../lib/boomerang';
 import { Mp4Tab } from './Mp4Tab';
 import { PremiereTab } from './PremiereTab';
@@ -24,6 +24,7 @@ export const ExportTab: React.FC = () => {
     const {
         activeTab, setActiveTab,
         selectedPresetId, exportQuality, orientation, selectedFps,
+        exportResolutionTier,
         setLastExportPath, setIsExporting, renderEngine, useGpu,
         queuedEdits, removeQueuedEdit,
     } = useExportSettingsStore();
@@ -76,7 +77,12 @@ export const ExportTab: React.FC = () => {
     const selectedPreset = useMemo(() =>
         EXPORT_PRESETS.find(p => p.id === selectedPresetId) || EXPORT_PRESETS.find(p => p.id === 'hd_1080')!,
         [selectedPresetId]);
-    const outputDims = useMemo(() => getOutputDimensions(selectedPreset, orientation), [selectedPreset, orientation]);
+    // Output resolution is driven by the persistent master tier (the preset only
+    // provides codec/bitrate). Orientation transform is reused from the preset path.
+    const outputDims = useMemo(() => {
+        const td = tierBaseDims(exportResolutionTier);
+        return getOutputDimensions({ ...selectedPreset, width: td.w, height: td.h }, orientation);
+    }, [selectedPreset, orientation, exportResolutionTier]);
     const totalDuration = useMemo(() => {
         const vc = clips.filter(c => c.type !== 'audio');
         if (vc.length === 0) return 0;
