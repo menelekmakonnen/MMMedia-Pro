@@ -1,5 +1,4 @@
 import React from 'react';
-import { motion } from 'framer-motion';
 import { ChevronRight } from 'lucide-react';
 import { NleQuickPresets } from './NleQuickPresets';
 import { GeneratorModePanel } from './GeneratorModePanel';
@@ -202,15 +201,10 @@ export const EditGeneratorHome: React.FC<EditGeneratorHomeProps> = ({ onSelect, 
                         const Icon = t.icon;
                         const ready = !readyTypes || readyTypes.includes(t.id);
                         return (
-                            <motion.button
+                            <button
                                 key={t.id}
                                 onClick={() => onSelect(t.id)}
-                                initial={{ opacity: 0, y: 12 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: i * 0.05 }}
-                                whileHover={{ scale: 1.02, y: -2 }}
-                                whileTap={{ scale: 0.98 }}
-                                className="group relative text-left rounded-2xl p-5 bg-white/[0.03] border border-white/10 hover:border-white/20 transition-colors overflow-hidden"
+                                className="group relative text-left rounded-2xl p-5 bg-white/[0.03] border border-white/10 hover:border-white/20 transition-all duration-200 overflow-hidden hover:scale-[1.02] hover:-translate-y-0.5 active:scale-[0.98]"
                                 style={{ boxShadow: `0 0 0 0 ${t.glow}` }}
                             >
                                 {/* hover glow */}
@@ -243,7 +237,7 @@ export const EditGeneratorHome: React.FC<EditGeneratorHomeProps> = ({ onSelect, 
                                         <span className="text-[10px] text-white/55 font-medium">{t.driver}</span>
                                     </div>
                                 </div>
-                            </motion.button>
+                            </button>
                         );
                     })}
                 </div>

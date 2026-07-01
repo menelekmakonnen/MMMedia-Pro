@@ -8,7 +8,6 @@
 
 import { useClipStore } from '../store/clipStore';
 import { useGeneratorModeStore } from '../store/generatorModeStore';
-import { useSfxStore } from '../store/sfxStore';
 import { getGeneratorMode } from './generatorModes';
 import { detectActiveFeatures } from './featureManifest';
 import type {

@@ -3,28 +3,60 @@ import { useEditLogicStore } from '../../store/editLogicStore';
 import { useClipStore } from '../../store/clipStore';
 import { buildEditPlan } from '../../lib/editPlanBuilder';
 import {
-    Brain, GripVertical, ChevronDown, ChevronRight, Zap, Shield, Eye,
+    Brain, GripVertical, Zap, Shield, Eye, Lock, Unlock,
     Scissors, Gauge, Film, Music, Volume2, Sparkles, Clock, Move,
-    Palette, RefreshCw, ArrowRightLeft, Layers, AlertTriangle,
+    RefreshCw, ArrowRightLeft, Layers, AlertTriangle, Power,
 } from 'lucide-react';
 import type { EditPlan, GlobalDecisionNode, ClipDecisionNode, ClipFeatureNode, DecisionSource } from '../../types/EditPlanTypes';
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// EditPlanPanel — Comprehensive edit decision workflow (premium UI)
+// EditPlanPanel — Flat decision list (no groups).
 //
-// Shows every feature used in the current edit as a structured decision tree.
-// Users can reorder clip decisions for different results. This is the foundation
-// for future AI management of the edit.
+// Every decision — global, per-clip, and audio — lives in a single draggable
+// list. Users can reorder and toggle (on/off) any decision. Only "Duration"
+// is pinned to the top by default (since everything else depends on it) but
+// the user can unlock it to move freely.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// ── Source badge colors ──────────────────────────────────────────────────────
+// ── Unified decision node ────────────────────────────────────────────────────
+
+type UnifiedDecision = {
+    uid: string;
+    kind: 'global' | 'clip' | 'audio';
+    label: string;
+    description: string;
+    source: DecisionSource;
+    icon: React.ReactNode;
+    enabled: boolean;
+    /** If true, this decision is pinned at the top and cannot be moved unless unlocked. */
+    pinned: boolean;
+    /** If true, user unlocked the pin. */
+    unlocked: boolean;
+    /** Features on this decision (for clip nodes). */
+    features?: ClipFeatureNode[];
+    /** Original data ref for param display. */
+    data?: Record<string, unknown>;
+    /** Clip filename (for clip nodes). */
+    filename?: string;
+    /** Clip order index. */
+    order?: number;
+    /** Duration in seconds. */
+    durationSec?: number;
+    /** Speed multiplier. */
+    speed?: number;
+    /** Transition info. */
+    transitionType?: string | null;
+    transitionReason?: string;
+};
+
+// ── Source badge ──────────────────────────────────────────────────────────────
 
 const SOURCE_STYLE: Record<DecisionSource, { bg: string; text: string; label: string }> = {
-    'editorial-rule': { bg: 'rgba(99,102,241,0.15)', text: '#818cf8', label: 'Editorial Rule' },
-    'generator-mode': { bg: 'rgba(168,85,247,0.15)', text: '#c084fc', label: 'Generator Mode' },
-    'creator-hack':   { bg: 'rgba(6,182,212,0.15)',  text: '#67e8f9', label: 'Creator Hack' },
+    'editorial-rule': { bg: 'rgba(99,102,241,0.15)', text: '#818cf8', label: 'Rule' },
+    'generator-mode': { bg: 'rgba(168,85,247,0.15)', text: '#c084fc', label: 'Mode' },
+    'creator-hack':   { bg: 'rgba(6,182,212,0.15)',  text: '#67e8f9', label: 'Hack' },
     'user-manual':    { bg: 'rgba(16,185,129,0.15)', text: '#6ee7b7', label: 'User' },
-    'baked-in':       { bg: 'rgba(245,158,11,0.15)', text: '#fbbf24', label: 'Built-in' },
+    'baked-in':       { bg: 'rgba(245,158,11,0.15)', text: '#fbbf24', label: 'Core' },
     'preset':         { bg: 'rgba(236,72,153,0.15)', text: '#f472b6', label: 'Preset' },
     'style-recipe':   { bg: 'rgba(239,68,68,0.15)',  text: '#fca5a5', label: 'Recipe' },
 };
@@ -33,7 +65,7 @@ const SourceBadge: React.FC<{ source: DecisionSource }> = ({ source }) => {
     const s = SOURCE_STYLE[source];
     return (
         <span
-            className="inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider"
+            className="inline-flex items-center px-1.5 py-0.5 rounded text-[7px] font-bold uppercase tracking-wider flex-shrink-0"
             style={{ background: s.bg, color: s.text }}
         >
             {s.label}
@@ -41,248 +73,107 @@ const SourceBadge: React.FC<{ source: DecisionSource }> = ({ source }) => {
     );
 };
 
-// ── Category icon map ────────────────────────────────────────────────────────
+// ── Icons for decision kinds ─────────────────────────────────────────────────
 
-const CAT_ICON: Record<string, React.ReactNode> = {
-    visual: <Sparkles size={10} className="text-purple-400" />,
-    audio: <Volume2 size={10} className="text-cyan-400" />,
-    motion: <Move size={10} className="text-amber-400" />,
-    timing: <Clock size={10} className="text-blue-400" />,
-    editorial: <Shield size={10} className="text-amber-400" />,
-    composition: <Layers size={10} className="text-emerald-400" />,
-    global: <Brain size={10} className="text-indigo-400" />,
-};
+function iconForGlobal(label: string): React.ReactNode {
+    if (label.includes('Mode')) return <Brain size={11} className="text-purple-400" />;
+    if (label.includes('Pacing')) return <Gauge size={11} className="text-cyan-400" />;
+    if (label.includes('Transition')) return <ArrowRightLeft size={11} className="text-indigo-400" />;
+    if (label.includes('Eye')) return <Eye size={11} className="text-pink-400" />;
+    if (label.includes('Sift')) return <Scissors size={11} className="text-purple-400" />;
+    if (label.includes('Quality')) return <Sparkles size={11} className="text-amber-400" />;
+    if (label.includes('Duration')) return <Clock size={11} className="text-blue-400" />;
+    return <Shield size={11} className="text-amber-400" />;
+}
 
-// ── Section header ───────────────────────────────────────────────────────────
+// ── Decision row ─────────────────────────────────────────────────────────────
 
-const SectionHeader: React.FC<{
-    title: string;
-    icon: React.ReactNode;
-    count?: number;
-    expanded: boolean;
-    onToggle: () => void;
-    accentColor?: string;
-}> = ({ title, icon, count, expanded, onToggle, accentColor = '139,92,246' }) => (
-    <button
-        onClick={onToggle}
-        className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg transition-all duration-200 group"
-        style={{
-            background: expanded ? `rgba(${accentColor},0.08)` : 'transparent',
-            border: `1px solid rgba(${accentColor},${expanded ? 0.2 : 0.06})`,
-        }}
-    >
-        {icon}
-        <span className="text-[10px] font-black uppercase tracking-[0.12em] text-white/60 group-hover:text-white/80 flex-1 text-left">
-            {title}
-        </span>
-        {count !== undefined && (
-            <span
-                className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
-                style={{ background: `rgba(${accentColor},0.2)`, color: `rgba(${accentColor},1)` }}
-            >
-                {count}
-            </span>
-        )}
-        {expanded
-            ? <ChevronDown size={12} className="text-white/30" />
-            : <ChevronRight size={12} className="text-white/30" />
-        }
-    </button>
-);
-
-// ── Global decision row ──────────────────────────────────────────────────────
-
-const GlobalRow: React.FC<{ node: GlobalDecisionNode }> = ({ node }) => (
-    <div
-        className="flex items-start gap-2 px-3 py-2 rounded-md transition-all duration-200 hover:bg-white/[0.03]"
-        style={{ borderLeft: '2px solid rgba(245,158,11,0.3)' }}
-    >
-        <div className="flex-shrink-0 mt-0.5">{CAT_ICON[node.category] || CAT_ICON.global}</div>
-        <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 mb-0.5">
-                <span className="text-[10px] font-bold text-white/80">{node.label}</span>
-                <SourceBadge source={node.source} />
-            </div>
-            <p className="text-[9px] text-white/40 leading-relaxed">{node.description}</p>
-        </div>
-    </div>
-);
-
-// ── Clip feature pill ────────────────────────────────────────────────────────
-
-const FeaturePill: React.FC<{ feat: ClipFeatureNode }> = ({ feat }) => {
-    const [showParams, setShowParams] = useState(false);
-    const s = SOURCE_STYLE[feat.source];
-
-    return (
-        <div className="inline-block mr-1 mb-1">
-            <button
-                onClick={() => setShowParams(!showParams)}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-bold transition-all duration-150 hover:scale-105"
-                style={{ background: s.bg, color: s.text, border: `1px solid ${s.text}22` }}
-            >
-                {CAT_ICON[feat.featureId?.includes('audio') ? 'audio' : 'visual']}
-                {feat.label}
-            </button>
-            {showParams && Object.keys(feat.params).length > 0 && (
-                <div
-                    className="mt-0.5 px-2 py-1 rounded text-[8px] text-white/40 border border-white/[0.04]"
-                    style={{ background: 'rgba(0,0,0,0.3)' }}
-                >
-                    {Object.entries(feat.params).map(([k, v]) => (
-                        <span key={k} className="mr-2">
-                            <span className="text-white/25">{k}:</span>{' '}
-                            <span className="text-white/60">{String(v)}</span>
-                        </span>
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-};
-
-// ── Clip card ────────────────────────────────────────────────────────────────
-
-const ClipCard: React.FC<{
-    node: ClipDecisionNode;
-    isActive: boolean;
+const DecisionRow: React.FC<{
+    decision: UnifiedDecision;
+    index: number;
+    onToggle: (uid: string) => void;
+    onUnlockPin: (uid: string) => void;
     onDragStart: (e: React.DragEvent, i: number) => void;
     onDragOver: (e: React.DragEvent) => void;
     onDrop: (e: React.DragEvent, i: number) => void;
-    index: number;
-}> = ({ node, isActive, onDragStart, onDragOver, onDrop, index }) => {
-    const [expanded, setExpanded] = useState(false);
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const [thumbLoaded, setThumbLoaded] = useState(false);
-
-    useEffect(() => {
-        const el = videoRef.current;
-        if (!el || !node.sourcePath) return;
-        el.currentTime = node.trimRange[0];
-        const onSeek = () => setThumbLoaded(true);
-        el.addEventListener('seeked', onSeek, { once: true });
-        return () => el.removeEventListener('seeked', onSeek);
-    }, [node.sourcePath, node.trimRange]);
-
-    const totalFeatures = node.features.length + node.audioFeatures.length;
+}> = ({ decision, index, onToggle, onUnlockPin, onDragStart, onDragOver, onDrop }) => {
+    const canDrag = !decision.pinned || decision.unlocked;
 
     return (
         <div
-            draggable
-            onDragStart={(e) => onDragStart(e, index)}
+            draggable={canDrag}
+            onDragStart={canDrag ? (e) => onDragStart(e, index) : undefined}
             onDragOver={onDragOver}
             onDrop={(e) => onDrop(e, index)}
-            className="rounded-lg border transition-all duration-300 group cursor-grab active:cursor-grabbing"
+            className="flex items-center gap-1.5 px-2 py-1.5 rounded-md transition-all duration-150 group"
             style={{
-                background: isActive
-                    ? 'linear-gradient(135deg, rgba(139,92,246,0.08) 0%, rgba(6,182,212,0.05) 100%)'
-                    : 'rgba(255,255,255,0.015)',
-                borderColor: isActive ? 'rgba(139,92,246,0.25)' : 'rgba(255,255,255,0.04)',
-                boxShadow: isActive ? '0 0 20px rgba(139,92,246,0.08)' : 'none',
+                opacity: decision.enabled ? 1 : 0.35,
+                background: decision.enabled ? 'rgba(255,255,255,0.015)' : 'transparent',
+                border: '1px solid',
+                borderColor: decision.pinned && !decision.unlocked
+                    ? 'rgba(59,130,246,0.15)'
+                    : 'rgba(255,255,255,0.03)',
+                cursor: canDrag ? 'grab' : 'default',
             }}
         >
-            {/* Header row */}
-            <div className="flex items-center gap-2 px-2.5 py-2">
-                <GripVertical size={12} className="text-white/15 group-hover:text-white/30 flex-shrink-0" />
-
-                {/* Thumbnail */}
-                <div className="relative flex-shrink-0 w-10 h-10 rounded-md overflow-hidden bg-black/50">
-                    {node.sourcePath && (
-                        <video
-                            ref={videoRef}
-                            src={node.sourcePath}
-                            className={`w-full h-full object-cover transition-opacity duration-300 ${thumbLoaded ? 'opacity-100' : 'opacity-0'}`}
-                            muted
-                            playsInline
-                            preload="metadata"
-                        />
-                    )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                    <span className="absolute bottom-0.5 right-0.5 text-[7px] font-bold text-white/60 tabular-nums">
-                        {node.order + 1}
-                    </span>
-                </div>
-
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] font-bold text-white/80 truncate">{node.filename}</span>
-                        {node.speed !== 1 && (
-                            <span className="text-[8px] font-bold text-amber-400/70 px-1 py-0.5 rounded bg-amber-500/10">
-                                ⚡{node.speed}×
-                            </span>
-                        )}
-                    </div>
-                    <div className="flex items-center gap-2 text-[8px] text-white/30 mt-0.5">
-                        <span>{node.durationSec}s</span>
-                        <span>·</span>
-                        <span>{node.trimRange[0]}–{node.trimRange[1]}s</span>
-                        {node.transitionType && (
-                            <>
-                                <span>·</span>
-                                <span className="text-indigo-400/60">{node.transitionType}</span>
-                            </>
-                        )}
-                    </div>
-                </div>
-
-                {/* Feature count */}
-                {totalFeatures > 0 && (
-                    <span className="text-[8px] font-bold text-purple-400/80 px-1.5 py-0.5 rounded-full bg-purple-500/10">
-                        ✦{totalFeatures}
-                    </span>
+            {/* Drag handle */}
+            <div className="flex-shrink-0 w-4 flex items-center justify-center">
+                {canDrag ? (
+                    <GripVertical size={10} className="text-white/10 group-hover:text-white/30" />
+                ) : (
+                    <button
+                        onClick={() => onUnlockPin(decision.uid)}
+                        className="p-0 hover:text-blue-400 transition-colors"
+                        title="Unlock to move"
+                    >
+                        <Lock size={9} className="text-blue-400/40" />
+                    </button>
                 )}
-
-                <button
-                    onClick={() => setExpanded(!expanded)}
-                    className="p-1 rounded hover:bg-white/[0.05] transition-colors"
-                >
-                    {expanded
-                        ? <ChevronDown size={11} className="text-white/30" />
-                        : <ChevronRight size={11} className="text-white/30" />
-                    }
-                </button>
             </div>
 
-            {/* Expanded detail */}
-            {expanded && (
-                <div className="px-3 pb-2.5 space-y-1.5 border-t border-white/[0.03]">
-                    {/* Selection reason */}
-                    <div className="text-[8px] text-white/30 italic pt-1.5">{node.selectionReason}</div>
+            {/* On/off toggle */}
+            <button
+                onClick={() => onToggle(decision.uid)}
+                className="flex-shrink-0 w-5 h-5 flex items-center justify-center rounded transition-colors"
+                style={{
+                    background: decision.enabled ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.03)',
+                }}
+                title={decision.enabled ? 'Disable' : 'Enable'}
+            >
+                <Power
+                    size={9}
+                    className={decision.enabled ? 'text-emerald-400' : 'text-white/20'}
+                />
+            </button>
 
-                    {/* Transition */}
-                    {node.transitionReason && (
-                        <div className="flex items-center gap-1 text-[8px]">
-                            <ArrowRightLeft size={9} className="text-indigo-400/60" />
-                            <span className="text-white/40">{node.transitionReason}</span>
-                        </div>
+            {/* Icon */}
+            <div className="flex-shrink-0 w-5 flex items-center justify-center">
+                {decision.icon}
+            </div>
+
+            {/* Label + description */}
+            <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-bold text-white/75 truncate">{decision.label}</span>
+                    {decision.speed && decision.speed !== 1 && (
+                        <span className="text-[7px] font-bold text-amber-400/70 px-1 rounded bg-amber-500/10">
+                            {decision.speed}×
+                        </span>
                     )}
-
-                    {/* Visual/motion features */}
-                    {node.features.length > 0 && (
-                        <div>
-                            <span className="text-[8px] font-bold text-white/25 uppercase tracking-wider">Effects</span>
-                            <div className="mt-0.5">
-                                {node.features.map((f, i) => (
-                                    <FeaturePill key={`${f.featureId}-${i}`} feat={f} />
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Audio features */}
-                    {node.audioFeatures.length > 0 && (
-                        <div>
-                            <span className="text-[8px] font-bold text-white/25 uppercase tracking-wider">Audio</span>
-                            <div className="mt-0.5">
-                                {node.audioFeatures.map((f, i) => (
-                                    <FeaturePill key={`${f.featureId}-${i}`} feat={f} />
-                                ))}
-                            </div>
-                        </div>
+                    {decision.durationSec != null && (
+                        <span className="text-[7px] text-white/25 tabular-nums">{decision.durationSec}s</span>
                     )}
                 </div>
+                <p className="text-[8px] text-white/30 truncate leading-tight">{decision.description}</p>
+            </div>
+
+            {/* Pin unlock indicator */}
+            {decision.pinned && decision.unlocked && (
+                <Unlock size={8} className="text-blue-400/30 flex-shrink-0" />
             )}
+
+            {/* Source badge */}
+            <SourceBadge source={decision.source} />
         </div>
     );
 };
@@ -294,14 +185,11 @@ const ClipCard: React.FC<{
 export const EditPlanPanel: React.FC = () => {
     const editPlan = useEditLogicStore((s) => s.editPlan);
     const setEditPlan = useEditLogicStore((s) => s.setEditPlan);
-    const activeClipIndex = useEditLogicStore((s) => s.activeClipIndex);
-    const expandedSections = useEditLogicStore((s) => s.expandedSections);
-    const toggleSection = useEditLogicStore((s) => s.toggleSection);
-    const reorderClipNode = useEditLogicStore((s) => s.reorderClipNode);
     const planModified = useEditLogicStore((s) => s.planModified);
+    const setPlanModified = useEditLogicStore((s) => s.setPlanModified);
     const clips = useClipStore((s) => s.clips);
 
-    // Build plan when clips change
+    // ── Build plan from stores ──
     const plan = useMemo(() => {
         if (clips.length === 0) return null;
         return buildEditPlan(30);
@@ -313,7 +201,187 @@ export const EditPlanPanel: React.FC = () => {
 
     const displayPlan = editPlan || plan;
 
-    // ── Drag handlers ──
+    // ── Decision toggles ──
+    const [disabledIds, setDisabledIds] = useState<Set<string>>(new Set());
+    const [unlockedPins, setUnlockedPins] = useState<Set<string>>(new Set());
+    const [decisionOrder, setDecisionOrder] = useState<string[] | null>(null);
+
+    // ── Build flat decision list ──
+    const flatDecisions: UnifiedDecision[] = useMemo(() => {
+        if (!displayPlan) return [];
+
+        const list: UnifiedDecision[] = [];
+
+        // 1. Duration decision (always first, pinned)
+        list.push({
+            uid: 'duration',
+            kind: 'global',
+            label: 'Target Duration',
+            description: `${displayPlan.stats.totalDurationSec}s total · ${displayPlan.stats.totalClips} clips`,
+            source: 'baked-in',
+            icon: <Clock size={11} className="text-blue-400" />,
+            enabled: !disabledIds.has('duration'),
+            pinned: true,
+            unlocked: unlockedPins.has('duration'),
+        });
+
+        // 2. Generator Mode
+        const gm = displayPlan.global.generatorMode;
+        list.push({
+            uid: gm.nodeId,
+            kind: 'global',
+            label: gm.label,
+            description: gm.description,
+            source: gm.source,
+            icon: iconForGlobal(gm.label),
+            enabled: !disabledIds.has(gm.nodeId),
+            pinned: false,
+            unlocked: false,
+        });
+
+        // 3. Baked-in rules
+        const rules = [
+            displayPlan.global.siftTakes,
+            displayPlan.global.pacingStrategy,
+            displayPlan.global.transitionDiscipline,
+            displayPlan.global.eyeTrace,
+        ];
+        for (const r of rules) {
+            list.push({
+                uid: r.nodeId,
+                kind: 'global',
+                label: r.label,
+                description: r.description,
+                source: r.source,
+                icon: iconForGlobal(r.label),
+                enabled: !disabledIds.has(r.nodeId),
+                pinned: false,
+                unlocked: false,
+            });
+        }
+
+        // 4. Creator Hacks
+        for (const h of displayPlan.global.creatorHacks) {
+            list.push({
+                uid: h.nodeId,
+                kind: 'global',
+                label: h.label,
+                description: h.description,
+                source: h.source,
+                icon: <Zap size={11} className="text-cyan-400" />,
+                enabled: !disabledIds.has(h.nodeId),
+                pinned: false,
+                unlocked: false,
+            });
+        }
+
+        // 5. Editorial Score
+        const es = displayPlan.global.editorialScore;
+        list.push({
+            uid: es.nodeId,
+            kind: 'global',
+            label: es.label,
+            description: es.description,
+            source: es.source,
+            icon: iconForGlobal(es.label),
+            enabled: !disabledIds.has(es.nodeId),
+            pinned: false,
+            unlocked: false,
+        });
+
+        // 6. Per-clip decisions
+        for (const c of displayPlan.clips) {
+            const allFeats = [...c.features, ...c.audioFeatures];
+            list.push({
+                uid: c.clipId,
+                kind: 'clip',
+                label: c.filename,
+                description: `${c.selectionReason}${c.transitionType ? ` · ${c.transitionType}` : ''}`,
+                source: 'generator-mode',
+                icon: <Film size={11} className="text-purple-400/70" />,
+                enabled: !disabledIds.has(c.clipId),
+                pinned: false,
+                unlocked: false,
+                features: allFeats,
+                filename: c.filename,
+                order: c.order,
+                durationSec: c.durationSec,
+                speed: c.speed,
+                transitionType: c.transitionType,
+                transitionReason: c.transitionReason,
+            });
+        }
+
+        // 7. Audio decisions
+        if (displayPlan.audio.musicTrack) {
+            const mt = displayPlan.audio.musicTrack;
+            list.push({
+                uid: mt.nodeId,
+                kind: 'audio',
+                label: mt.label,
+                description: mt.description,
+                source: mt.source,
+                icon: <Music size={11} className="text-cyan-400" />,
+                enabled: !disabledIds.has(mt.nodeId),
+                pinned: false,
+                unlocked: false,
+            });
+        }
+        for (const sfx of displayPlan.audio.sfxPlacements) {
+            list.push({
+                uid: sfx.nodeId,
+                kind: 'audio',
+                label: sfx.label,
+                description: sfx.description,
+                source: sfx.source,
+                icon: <Volume2 size={11} className="text-cyan-400/60" />,
+                enabled: !disabledIds.has(sfx.nodeId),
+                pinned: false,
+                unlocked: false,
+            });
+        }
+
+        return list;
+    }, [displayPlan, disabledIds, unlockedPins]);
+
+    // ── Ordered list (respecting user reorder) ──
+    const orderedDecisions = useMemo(() => {
+        if (!decisionOrder) return flatDecisions;
+        const byUid = new Map(flatDecisions.map(d => [d.uid, d]));
+        const ordered: UnifiedDecision[] = [];
+        for (const uid of decisionOrder) {
+            const d = byUid.get(uid);
+            if (d) ordered.push(d);
+        }
+        // Append any new decisions not in the saved order
+        for (const d of flatDecisions) {
+            if (!decisionOrder.includes(d.uid)) ordered.push(d);
+        }
+        // Pinned items that aren't unlocked stay at position 0
+        const pinned = ordered.filter(d => d.pinned && !d.unlocked);
+        const rest = ordered.filter(d => !(d.pinned && !d.unlocked));
+        return [...pinned, ...rest];
+    }, [flatDecisions, decisionOrder]);
+
+    // ── Handlers ──
+    const handleToggle = useCallback((uid: string) => {
+        setDisabledIds(prev => {
+            const next = new Set(prev);
+            if (next.has(uid)) next.delete(uid);
+            else next.add(uid);
+            return next;
+        });
+        setPlanModified(true);
+    }, [setPlanModified]);
+
+    const handleUnlockPin = useCallback((uid: string) => {
+        setUnlockedPins(prev => {
+            const next = new Set(prev);
+            next.add(uid);
+            return next;
+        });
+    }, []);
+
     const dragIndex = useRef(-1);
 
     const onDragStart = useCallback((_e: React.DragEvent, i: number) => {
@@ -326,18 +394,27 @@ export const EditPlanPanel: React.FC = () => {
 
     const onDrop = useCallback((e: React.DragEvent, dropIndex: number) => {
         e.preventDefault();
-        if (dragIndex.current >= 0 && dragIndex.current !== dropIndex) {
-            reorderClipNode(dragIndex.current, dropIndex);
-        }
+        const from = dragIndex.current;
+        if (from < 0 || from === dropIndex) { dragIndex.current = -1; return; }
+
+        const currentOrder = orderedDecisions.map(d => d.uid);
+        const [moved] = currentOrder.splice(from, 1);
+        currentOrder.splice(dropIndex, 0, moved);
+        setDecisionOrder(currentOrder);
+        setPlanModified(true);
         dragIndex.current = -1;
-    }, [reorderClipNode]);
+    }, [orderedDecisions, setPlanModified]);
 
     const handleRefresh = useCallback(() => {
         const fresh = buildEditPlan(30);
         setEditPlan(fresh);
+        setDecisionOrder(null);
+        setDisabledIds(new Set());
+        setUnlockedPins(new Set());
     }, [setEditPlan]);
 
-    if (!displayPlan) {
+    // ── Empty state ──
+    if (!displayPlan || orderedDecisions.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-center px-6 py-12 opacity-50">
                 <Brain size={32} className="text-white/20 mb-3" />
@@ -347,141 +424,47 @@ export const EditPlanPanel: React.FC = () => {
         );
     }
 
-    const globalExpanded = expandedSections.has('global');
-    const clipsExpanded = expandedSections.has('clips');
-    const audioExpanded = expandedSections.has('audio');
+    const enabledCount = orderedDecisions.filter(d => d.enabled).length;
 
     return (
         <div className="flex flex-col h-full">
             {/* Header */}
-            <div className="flex items-center gap-2 px-3 py-2.5 border-b border-white/[0.04]">
-                <Brain size={14} className="text-indigo-400" />
-                <span className="text-[11px] font-black uppercase tracking-[0.1em] text-white/60 flex-1">
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-white/[0.04]">
+                <Brain size={13} className="text-indigo-400" />
+                <span className="text-[10px] font-black uppercase tracking-[0.1em] text-white/50 flex-1">
                     Edit Plan
                 </span>
                 {planModified && (
-                    <span className="text-[8px] font-bold text-amber-400 px-1.5 py-0.5 rounded bg-amber-500/10 flex items-center gap-1">
-                        <AlertTriangle size={8} /> Modified
+                    <span className="text-[7px] font-bold text-amber-400 px-1.5 py-0.5 rounded bg-amber-500/10 flex items-center gap-1">
+                        <AlertTriangle size={7} /> Modified
                     </span>
                 )}
                 <button
                     onClick={handleRefresh}
                     className="p-1 rounded hover:bg-white/[0.05] transition-colors"
-                    title="Refresh plan from current state"
+                    title="Reset plan"
                 >
-                    <RefreshCw size={12} className="text-white/30 hover:text-white/60" />
+                    <RefreshCw size={11} className="text-white/25 hover:text-white/50" />
                 </button>
-                <div className="text-[8px] text-white/25 tabular-nums">
-                    {displayPlan.stats.totalClips} clips · {displayPlan.stats.totalDurationSec}s · {displayPlan.stats.featureCount} fx
-                </div>
+                <span className="text-[7px] text-white/20 tabular-nums">
+                    {enabledCount}/{orderedDecisions.length}
+                </span>
             </div>
 
-            {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar px-2 py-2 space-y-2">
-
-                {/* ── Global Decisions ── */}
-                <SectionHeader
-                    title="Global Decisions"
-                    icon={<Brain size={12} className="text-indigo-400" />}
-                    count={5 + displayPlan.global.creatorHacks.length}
-                    expanded={globalExpanded}
-                    onToggle={() => toggleSection('global')}
-                    accentColor="99,102,241"
-                />
-                {globalExpanded && (
-                    <div className="space-y-1 ml-1">
-                        <GlobalRow node={displayPlan.global.generatorMode} />
-
-                        {/* Baked-in editorial rules */}
-                        <div className="px-2 py-1.5">
-                            <span className="text-[8px] font-bold text-amber-400/50 uppercase tracking-wider flex items-center gap-1">
-                                <Shield size={8} /> Baked-in Rules
-                            </span>
-                        </div>
-                        <GlobalRow node={displayPlan.global.siftTakes} />
-                        <GlobalRow node={displayPlan.global.pacingStrategy} />
-                        <GlobalRow node={displayPlan.global.transitionDiscipline} />
-                        <GlobalRow node={displayPlan.global.eyeTrace} />
-
-                        {/* Creator Hacks */}
-                        {displayPlan.global.creatorHacks.length > 0 && (
-                            <>
-                                <div className="px-2 py-1.5">
-                                    <span className="text-[8px] font-bold text-cyan-400/50 uppercase tracking-wider flex items-center gap-1">
-                                        <Zap size={8} /> Creator Hacks
-                                    </span>
-                                </div>
-                                {displayPlan.global.creatorHacks.map((h) => (
-                                    <GlobalRow key={h.nodeId} node={h} />
-                                ))}
-                            </>
-                        )}
-
-                        {/* Editorial score */}
-                        <GlobalRow node={displayPlan.global.editorialScore} />
-                    </div>
-                )}
-
-                {/* ── Clip Decisions ── */}
-                <SectionHeader
-                    title="Clip Decisions"
-                    icon={<Film size={12} className="text-purple-400" />}
-                    count={displayPlan.clips.length}
-                    expanded={clipsExpanded}
-                    onToggle={() => toggleSection('clips')}
-                    accentColor="168,85,247"
-                />
-                {clipsExpanded && (
-                    <div className="space-y-1.5 ml-1">
-                        {displayPlan.clips.map((clip, i) => (
-                            <ClipCard
-                                key={clip.clipId}
-                                node={clip}
-                                isActive={i === activeClipIndex}
-                                onDragStart={onDragStart}
-                                onDragOver={onDragOver}
-                                onDrop={onDrop}
-                                index={i}
-                            />
-                        ))}
-                    </div>
-                )}
-
-                {/* ── Audio Decisions ── */}
-                <SectionHeader
-                    title="Audio Decisions"
-                    icon={<Music size={12} className="text-cyan-400" />}
-                    count={(displayPlan.audio.musicTrack ? 1 : 0) + displayPlan.audio.sfxPlacements.length}
-                    expanded={audioExpanded}
-                    onToggle={() => toggleSection('audio')}
-                    accentColor="6,182,212"
-                />
-                {audioExpanded && (
-                    <div className="space-y-1 ml-1">
-                        {displayPlan.audio.musicTrack && (
-                            <div className="flex items-center gap-2 px-3 py-2 rounded-md hover:bg-white/[0.03]"
-                                style={{ borderLeft: '2px solid rgba(6,182,212,0.3)' }}>
-                                <Music size={10} className="text-cyan-400/60" />
-                                <div className="flex-1">
-                                    <span className="text-[10px] font-bold text-white/70">{displayPlan.audio.musicTrack.label}</span>
-                                    <p className="text-[8px] text-white/35">{displayPlan.audio.musicTrack.description}</p>
-                                </div>
-                                <SourceBadge source={displayPlan.audio.musicTrack.source} />
-                            </div>
-                        )}
-                        {displayPlan.audio.sfxPlacements.map((sfx) => (
-                            <div key={sfx.nodeId} className="flex items-center gap-2 px-3 py-1.5 rounded-md hover:bg-white/[0.03]"
-                                style={{ borderLeft: '2px solid rgba(6,182,212,0.15)' }}>
-                                <Volume2 size={9} className="text-cyan-400/40" />
-                                <span className="text-[9px] text-white/50 flex-1">{sfx.description}</span>
-                                <SourceBadge source={sfx.source} />
-                            </div>
-                        ))}
-                        {!displayPlan.audio.musicTrack && displayPlan.audio.sfxPlacements.length === 0 && (
-                            <p className="text-[9px] text-white/20 px-3 py-2 italic">No audio decisions</p>
-                        )}
-                    </div>
-                )}
+            {/* Flat decision list */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar px-1.5 py-1.5 space-y-0.5">
+                {orderedDecisions.map((d, i) => (
+                    <DecisionRow
+                        key={d.uid}
+                        decision={d}
+                        index={i}
+                        onToggle={handleToggle}
+                        onUnlockPin={handleUnlockPin}
+                        onDragStart={onDragStart}
+                        onDragOver={onDragOver}
+                        onDrop={onDrop}
+                    />
+                ))}
             </div>
         </div>
     );
