@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useProjectStore } from '../../store/projectStore';
-import { Save, Upload, FileJson, Settings, Film, Activity, Shuffle, FolderGit2, FolderOpen } from 'lucide-react';
+import { Save, Upload, FileJson, Settings, Film, Activity, Shuffle, FolderGit2, FolderOpen, FilePlus } from 'lucide-react';
 import { useProjectsStore } from '../../store/projectsStore';
 import { getProjectsDir, pickProjectsDir } from '../../lib/projectFs';
 import { PowerMeter } from './PowerMeter';
@@ -11,7 +11,11 @@ import { useUserStore } from '../../store/userStore';
 import { getTransitionsByCategory, getTransitionById, CATEGORY_LABELS, type TransitionCategory } from '../../lib/transitions';
 import clsx from 'clsx';
 import { toast } from '../../components/Toast';
+import { confirm } from '../../components/ConfirmDialog';
+import { useTrailerSmartStore } from '../../store/trailerSmartStore';
+import { useTimelineStore } from '../SequenceView/timeline/useTimelineStore';
 import { ProjectDrawer } from '../../components/ProjectDrawer';
+import { AspectIcon, FrameRateIcon, BackgroundFillIcon } from './SettingsIcons';
 // import { useClipStore } from '../../store/clipStore'; // Dynamic import used below
 
 export const SettingsTab: React.FC = () => {
@@ -54,6 +58,27 @@ export const SettingsTab: React.FC = () => {
     const fpsColor = fps >= 50 ? 'text-green-400' : fps >= 30 ? 'text-yellow-400' : 'text-red-400';
 
     const selectedTransitionDef = getTransitionById(defaultTransition);
+
+    // ── New Project — reset the system: clear all media/audio + clips from the
+    //    timeline/sequence and the Edit Generator, and start a fresh project. ──
+    const handleNewProject = async () => {
+        const ok = await confirm(
+            'This clears all media, audio and clips from the Timeline, Sequence and Edit Generator, and starts a fresh project. This cannot be undone.',
+            { title: 'Start a New Project?', confirmText: 'New Project', cancelText: 'Cancel', variant: 'danger' },
+        );
+        if (!ok) return;
+        // Clear timeline/sequence clips + selection.
+        useClipStore.getState().nukeLibrary();
+        // Clear the media library (video + audio).
+        useMediaStore.getState().clearLibrary();
+        // Reset the Edit Generator analysis/state.
+        useTrailerSmartStore.getState().reset();
+        // Clear timeline UI selection.
+        useTimelineStore.getState().setSelectedItemIds(new Set());
+        // Fresh project name.
+        useProjectStore.getState().updateSettings({ name: 'Untitled Project' });
+        toast.success('New project started — timeline, media and generator cleared');
+    };
 
     return (
         <div className="w-full h-full overflow-y-auto custom-scrollbar">
@@ -106,12 +131,13 @@ export const SettingsTab: React.FC = () => {
                                                 key={ratio}
                                                 onClick={() => useProjectStore.getState().setAspectRatio(ratio)}
                                                 className={clsx(
-                                                    "flex-1 py-2 rounded-md text-[10px] font-bold transition-all border text-center",
+                                                    "flex flex-col items-center justify-center gap-1 py-2 rounded-md text-[10px] font-bold transition-all border",
                                                     settings.aspectRatio === ratio
                                                         ? "bg-primary/80 text-white border-primary shadow-[0_0_15px_rgba(var(--color-primary),0.3)]"
                                                         : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white/80"
                                                 )}
                                             >
+                                                <AspectIcon ratio={ratio} size={22} />
                                                 {ratio}
                                             </button>
                                         ))}
@@ -129,12 +155,13 @@ export const SettingsTab: React.FC = () => {
                                                 key={fps}
                                                 onClick={() => updateSettings({ fps })}
                                                 className={clsx(
-                                                    "flex-1 py-2 rounded-md text-[10px] font-bold transition-all border text-center",
+                                                    "flex flex-col items-center justify-center gap-1 py-2 rounded-md text-[10px] font-bold transition-all border",
                                                     settings.fps === fps
                                                         ? "bg-primary/80 text-white border-primary shadow-[0_0_15px_rgba(var(--color-primary),0.3)]"
                                                         : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white/80"
                                                 )}
                                             >
+                                                <FrameRateIcon fps={fps} size={22} />
                                                 {fps}
                                             </button>
                                         ))}
@@ -150,23 +177,25 @@ export const SettingsTab: React.FC = () => {
                                         <button
                                             onClick={() => updateSettings({ backgroundFillMode: 'blur' })}
                                             className={clsx(
-                                                "flex-1 py-2 rounded-md text-[10px] font-bold transition-all border text-center uppercase tracking-wider",
+                                                "flex flex-col items-center justify-center gap-1 py-2 rounded-md text-[10px] font-bold transition-all border uppercase tracking-wider",
                                                 settings.backgroundFillMode === 'blur'
                                                     ? "bg-indigo-600 text-white border-indigo-500 shadow-[0_0_15px_rgba(79,70,229,0.4)]"
                                                     : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white/80"
                                             )}
                                         >
+                                            <BackgroundFillIcon mode="blur" size={22} />
                                             Blur
                                         </button>
                                         <button
                                             onClick={() => updateSettings({ backgroundFillMode: 'black' })}
                                             className={clsx(
-                                                "flex-1 py-2 rounded-md text-[10px] font-bold transition-all border text-center uppercase tracking-wider",
+                                                "flex flex-col items-center justify-center gap-1 py-2 rounded-md text-[10px] font-bold transition-all border uppercase tracking-wider",
                                                 settings.backgroundFillMode === 'black'
                                                     ? "bg-indigo-600 text-white border-indigo-500 shadow-[0_0_15px_rgba(79,70,229,0.4)]"
                                                     : "bg-white/5 text-white/50 border-white/10 hover:bg-white/10 hover:text-white/80"
                                             )}
                                         >
+                                            <BackgroundFillIcon mode="black" size={22} />
                                             Black
                                         </button>
                                     </div>
@@ -185,6 +214,15 @@ export const SettingsTab: React.FC = () => {
                         {/* Actions Block */}
                         <div className="border border-white/5 rounded-xl bg-black/20 p-5 relative overflow-hidden">
                             <h3 className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-4">Project Actions</h3>
+
+                            {/* New Project — resets the system (clears media/audio + clips) */}
+                            <button
+                                onClick={handleNewProject}
+                                className="w-full flex items-center justify-center gap-2 p-3 mb-2 bg-rose-500/15 text-rose-300 border border-rose-500/25 rounded-xl hover:bg-rose-500/25 hover:text-rose-200 hover:border-rose-500/40 transition-all group"
+                            >
+                                <FilePlus size={16} className="group-hover:scale-110 transition-transform" />
+                                <span className="text-[10px] font-bold uppercase tracking-wider">New Project</span>
+                            </button>
 
                             <div className="grid grid-cols-2 gap-2">
                                 {/* Load Project */}
